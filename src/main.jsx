@@ -1,17 +1,20 @@
-import { StrictMode } from "react";
+import React from "react";
 import { createRoot } from "react-dom/client";
 import { Provider } from "react-redux";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App.jsx";
-import { store } from "./store/reduxStore.js";
-import "./index.css";
+import AppErrorBoundary from "./components/common/AppErrorBoundary.jsx";
+import { store } from "./store/reduxStore";
+import "./styles.css";
 
 createRoot(document.getElementById("root")).render(
-  <StrictMode>
+  <React.StrictMode>
     <Provider store={store}>
       <BrowserRouter>
-        <App />
+        <AppErrorBoundary>
+          <App />
+        </AppErrorBoundary>
       </BrowserRouter>
     </Provider>
-  </StrictMode>
+  </React.StrictMode>,
 );
