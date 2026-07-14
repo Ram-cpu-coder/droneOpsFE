@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   BarChart3,
@@ -65,64 +65,68 @@ const Login = ({
   const [googleError, setGoogleError] = useState("");
 
   // Google button loading state.
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(true);
 
-  // Container for Google button.
+  // Container for the official Google button.
   const googleButtonRef = useRef(null);
 
-  // Submit email/password login.
-  const handleSubmit = (event) => {
-    event.preventDefault();
-    onLogin(form);
-  };
+  useEffect(() => {
+    let cancelled = false;
 
-  // Prepare and open Google login.
-  const handleGoogleSetupCheck = async () => {
-    setGoogleError("");
+    const setupGoogleButton = async () => {
+      setGoogleError("");
 
-    // Google login needs client ID.
-    if (!GOOGLE_CLIENT_ID) {
-      setGoogleError("Add VITE_GOOGLE_CLIENT_ID to enable Google sign-in.");
-      return;
-    }
+      if (!GOOGLE_CLIENT_ID) {
+        setIsGoogleLoading(false);
+        setGoogleError("Add VITE_GOOGLE_CLIENT_ID to enable Google sign-in.");
+        return;
+      }
 
-    setIsGoogleLoading(true);
+      try {
+        const google = await loadGoogleIdentity();
+        if (cancelled || !googleButtonRef.current) return;
 
-    try {
-      const google = await loadGoogleIdentity();
+        google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          use_fedcm_for_button: false,
+          use_fedcm_for_prompt: false,
+          callback: ({ credential }) => {
+            if (credential) onGoogleLogin(credential);
+          },
+        });
 
-      // Initialize Google login.
-      google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        use_fedcm_for_button: false,
-        use_fedcm_for_prompt: false,
-        callback: ({ credential }) => {
-          if (credential) onGoogleLogin(credential);
-        },
-      });
-
-      // Render official Google button.
-      if (googleButtonRef.current) {
         googleButtonRef.current.innerHTML = "";
-
         google.accounts.id.renderButton(googleButtonRef.current, {
           theme: "filled_black",
           size: "large",
           type: "standard",
           shape: "pill",
           text: "signin_with",
-          logo_alignment: "center",
+          logo_alignment: "left",
           width: Math.min(420, googleButtonRef.current.offsetWidth || 420),
         });
+      } catch (googleScriptError) {
+        if (!cancelled) {
+          setGoogleError(googleScriptError.message);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsGoogleLoading(false);
+        }
       }
+    };
 
-      // Show Google prompt.
-      google.accounts.id.prompt();
-    } catch (googleScriptError) {
-      setGoogleError(googleScriptError.message);
-    } finally {
-      setIsGoogleLoading(false);
-    }
+    setupGoogleButton();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [onGoogleLogin]);
+
+  // Submit email/password login.
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    onLogin(form);
   };
 
   return (
@@ -203,20 +207,12 @@ const Login = ({
       </div>
 
       {/* Google login */}
-      <div className={`google-button-shell${isLoading ? " is-loading" : ""}`}>
-        <div ref={googleButtonRef}>
-          <button
-            className="google-button"
-            type="button"
-            onClick={handleGoogleSetupCheck}
-            disabled={isLoading || isGoogleLoading}
-          >
-            <span className="google-mark">G</span>
-            {isGoogleLoading
-              ? "Preparing Google sign-in"
-              : "Sign in with Google"}
-          </button>
-        </div>
+      <div className={`google-button-shell${isLoading || isGoogleLoading ? " is-loading" : ""}`}>
+        <button className="google-button google-button-display" type="button" disabled={isLoading || isGoogleLoading}>
+          <span className="google-mark" aria-hidden="true">G</span>
+          <span>{isGoogleLoading ? "Preparing Google sign-in" : "Sign in with Google"}</span>
+        </button>
+        <div className="google-official-button" ref={googleButtonRef} aria-hidden={isGoogleLoading} />
       </div>
 
       {/* Go to signup page */}
