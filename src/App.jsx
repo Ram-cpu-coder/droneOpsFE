@@ -34,6 +34,9 @@ const GoogleProfileSetup = lazy(
 );
 const Login = lazy(() => import("./pages/auth/Login"));
 const PasswordReset = lazy(() => import("./pages/auth/PasswordReset"));
+const ResetPasswordConfirm = lazy(
+  () => import("./pages/auth/ResetPasswordConfirm"),
+);
 const Signup = lazy(() => import("./pages/auth/Signup"));
 const VerifyEmail = lazy(() => import("./pages/auth/VerifyEmail"));
 
@@ -82,6 +85,9 @@ const App = () => {
   // UI state from Redux.
   const { activeRoute, globalSearch, pendingRouteAction, themeMode } =
     useSelector((state) => state.ui);
+  const resetPasswordToken = location.pathname.startsWith("/reset-password/")
+    ? decodeURIComponent(location.pathname.replace("/reset-password/", ""))
+    : "";
 
   // Routes allowed for current user.
   const accessibleRoutes = useMemo(() => {
@@ -135,6 +141,11 @@ const App = () => {
 
     // If user is not logged in, keep them in auth pages.
     if (!session?.user) {
+      if (location.pathname.startsWith("/reset-password/")) {
+        authRouteInitializedRef.current = true;
+        return;
+      }
+
       const pathAuthView = authPathToView[location.pathname];
 
       // First auth route setup.
@@ -299,7 +310,14 @@ const App = () => {
           themeMode={themeMode}
           onThemeModeChange={(mode) => dispatch(themeModeChanged(mode))}
         >
-          {authView === "login" && (
+          {resetPasswordToken && (
+            <ResetPasswordConfirm
+              token={resetPasswordToken}
+              onAuthViewChange={handleAuthViewChange}
+            />
+          )}
+
+          {!resetPasswordToken && authView === "login" && (
             <Login
               error={error}
               isLoading={isLoading}
@@ -309,7 +327,7 @@ const App = () => {
             />
           )}
 
-          {authView === "signup" && (
+          {!resetPasswordToken && authView === "signup" && (
             <Signup
               onSignup={handleSignup}
               error={error}
@@ -318,7 +336,7 @@ const App = () => {
             />
           )}
 
-          {authView === "google_onboarding" && (
+          {!resetPasswordToken && authView === "google_onboarding" && (
             <GoogleProfileSetup
               pendingGoogleProfile={pendingGoogleProfile}
               error={error}
@@ -330,7 +348,7 @@ const App = () => {
             />
           )}
 
-          {authView === "verify" && (
+          {!resetPasswordToken && authView === "verify" && (
             <VerifyEmail
               pendingUser={pendingVerification?.user}
               emailSent={pendingVerification?.emailSent}
@@ -343,7 +361,7 @@ const App = () => {
             />
           )}
 
-          {authView === "reset" && (
+          {!resetPasswordToken && authView === "reset" && (
             <PasswordReset
               result={passwordReset}
               error={error}

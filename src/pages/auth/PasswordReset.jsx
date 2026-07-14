@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { KeyRound, Mail, MailCheck } from "lucide-react";
 import ActionButton from "../../components/common/ActionButton";
-import { API_BASE_URL } from "../../services/apiClient";
 
 const PasswordReset = ({
   result,
@@ -100,7 +99,7 @@ const PasswordReset = ({
           {result.devResetToken && (
             <a
               className="auth-inline-link"
-              href={`${API_BASE_URL}/auth/reset-password/${result.devResetToken}`}
+              href={`/reset-password/${result.devResetToken}`}
               target="_blank"
               rel="noreferrer"
             >
