@@ -2965,6 +2965,27 @@ button.notification-item:focus-visible {
   gap: 24px;
 }
 
+.placeholder-page {
+  display: grid;
+  align-content: center;
+  min-height: 320px;
+  padding: 32px;
+}
+
+.placeholder-page h3 {
+  margin: 0 0 10px;
+  color: var(--text);
+  font-size: 36px;
+  line-height: 1.1;
+  font-weight: 700;
+}
+
+.placeholder-page p:last-child {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 18px;
+}
+
 .fleet-panel {
   grid-area: fleet;
 }
