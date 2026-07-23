@@ -13,6 +13,7 @@ import PlaceholderPage from "../pages/PlaceholderPage";
 
 const Dashboard = lazy(() => import("../pages/dashboard/Dashboard"));
 const Fleet = lazy(() => import("../pages/fleet/Fleet"));
+const Missions = lazy(() => import("../pages/missions/Missions"));
 
 const createPlaceholder = (route) => function PlaceholderRoute() {
   return createElement(PlaceholderPage, { route });
@@ -81,7 +82,13 @@ const routes = [
 
 export const appRoutes = routes.map((route) => ({
   ...route,
-  component: route.id === "dashboard" ? Dashboard : route.id === "fleet" ? Fleet : createPlaceholder(route)
+  component: route.id === "dashboard"
+    ? Dashboard
+    : route.id === "fleet"
+      ? Fleet
+      : route.id === "missions"
+        ? Missions
+        : createPlaceholder(route)
 }));
 
 export const quickActions = [
