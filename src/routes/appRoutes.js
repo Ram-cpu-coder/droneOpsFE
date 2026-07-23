@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, lazy } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -10,6 +10,9 @@ import {
   Users
 } from "lucide-react";
 import PlaceholderPage from "../pages/PlaceholderPage";
+
+const Dashboard = lazy(() => import("../pages/dashboard/Dashboard"));
+const Fleet = lazy(() => import("../pages/fleet/Fleet"));
 
 const createPlaceholder = (route) => function PlaceholderRoute() {
   return createElement(PlaceholderPage, { route });
@@ -78,7 +81,7 @@ const routes = [
 
 export const appRoutes = routes.map((route) => ({
   ...route,
-  component: createPlaceholder(route)
+  component: route.id === "dashboard" ? Dashboard : route.id === "fleet" ? Fleet : createPlaceholder(route)
 }));
 
 export const quickActions = [
