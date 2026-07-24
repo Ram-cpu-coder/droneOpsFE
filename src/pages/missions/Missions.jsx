@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarClock, CheckCircle2, Plus, Route, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ActionButton from "../../components/common/ActionButton";
@@ -9,7 +9,9 @@ import SectionHeader from "../../components/common/SectionHeader";
 import StatusBadge from "../../components/common/StatusBadge";
 import { missions } from "../../data/droneOpsData";
 import { hasClientPermission } from "../../features/auth/accessControl";
+import { useApiResource } from "../../hooks/useApiResource";
 import { useFleetSearch } from "../../hooks/useFleetSearch";
+import { droneOpsApi } from "../../services/droneOpsApi";
 import MissionForm from "./components/MissionForm";
 import MissionProfileDialog from "./components/MissionProfileDialog";
 
@@ -18,12 +20,13 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
   const navigate = useNavigate();
   const [showMissionForm, setShowMissionForm] = useState(false);
   const [selectedMission, setSelectedMission] = useState(null);
-  const [missionRecords, setMissionRecords] = useState(missions);
   const [toast, setToast] = useState(null);
   const canManageMissions = hasClientPermission(user, "missions:manage");
-  const normalizedMissions = useMemo(() => missionRecords.map(normalizeMission), [missionRecords]);
+  const loadMissions = useCallback(() => droneOpsApi.missions.list(), []);
+  const { data: apiMissions, error, isLoading, isFallback, refresh } = useApiResource(loadMissions, missions);
+  const normalizedMissions = useMemo(() => apiMissions.map(normalizeMission), [apiMissions]);
   const filteredMissions = useFleetSearch(normalizedMissions, searchValue);
-  const metricMissions = normalizedMissions;
+  const metricMissions = isFallback ? [] : normalizedMissions;
   const routeMissionId = useMemo(() => getDetailId(location.pathname, "/missions"), [location.pathname]);
   const activeMissions = metricMissions.filter((mission) => ["ACTIVE", "In Progress"].includes(mission.rawStatus ?? mission.status)).length;
   const scheduledMissions = metricMissions.filter((mission) => ["PLANNED", "APPROVED", "Scheduled"].includes(mission.rawStatus ?? mission.status)).length;
@@ -83,16 +86,7 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
           canManage={canManageMissions}
           user={user}
           onUpdated={(updatedMission, action) => {
-            const normalizedUpdatedMission = {
-              ...updatedMission,
-              missionCode: updatedMission.missionCode ?? updatedMission.id,
-              id: updatedMission.uuid ?? updatedMission.id
-            };
-            setMissionRecords((current) => current.map((mission) => (
-              mission.id === normalizedUpdatedMission.id || mission.id === normalizedUpdatedMission.missionCode
-                ? normalizedUpdatedMission
-                : mission
-            )));
+            refresh();
             navigate("/missions");
             setToast({
               title: getMissionToastTitle(action),
@@ -119,10 +113,11 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
       )}
 
       <div className="stats-grid three">
-        <MetricCard label="Active Missions" value={activeMissions} delta="Dummy mission records" icon={Route} tone="green" />
-        <MetricCard label="Scheduled Missions" value={scheduledMissions} delta="Planned or approved" icon={CalendarClock} tone="purple" />
-        <MetricCard label="Avg Completion" value={`${averageProgress}%`} delta="Calculated from local records" icon={Route} tone="blue" />
+        <MetricCard label="Active Missions" value={isLoading ? "..." : activeMissions} delta={isFallback ? "Backend unavailable" : "Live mission records"} icon={Route} tone="green" />
+        <MetricCard label="Scheduled Missions" value={isLoading ? "..." : scheduledMissions} delta="Planned or approved" icon={CalendarClock} tone="purple" />
+        <MetricCard label="Avg Completion" value={isLoading ? "..." : `${averageProgress}%`} delta="Calculated from mission records" icon={Route} tone="blue" />
       </div>
+      {error && <div className="auth-alert">Backend unavailable: showing fallback missions. {error}</div>}
       <div className="panel">
         <SectionHeader
           title="Mission Control"
@@ -141,13 +136,13 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
           columns={columns}
           rows={filteredMissions}
           getRowKey={(mission) => mission.id}
-          emptyMessage="No missions created yet."
+          emptyMessage={isLoading ? "Loading mission records..." : "No missions created yet."}
         />
       </div>
       {canManageMissions && showMissionForm && (
         <MissionForm
           onCreated={(mission) => {
-            setMissionRecords((current) => [mission, ...current]);
+            refresh();
             setShowMissionForm(false);
             setToast({
               title: mission.status === "PLANNED" ? "Mission submitted" : "Mission created",

@@ -4,13 +4,14 @@ import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
 import ProgressBar from "../../../components/common/ProgressBar";
 import StatusBadge from "../../../components/common/StatusBadge";
+import { droneOpsApi } from "../../../services/droneOpsApi";
 import MissionForm from "./MissionForm";
 
 const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onClose }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState("");
   const [isActionLoading, setIsActionLoading] = useState(false);
-  const isSystemAdministrator = user?.role === "SYSTEM_ADMINISTRATOR";
+  const isSystemAdministrator = ["SYSTEM_ADMINISTRATOR", "system_administrator"].includes(user?.role);
   const workflowStatus = mission.rawStatus ?? mission.status;
   const routeProgress = mission.plannedRoute?.progress;
   const waypoints = toWaypointRows(mission.plannedRoute?.waypoints ?? mission.plannedRoute?.coordinates);
@@ -192,28 +193,17 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
 
   return createPortal(dialog, document.body);
 
-  function handleMissionAction(action) {
+  async function handleMissionAction(action) {
     setIsActionLoading(true);
     setError("");
 
     try {
-      const nextStatusByAction = {
-        approve: "APPROVED",
-        start: "ACTIVE",
-        complete: "COMPLETED"
-      };
-      const nextProgressByAction = {
-        approve: Number(mission.progress ?? 0),
-        start: Math.max(Number(mission.progress ?? 0), 5),
-        complete: 100
-      };
-      const updatedMission = {
-        ...mission,
-        status: nextStatusByAction[action] ?? mission.status,
-        rawStatus: nextStatusByAction[action] ?? mission.rawStatus ?? mission.status,
-        progress: nextProgressByAction[action] ?? mission.progress,
-        updatedAt: new Date().toISOString()
-      };
+      const missionId = mission.uuid ?? mission.id;
+      let updatedMission;
+
+      if (action === "approve") updatedMission = await droneOpsApi.missions.approve(missionId);
+      if (action === "start") updatedMission = await droneOpsApi.missions.start(missionId);
+      if (action === "complete") updatedMission = await droneOpsApi.missions.complete(missionId);
 
       onUpdated?.(updatedMission, action);
     } catch (requestError) {

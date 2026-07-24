@@ -58,6 +58,8 @@ export const droneOpsApi = {
     remove: (id) => apiClient.delete(`/users/${id}`)
   },
   settings: {
+    organisation: () => apiClient.get("/settings/organisation"),
+    updateOrganisation: (payload) => apiClient.put("/settings/organisation", payload),
     alertThresholds: () => apiClient.get("/settings/alert-thresholds"),
     updateAlertThresholds: (payload) => apiClient.put("/settings/alert-thresholds", payload)
   },

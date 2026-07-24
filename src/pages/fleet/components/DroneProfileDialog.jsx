@@ -4,7 +4,9 @@ import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
 import BatteryMeter from "../../../components/common/BatteryMeter";
 import StatusBadge from "../../../components/common/StatusBadge";
+import { droneOpsApi } from "../../../services/droneOpsApi";
 
+const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
 const droneStatuses = ["AVAILABLE", "IN_MISSION", "MAINTENANCE", "GROUNDED", "DISCONNECTED", "AWAITING_APPROVAL"];
 const certificationStatuses = ["CERTIFIED", "AWAITING_APPROVAL", "AWAITING_RENEWAL", "EXPIRED", "GROUNDED_PENDING_INSPECTION"];
 const telemetryProviders = ["NONE", "GENERIC_REST", "DJI", "AUTEL", "MAVLINK"];
@@ -13,9 +15,11 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState(() => toEditableForm(drone));
   const telemetry = drone.latestTelemetry;
+  const droneUuid = drone.uuid ?? drone.idRaw ?? drone.id;
   const locationState = useMemo(() => getDroneLocationState(drone), [drone]);
 
   useEffect(() => {
@@ -24,7 +28,12 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (event.key === "Escape") onClose?.();
+      if (event.key !== "Escape") return;
+      if (showDeleteConfirm) {
+        setShowDeleteConfirm(false);
+        return;
+      }
+      onClose?.();
     };
 
     document.body.classList.add("modal-open");
@@ -34,7 +43,7 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
       document.body.classList.remove("modal-open");
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose]);
+  }, [onClose, showDeleteConfirm]);
 
   const previewDrone = useMemo(() => ({
     ...drone,
@@ -54,23 +63,21 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
     setError("");
 
     try {
-      const updatedDrone = {
-        ...drone,
+      const updatedDrone = await droneOpsApi.drones.update(droneUuid, {
         droneCode: form.droneCode,
-        id: form.droneCode,
         model: form.model,
-        manufacturer: form.manufacturer || "",
+        manufacturer: form.manufacturer || undefined,
         serialNumber: form.serialNumber,
-        batteryType: form.batteryType || "",
-        firmwareVersion: form.firmwareVersion || "",
+        batteryType: form.batteryType || undefined,
+        firmwareVersion: form.firmwareVersion || undefined,
         status: form.status,
         flightHours: Number(form.flightHours || 0),
-        purchaseDate: form.purchaseDate || "",
+        purchaseDate: form.purchaseDate ? new Date(form.purchaseDate).toISOString() : undefined,
         certificationStatus: form.certificationStatus,
         telemetryProvider: form.telemetryProvider,
-        externalDeviceId: form.externalDeviceId || "",
+        externalDeviceId: form.externalDeviceId || undefined,
         connectorConfig: form.telemetryUrl ? { telemetryUrl: form.telemetryUrl } : undefined
-      };
+      });
 
       onUpdated?.(updatedDrone);
     } catch (requestError) {
@@ -81,13 +88,12 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
   };
 
   const handleDelete = async () => {
-    const confirmed = window.confirm(`Delete ${drone.id} from the fleet?`);
-    if (!confirmed) return;
-
     setIsDeleting(true);
     setError("");
 
     try {
+      await droneOpsApi.drones.remove(droneUuid);
+      setShowDeleteConfirm(false);
       onDeleted?.(drone);
     } catch (requestError) {
       setError(`${requestError.message}. If this drone has mission or telemetry history, set its status to GROUNDED instead of deleting it.`);
@@ -196,8 +202,8 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
 
         <div className="modal-footer profile-footer">
           {canManage && (
-            <ActionButton icon={Trash2} variant="danger" onClick={handleDelete} disabled={isDeleting}>
-              {isDeleting ? "Deleting" : "Delete Drone"}
+            <ActionButton icon={Trash2} variant="danger" onClick={() => setShowDeleteConfirm(true)} disabled={isDeleting}>
+              Delete Drone
             </ActionButton>
           )}
           <div className="form-actions">
@@ -209,6 +215,29 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
             )}
           </div>
         </div>
+        {showDeleteConfirm && (
+          <div className="delete-confirm-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !isDeleting && setShowDeleteConfirm(false)}>
+            <div className="delete-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-drone-title" aria-describedby="delete-drone-description">
+              <div className="delete-confirm-icon">
+                <Trash2 size={24} />
+              </div>
+              <div>
+                <h3 id="delete-drone-title">Delete {drone.id}?</h3>
+                <p id="delete-drone-description">
+                  This removes the drone from the fleet inventory. If it has mission or telemetry history, deleting may be blocked by the backend.
+                </p>
+              </div>
+              <div className="delete-confirm-actions">
+                <ActionButton type="button" onClick={() => setShowDeleteConfirm(false)} disabled={isDeleting}>
+                  Cancel
+                </ActionButton>
+                <ActionButton icon={Trash2} variant="danger" type="button" onClick={handleDelete} disabled={isDeleting} isLoading={isDeleting}>
+                  {isDeleting ? "Deleting" : "Delete Drone"}
+                </ActionButton>
+              </div>
+            </div>
+          </div>
+        )}
       </form>
     </div>
   );
@@ -374,7 +403,10 @@ const normalizeLocation = (location) => {
 };
 
 const buildStaticMapPreview = ({ latitude, longitude }) => {
-  return "";
+  if (!mapboxToken) return "";
+  const lng = Number(longitude).toFixed(6);
+  const lat = Number(latitude).toFixed(6);
+  return `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${lng},${lat},13,0/720x360?access_token=${mapboxToken}`;
 };
 
 const formatDate = (value) => {
