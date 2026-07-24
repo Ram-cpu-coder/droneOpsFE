@@ -1,18 +1,13 @@
 import { CalendarClock, ChevronDown, MapPinned, Route, Save, Search, UserRound, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
-import { drones, missions } from "../../../data/droneOpsData";
+import { useApiResource } from "../../../hooks/useApiResource";
+import { droneOpsApi } from "../../../services/droneOpsApi";
 import RoutePointMapPicker from "./RoutePointMapPicker";
 
 const missionTypes = ["Mapping", "Inspection", "Security", "Delivery", "Training", "Emergency Response"];
 const missionStatuses = ["PLANNED", "APPROVED", "ACTIVE", "COMPLETED", "ABORTED", "CANCELLED"];
-const pilotOptionsSource = Array.from(new Set(missions.map((mission) => mission.pilot).filter(Boolean))).map((pilot) => ({
-  id: pilot,
-  name: pilot,
-  email: `${pilot.toLowerCase().replaceAll(" ", ".")}@droneops.local`,
-  role: "REMOTE_PILOT"
-}));
 
 const initialForm = {
   missionCode: "",
@@ -36,6 +31,10 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
+  const loadDrones = useCallback(() => droneOpsApi.drones.list(), []);
+  const loadUsers = useCallback(() => droneOpsApi.users.list(), []);
+  const { data: drones } = useApiResource(loadDrones, []);
+  const { data: users } = useApiResource(loadUsers, []);
 
   useEffect(() => {
     setForm(toFormState(mission));
@@ -43,7 +42,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
 
   const droneOptions = useMemo(
     () => drones
-      .filter((drone) => ["AVAILABLE", "IN_MISSION"].includes(drone.status) || drone.id === form.droneId)
+      .filter((drone) => drone.status === "AVAILABLE" || drone.id === form.droneId)
       .map((drone) => ({
         value: drone.id,
         label: `${drone.droneCode ?? drone.id} - ${drone.model}`,
@@ -53,14 +52,14 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
   );
 
   const pilotOptions = useMemo(
-    () => pilotOptionsSource
+    () => users
       .filter((user) => ["REMOTE_PILOT", "OPERATIONS_MANAGER", "SYSTEM_ADMINISTRATOR"].includes(user.role))
       .map((user) => ({
         value: user.id,
         label: user.name,
         searchText: `${user.name} ${user.email ?? ""} ${user.role ?? ""}`.toLowerCase()
       })),
-    []
+    [users]
   );
 
   useEffect(() => {
@@ -129,44 +128,35 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
         return;
       }
 
-      const selectedDrone = drones.find((drone) => drone.id === form.droneId);
-      const selectedPilot = pilotOptionsSource.find((pilot) => pilot.id === form.pilotId);
       const payload = {
-        id: mission?.uuid ?? mission?.id ?? form.missionCode,
         missionCode: form.missionCode,
         name: form.name,
         type: form.type,
         droneId: form.droneId || undefined,
         pilotId: form.pilotId || undefined,
-        drone: selectedDrone?.id ?? form.droneId ?? "Unassigned",
-        pilot: selectedPilot?.name ?? form.pilotId ?? "Unassigned",
         launchSite: form.launchSite || undefined,
         operatingArea: form.operatingArea || undefined,
-        area: form.operatingArea || undefined,
         plannedStartAt: buildDateTime(form.plannedDate, form.startTime),
         plannedEndAt: buildDateTime(form.plannedDate, form.endTime),
-        start: form.startTime || mission?.start || "Not scheduled",
-        eta: form.endTime ? `Ends ${form.endTime}` : mission?.eta ?? "Not scheduled",
-        progress: mode === "edit" ? Number(mission?.progress ?? 0) : 0,
-        risk: mission?.risk ?? "Pending",
-        checkpoints: mission?.checkpoints ?? "0 / 0",
-        createdAt: mission?.createdAt ?? new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
         plannedRoute,
-        status: canEditStatus && mode === "edit" ? form.status : (mission?.rawStatus ?? mission?.status ?? form.status)
+        ...(canEditStatus && mode === "edit" ? { status: form.status } : {})
       };
+
+      const savedMission = mode === "edit" && mission?.uuid
+        ? await droneOpsApi.missions.update(mission.uuid, payload)
+        : await droneOpsApi.missions.create(payload);
 
       setForm(initialForm);
       setIsConfirmed(false);
       if (mode === "edit") {
         onUpdated?.({
-          ...payload,
-          missionCode: payload.missionCode ?? form.missionCode
+          ...savedMission,
+          missionCode: savedMission.missionCode ?? form.missionCode
         });
       } else {
         onCreated?.({
-          ...payload,
-          missionCode: payload.missionCode ?? form.missionCode
+          ...savedMission,
+          missionCode: savedMission.missionCode ?? form.missionCode
         });
       }
     } catch (requestError) {
