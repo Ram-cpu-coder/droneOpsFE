@@ -2,6 +2,7 @@ import { CalendarClock, ClipboardCheck, Cpu, FileCheck2, Plane, RadioTower, Save
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
+import { droneOpsApi } from "../../../services/droneOpsApi";
 
 const droneStatuses = [
   "AVAILABLE",
@@ -74,8 +75,7 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
     setError("");
 
     try {
-      const registeredDrone = {
-        id: form.droneCode,
+      const registeredDrone = await droneOpsApi.drones.create({
         droneCode: form.droneCode,
         model: form.model,
         manufacturer: form.manufacturer,
@@ -88,15 +88,8 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
         certificationStatus: form.certificationStatus,
         telemetryProvider: form.telemetryProvider,
         externalDeviceId: form.externalDeviceId || undefined,
-        connectorConfig: form.telemetryUrl ? { telemetryUrl: form.telemetryUrl } : undefined,
-        battery: 100,
-        signal: 100,
-        health: 100,
-        mission: "Standby",
-        pilot: "Unassigned",
-        location: "Base Station",
-        nextMaintenance: form.nextInspectionDue || "Not scheduled"
-      };
+        connectorConfig: form.telemetryUrl ? { telemetryUrl: form.telemetryUrl } : undefined
+      });
       setForm(initialForm);
       setIsConfirmed(false);
       onRegistered?.({

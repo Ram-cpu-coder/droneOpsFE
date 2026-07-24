@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Plane, Plus, Wrench, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ActionButton from "../../components/common/ActionButton";
@@ -10,7 +10,9 @@ import SectionHeader from "../../components/common/SectionHeader";
 import StatusBadge from "../../components/common/StatusBadge";
 import { drones } from "../../data/droneOpsData";
 import { hasClientPermission } from "../../features/auth/accessControl";
+import { useApiResource } from "../../hooks/useApiResource";
 import { useFleetSearch } from "../../hooks/useFleetSearch";
+import { droneOpsApi } from "../../services/droneOpsApi";
 import DroneProfileDialog from "./components/DroneProfileDialog";
 import RegisterDroneForm from "./components/RegisterDroneForm";
 
@@ -19,12 +21,19 @@ const Fleet = ({ searchValue, user }) => {
   const navigate = useNavigate();
   const [showRegisterDrone, setShowRegisterDrone] = useState(false);
   const [selectedDrone, setSelectedDrone] = useState(null);
-  const [fleetDrones, setFleetDrones] = useState(drones);
   const [toast, setToast] = useState(null);
   const canManageDrones = hasClientPermission(user, "drones:manage");
-  const normalizedDrones = useMemo(() => fleetDrones.map(normalizeDrone), [fleetDrones]);
+  const canReadTelemetry = hasClientPermission(user, "telemetry:read");
+  const loadDrones = useCallback(() => droneOpsApi.drones.list(), []);
+  const loadTelemetry = useCallback(() => {
+    if (!canReadTelemetry) return Promise.resolve([]);
+    return droneOpsApi.telemetry.live();
+  }, [canReadTelemetry]);
+  const { data: apiDrones, error, isLoading, isFallback, refresh } = useApiResource(loadDrones, drones);
+  const { data: telemetryRows } = useApiResource(loadTelemetry, []);
+  const normalizedDrones = useMemo(() => apiDrones.map((drone) => normalizeDrone(drone, telemetryRows)), [apiDrones, telemetryRows]);
   const filteredDrones = useFleetSearch(normalizedDrones, searchValue);
-  const metricDrones = normalizedDrones;
+  const metricDrones = isFallback ? [] : normalizedDrones;
   const activeCount = metricDrones.filter((drone) => drone.status === "AVAILABLE").length;
   const maintenanceCount = metricDrones.filter((drone) => drone.status === "MAINTENANCE").length;
   const routeDroneId = useMemo(() => getDetailId(location.pathname, "/fleet"), [location.pathname]);
@@ -85,15 +94,16 @@ const Fleet = ({ searchValue, user }) => {
       )}
 
       <div className="stats-grid three">
-        <MetricCard label="Aircraft Registered" value={metricDrones.length} delta="Dummy fleet records" icon={Plane} tone="blue" />
-        <MetricCard label="Available Drones" value={activeCount} delta="Eligible for mission assignment" icon={Plane} tone="green" />
-        <MetricCard label="Maintenance" value={maintenanceCount} delta="Requires engineer review" icon={Wrench} tone="red" />
+        <MetricCard label="Aircraft Registered" value={isLoading ? "..." : metricDrones.length} delta={isFallback ? "Backend unavailable" : "Live fleet records"} icon={Plane} tone="blue" />
+        <MetricCard label="Available Drones" value={isLoading ? "..." : activeCount} delta="Eligible for mission assignment" icon={Plane} tone="green" />
+        <MetricCard label="Maintenance" value={isLoading ? "..." : maintenanceCount} delta="Requires engineer review" icon={Wrench} tone="red" />
       </div>
 
+      {error && <div className="auth-alert">Backend unavailable: showing fallback fleet data. {error}</div>}
       {canManageDrones && showRegisterDrone && (
         <RegisterDroneForm
           onRegistered={(registeredDrone) => {
-            setFleetDrones((current) => [registeredDrone, ...current]);
+            refresh();
             setShowRegisterDrone(false);
             setToast({
               title: "Drone registered",
@@ -109,7 +119,7 @@ const Fleet = ({ searchValue, user }) => {
           drone={selectedDrone}
           canManage={canManageDrones}
           onUpdated={(updatedDrone) => {
-            setFleetDrones((current) => current.map((drone) => (drone.id === updatedDrone.id || drone.droneCode === updatedDrone.droneCode ? updatedDrone : drone)));
+            refresh();
             navigate("/fleet");
             setToast({
               title: "Drone updated",
@@ -118,7 +128,7 @@ const Fleet = ({ searchValue, user }) => {
             window.setTimeout(() => setToast(null), 4500);
           }}
           onDeleted={(deletedDrone) => {
-            setFleetDrones((current) => current.filter((drone) => drone.id !== deletedDrone.id && drone.droneCode !== deletedDrone.droneCode));
+            refresh();
             navigate("/fleet");
             setToast({
               title: "Drone deleted",
@@ -148,24 +158,27 @@ const Fleet = ({ searchValue, user }) => {
           columns={columns}
           rows={filteredDrones}
           getRowKey={(drone) => drone.id}
-          emptyMessage="No drones registered yet."
+          emptyMessage={isLoading ? "Loading fleet records..." : "No drones registered yet."}
         />
       </div>
     </section>
   );
 };
 
-const normalizeDrone = (drone) => {
+const normalizeDrone = (drone, telemetryRows = []) => {
+  const latestTelemetry = telemetryRows.find((row) => row.drone?.id === drone.id || row.drone?.droneCode === drone.droneCode)?.telemetry;
+
   return {
     ...drone,
-    uuid: drone.uuid ?? drone.id,
+    uuid: drone.id,
     id: drone.droneCode ?? drone.id,
-    battery: drone.battery ?? 0,
-    signal: drone.signal ?? 0,
+    battery: latestTelemetry?.battery.level ?? drone.latestTelemetry?.batteryLevel ?? drone.battery ?? 0,
+    signal: latestTelemetry?.signal.strength ?? drone.signal ?? 0,
+    latestTelemetry,
     health: drone.health ?? 100,
     mission: drone.mission ?? "Standby",
     pilot: drone.pilot ?? "Unassigned",
-    nextMaintenance: drone.nextMaintenance ?? "Not scheduled"
+    nextMaintenance: drone.nextMaintenanceDate ? new Date(drone.nextMaintenanceDate).toLocaleDateString() : (drone.nextMaintenance ?? "Not scheduled")
   };
 };
 

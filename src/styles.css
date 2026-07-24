@@ -1518,6 +1518,68 @@ body.modal-open {
   width: min(980px, 100%);
 }
 
+.delete-confirm-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 8, 16, 0.68);
+  backdrop-filter: blur(12px);
+}
+
+.delete-confirm-dialog {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+  width: min(480px, 100%);
+  padding: 20px;
+  color: var(--text);
+  background: linear-gradient(145deg, rgba(13, 25, 45, 0.98), rgba(5, 12, 23, 0.98));
+  border: 1px solid rgba(255, 138, 154, 0.28);
+  border-radius: 12px;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.52);
+}
+
+:root[data-theme="light"] .delete-confirm-dialog {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(246, 249, 253, 0.98));
+}
+
+.delete-confirm-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  color: #ff8fa1;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(255, 138, 154, 0.24);
+  border-radius: 12px;
+}
+
+.delete-confirm-dialog h3,
+.delete-confirm-dialog p {
+  margin: 0;
+}
+
+.delete-confirm-dialog h3 {
+  color: var(--text);
+  font-size: 20px;
+}
+
+.delete-confirm-dialog p {
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.delete-confirm-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .profile-hero {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
