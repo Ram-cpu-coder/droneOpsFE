@@ -5325,6 +5325,52 @@ input[type="number"]::-webkit-outer-spin-button {
   font-weight: 700;
 }
 
+.report-dialog-export-menu {
+  top: auto;
+  bottom: calc(100% + 8px);
+  z-index: 80;
+}
+
+.report-status-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.report-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.report-review-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.report-review-list > div {
+  display: grid;
+  gap: 5px;
+  min-height: 76px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.report-review-list span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.report-review-list strong {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
 .dashboard-filter-menu button strong {
   color: #8fb2ea;
   font-size: 12px;

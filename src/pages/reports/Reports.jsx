@@ -12,6 +12,8 @@ import { useFleetSearch } from "../../hooks/useFleetSearch";
 import ReportProfileDialog from "./components/ReportProfileDialog";
 import { exportReportCollection } from "../../utils/reportExport";
 
+const exportableStatuses = new Set(["READY", "GENERATED"]);
+
 const Reports = ({ user, searchValue = "" }) => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -27,7 +29,9 @@ const Reports = ({ user, searchValue = "" }) => {
   const routeReportId = useMemo(() => getDetailId(location.pathname, "/reports"), [location.pathname]);
   const canGenerateReports = hasClientPermission(user, "reports:read");
   const canDeleteReports = hasClientPermission(user, "*");
-  const readyReports = metricReports.filter((report) => ["Ready", "READY", "GENERATED", "Generated"].includes(report.status)).length;
+  const canManageReportStatus = hasClientPermission(user, "*") || hasClientPermission(user, "reports:manage");
+  const exportableReports = useMemo(() => normalizedReports.filter(isReportExportable), [normalizedReports]);
+  const readyReports = exportableReports.length;
   const reportTypeCount = new Set(metricReports.map((report) => report.type).filter(Boolean)).size;
   const generateOptions = [
     { value: "FLIGHT_ACTIVITY", label: "Flight Activity" },
@@ -36,6 +40,21 @@ const Reports = ({ user, searchValue = "" }) => {
     { value: "COMPLIANCE", label: "Compliance" },
     { value: "UTILIZATION", label: "Utilization" }
   ];
+
+  const exportReadyReports = async (format) => {
+    if (!exportableReports.length) {
+      setIsExportOpen(false);
+      setToast({
+        title: "No ready reports",
+        message: "Only reports marked Ready can be exported."
+      });
+      window.setTimeout(() => setToast(null), 5000);
+      return;
+    }
+
+    await exportReportCollection(exportableReports, format);
+    setIsExportOpen(false);
+  };
 
   useEffect(() => {
     const handlePointerDown = (event) => {
@@ -72,7 +91,7 @@ const Reports = ({ user, searchValue = "" }) => {
     { key: "value", label: "Current Value" },
     { key: "change", label: "Change" },
     { key: "status", label: "Status", render: (report) => <StatusBadge>{report.status}</StatusBadge> },
-    { key: "owner", label: "Owner" }
+    { key: "owner", label: "Category" }
   ];
 
   return (
@@ -81,6 +100,20 @@ const Reports = ({ user, searchValue = "" }) => {
         <ReportProfileDialog
           report={selectedReport}
           canDelete={canDeleteReports}
+          canManageStatus={canManageReportStatus}
+          onStatusChange={(report, status) => {
+            setReportRecords((current) => current.map((record) => (
+              getReportIdentity(record) === getReportIdentity(report)
+                ? { ...record, status }
+                : record
+            )));
+            setSelectedReport((current) => current ? { ...current, status } : current);
+            setToast({
+              title: "Report status updated",
+              message: `${selectedReport.name} is now ${status}.`
+            });
+            window.setTimeout(() => setToast(null), 4500);
+          }}
           onDeleted={() => {
             setReportRecords((current) => current.filter((report) => report.id !== selectedReport.id && report.name !== selectedReport.name));
             navigate("/reports");
@@ -167,8 +200,7 @@ const Reports = ({ user, searchValue = "" }) => {
                   <div className="dashboard-filter-menu export-menu report-export-menu" role="menu" aria-label="Export reports">
                     <button type="button" onClick={async () => {
                       try {
-                        await exportReportCollection(normalizedReports, "excel");
-                        setIsExportOpen(false);
+                        await exportReadyReports("excel");
                       } catch (requestError) {
                         setToast({ title: "Excel export failed", message: requestError.message });
                         window.setTimeout(() => setToast(null), 5000);
@@ -179,8 +211,7 @@ const Reports = ({ user, searchValue = "" }) => {
                     </button>
                     <button type="button" onClick={async () => {
                       try {
-                        await exportReportCollection(normalizedReports, "pdf");
-                        setIsExportOpen(false);
+                        await exportReadyReports("pdf");
                       } catch (requestError) {
                         setToast({ title: "PDF export failed", message: requestError.message });
                         window.setTimeout(() => setToast(null), 5000);
@@ -191,8 +222,7 @@ const Reports = ({ user, searchValue = "" }) => {
                     </button>
                     <button type="button" onClick={async () => {
                       try {
-                        await exportReportCollection(normalizedReports, "word");
-                        setIsExportOpen(false);
+                        await exportReadyReports("word");
                       } catch (requestError) {
                         setToast({ title: "Word export failed", message: requestError.message });
                         window.setTimeout(() => setToast(null), 5000);
@@ -218,16 +248,24 @@ const Reports = ({ user, searchValue = "" }) => {
   );
 };
 
-const normalizeReport = (report) => ({
-  ...report,
-  uuid: report.id,
-  name: report.title ?? report.name,
-  type: report.type,
-  value: report.value ?? report.dataSnapshot?.summary?.value ?? report.type ?? "Snapshot",
-  change: report.change ?? report.dataSnapshot?.summary?.change ?? "Stored audit snapshot",
-  status: report.status ?? "Ready",
-  owner: report.owner ?? report.generatedBy?.name ?? report.dataSnapshot?.summary?.owner ?? "DroneOps"
-});
+const normalizeReport = (report) => {
+  const name = report.title ?? report.name;
+
+  return {
+    ...report,
+    uuid: report.id ?? toReportRouteId(name),
+    name,
+    type: report.type,
+    value: report.value ?? report.dataSnapshot?.summary?.value ?? report.type ?? "Snapshot",
+    change: report.change ?? report.dataSnapshot?.summary?.change ?? "Stored audit snapshot",
+    status: report.status ?? "Ready",
+    owner: report.owner ?? report.generatedBy?.name ?? report.dataSnapshot?.summary?.owner ?? "DroneOps"
+  };
+};
+
+const toReportRouteId = (name) => (
+  name ?? "report"
+).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 const buildGeneratedReport = (option, currentCount) => {
   const createdAt = new Date().toISOString();
@@ -240,14 +278,14 @@ const buildGeneratedReport = (option, currentCount) => {
     type: option.value,
     value: "Generated",
     change: "Created from dummy data",
-    status: "Ready",
+    status: "Review",
     owner: "Operations",
     createdAt,
     dataSnapshot: {
       summary: {
         value: "Generated",
         change: "Created from dummy data",
-        status: "Ready",
+        status: "Review",
         owner: "Operations"
       }
     }
@@ -258,5 +296,9 @@ const getDetailId = (pathname, basePath) => {
   if (pathname === basePath || !pathname.startsWith(`${basePath}/`)) return null;
   return decodeURIComponent(pathname.slice(basePath.length + 1).split("/")[0] ?? "");
 };
+
+const isReportExportable = (report) => exportableStatuses.has(String(report.status ?? "").toUpperCase());
+
+const getReportIdentity = (report) => report.id ?? report.uuid ?? toReportRouteId(report.title ?? report.name);
 
 export default Reports;

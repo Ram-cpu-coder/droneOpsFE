@@ -11,6 +11,9 @@
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.12.0",
+    "docx": "^9.7.1",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "lucide-react": "^1.24.0",
     "mapbox-gl": "^3.27.0",
     "react": "^19.2.7",
@@ -19,7 +22,8 @@
     "react-router-dom": "^7.17.0",
     "socket.io-client": "^4.8.3",
     "three": "^0.185.1",
-    "vanta": "^0.5.24"
+    "vanta": "^0.5.24",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
