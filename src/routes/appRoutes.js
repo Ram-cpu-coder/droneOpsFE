@@ -16,6 +16,7 @@ const Fleet = lazy(() => import("../pages/fleet/Fleet"));
 const Missions = lazy(() => import("../pages/missions/Missions"));
 const Incidents = lazy(() => import("../pages/incidents/Incidents"));
 const Reports = lazy(() => import("../pages/reports/Reports"));
+const UserManagement = lazy(() => import("../pages/users/UserManagement"));
 const SettingsPage = lazy(() => import("../pages/settings/Settings"));
 
 const createPlaceholder = (route) => function PlaceholderRoute() {
@@ -94,9 +95,11 @@ export const appRoutes = routes.map((route) => ({
           ? Incidents
           : route.id === "reports"
             ? Reports
-            : route.id === "settings"
-              ? SettingsPage
-              : createPlaceholder(route)
+            : route.id === "users"
+              ? UserManagement
+              : route.id === "settings"
+                ? SettingsPage
+                : createPlaceholder(route)
 }));
 
 export const quickActions = [
