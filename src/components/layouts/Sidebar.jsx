@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { LogOut, Menu, X } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, LogOut, Menu, X } from "lucide-react";
 import DroneLogo from "../common/DroneLogo";
 
-const Sidebar = ({ activeRoute, routes, onNavigate, onLogout }) => {
+const Sidebar = ({ activeRoute, routes, isCollapsed = false, onCollapsedChange, onNavigate, onLogout }) => {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const safeRoutes = Array.isArray(routes) ? routes : [];
   const primaryRoutes = safeRoutes.filter((route) => !route.secondary);
@@ -16,7 +16,7 @@ const Sidebar = ({ activeRoute, routes, onNavigate, onLogout }) => {
     <aside className={`sidebar ${isMobileNavOpen ? "mobile-open" : ""}`}>
       <div className="brand">
         <DroneLogo className="brand-drone-logo" />
-        <div>
+        <div className="brand-copy">
           <h1>DroneOps</h1>
           <p>Fleet Management</p>
         </div>
@@ -52,12 +52,21 @@ const Sidebar = ({ activeRoute, routes, onNavigate, onLogout }) => {
               onNavigate={handleNavigate}
             />
           ))}
-          <button className="nav-item logout" type="button" onClick={onLogout}>
+          <button className="nav-item logout" type="button" onClick={onLogout} aria-label="Logout" title="Logout">
             <LogOut size={20} />
             <span>Logout</span>
           </button>
         </div>
       </div>
+      <button
+        className="sidebar-collapse-button"
+        type="button"
+        onClick={() => onCollapsedChange?.(!isCollapsed)}
+        aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+      >
+        {isCollapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
+      </button>
     </aside>
   );
 };
@@ -71,6 +80,8 @@ const SidebarButton = ({ route, active, onNavigate }) => {
       className={`nav-item ${active ? "active" : ""}`}
       onClick={() => onNavigate(route.id)}
       aria-current={active ? "page" : undefined}
+      aria-label={route.label}
+      title={route.label}
     >
       <Icon size={20} />
       <span>{route.label}</span>
