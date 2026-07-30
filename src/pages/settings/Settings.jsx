@@ -5,7 +5,6 @@ import ActionButton from "../../components/common/ActionButton";
 import MetricCard from "../../components/common/MetricCard";
 import SectionHeader from "../../components/common/SectionHeader";
 import StatusBadge from "../../components/common/StatusBadge";
-import { settings } from "../../data/droneOpsData";
 import { userRoles } from "../../data/authData";
 import { authService } from "../../features/auth/authService";
 import { sessionUserUpdated } from "../../features/auth/authSlice";
@@ -222,7 +221,7 @@ const Settings = ({ user }) => {
         </div>
       )}
       <div className="stats-grid two">
-        <MetricCard label="Roles" value={settings.roles.length} delta="Access model prepared" icon={ShieldCheck} tone="green" />
+        <MetricCard label="Roles" value={userRoles.length} delta="Configured access roles" icon={ShieldCheck} tone="green" />
         <MetricCard label="Alert Rules" value={thresholds.length} delta="Operational thresholds" icon={Bell} tone="purple" />
       </div>
       <form className="panel account-settings-panel" onSubmit={handleSaveProfile}>
@@ -370,10 +369,10 @@ const Settings = ({ user }) => {
         <div className="panel wide">
           <SectionHeader title="Access Roles" description="Current role definitions used for account access control." />
           <div className="role-grid">
-            {settings.roles.map((item) => (
-              <article className="role-card" key={item.role}>
-                <h3>{item.role}</h3>
-                <p>{item.access}</p>
+            {userRoles.map((item) => (
+              <article className="role-card" key={item.id}>
+                <h3>{item.label}</h3>
+                <p>{item.summary}</p>
               </article>
             ))}
           </div>

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
 import StatusBadge from "../../../components/common/StatusBadge";
+import { droneOpsApi } from "../../../services/droneOpsApi";
 import IncidentForm from "./IncidentForm";
 
 const IncidentProfileDialog = ({ incident, canManage = false, onUpdated, onDeleted, onClose }) => {
@@ -22,11 +23,12 @@ const IncidentProfileDialog = ({ incident, canManage = false, onUpdated, onDelet
     };
   }, [onClose]);
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     const confirmed = window.confirm(`Delete ${incident.id} from the incident register?`);
     if (!confirmed) return;
 
     try {
+      await droneOpsApi.incidents.remove(incident.uuid ?? incident.idRaw ?? incident.id);
       onDeleted?.(incident);
     } catch (requestError) {
       setError(requestError.message);

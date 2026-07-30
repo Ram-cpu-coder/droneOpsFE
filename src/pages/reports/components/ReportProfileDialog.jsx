@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
 import StatusBadge from "../../../components/common/StatusBadge";
+import { droneOpsApi } from "../../../services/droneOpsApi";
 import { exportSingleReport } from "../../../utils/reportExport";
 
 const exportableStatuses = new Set(["READY", "GENERATED"]);
@@ -32,8 +33,9 @@ const ReportProfileDialog = ({ report, canDelete = false, canManageStatus = fals
     };
   }, [onClose, showDeleteConfirm]);
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     try {
+      await droneOpsApi.reports.remove(report.uuid ?? report.id);
       onDeleted?.(report);
       setShowDeleteConfirm(false);
     } catch (requestError) {

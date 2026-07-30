@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, CheckCircle2, Download, FileSpreadsheet, FileText, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ActionButton from "../../components/common/ActionButton";
@@ -6,9 +6,10 @@ import DataTable from "../../components/common/DataTable";
 import MetricCard from "../../components/common/MetricCard";
 import SectionHeader from "../../components/common/SectionHeader";
 import StatusBadge from "../../components/common/StatusBadge";
-import { reports } from "../../data/droneOpsData";
 import { hasClientPermission } from "../../features/auth/accessControl";
+import { useApiResource } from "../../hooks/useApiResource";
 import { useFleetSearch } from "../../hooks/useFleetSearch";
+import { droneOpsApi } from "../../services/droneOpsApi";
 import ReportProfileDialog from "./components/ReportProfileDialog";
 import { exportReportCollection } from "../../utils/reportExport";
 
@@ -19,13 +20,15 @@ const Reports = ({ user, searchValue = "" }) => {
   const navigate = useNavigate();
   const actionsRef = useRef(null);
   const [selectedReport, setSelectedReport] = useState(null);
-  const [reportRecords, setReportRecords] = useState(reports);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [toast, setToast] = useState(null);
+  const loadReports = useCallback(() => droneOpsApi.reports.list(), []);
+  const { data: reportRecords, error, isLoading, isFallback, refresh, setData: setReportRecords } = useApiResource(loadReports, []);
   const normalizedReports = useMemo(() => reportRecords.map(normalizeReport), [reportRecords]);
   const filteredReports = useFleetSearch(normalizedReports, searchValue);
-  const metricReports = normalizedReports;
+  const metricReports = isFallback ? [] : normalizedReports;
   const routeReportId = useMemo(() => getDetailId(location.pathname, "/reports"), [location.pathname]);
   const canGenerateReports = hasClientPermission(user, "reports:read");
   const canDeleteReports = hasClientPermission(user, "*");
@@ -102,11 +105,6 @@ const Reports = ({ user, searchValue = "" }) => {
           canDelete={canDeleteReports}
           canManageStatus={canManageReportStatus}
           onStatusChange={(report, status) => {
-            setReportRecords((current) => current.map((record) => (
-              getReportIdentity(record) === getReportIdentity(report)
-                ? { ...record, status }
-                : record
-            )));
             setSelectedReport((current) => current ? { ...current, status } : current);
             setToast({
               title: "Report status updated",
@@ -115,7 +113,7 @@ const Reports = ({ user, searchValue = "" }) => {
             window.setTimeout(() => setToast(null), 4500);
           }}
           onDeleted={() => {
-            setReportRecords((current) => current.filter((report) => report.id !== selectedReport.id && report.name !== selectedReport.name));
+            refresh();
             navigate("/reports");
             setToast({ title: "Report deleted", message: `${selectedReport.name} was removed.` });
             window.setTimeout(() => setToast(null), 4500);
@@ -138,10 +136,11 @@ const Reports = ({ user, searchValue = "" }) => {
         </div>
       )}
       <div className="stats-grid three">
-        <MetricCard label="Reports" value={metricReports.length} delta="Dummy report records" icon={BarChart3} tone="blue" />
+        <MetricCard label="Reports" value={isLoading ? "..." : metricReports.length} delta={isFallback ? "Backend unavailable" : "Live report records"} icon={BarChart3} tone="blue" />
         <MetricCard label="Ready Reports" value={readyReports} delta="Ready to view or export" icon={FileText} tone="green" />
         <MetricCard label="Report Types" value={reportTypeCount} delta="Unique report categories" icon={Download} tone="purple" />
       </div>
+      {error && <div className="auth-alert">Report records could not be loaded. {error}</div>}
       <div className="panel">
         <SectionHeader
           title="Operational Reports"
@@ -165,16 +164,30 @@ const Reports = ({ user, searchValue = "" }) => {
                         <button
                           key={option.value}
                           type="button"
-                          onClick={() => {
-                            const report = buildGeneratedReport(option, reportRecords.length);
-                            setReportRecords((current) => [report, ...current]);
-                            navigate(`/reports/${encodeURIComponent(report.id)}`);
-                            setIsGenerateOpen(false);
-                            setToast({
-                              title: "Report generated",
-                              message: `${option.label} report was created from local dummy data.`
-                            });
-                            window.setTimeout(() => setToast(null), 4500);
+                          disabled={isGeneratingReport}
+                          onClick={async () => {
+                            setIsGeneratingReport(true);
+                            try {
+                              const report = await droneOpsApi.reports.generate({ type: option.value });
+                              window.dispatchEvent(new Event("droneops:activity-changed"));
+                              setReportRecords((current) => [report, ...current.filter((item) => item.id !== report.id)]);
+                              await refresh();
+                              navigate(`/reports/${encodeURIComponent(report.id)}`);
+                              setIsGenerateOpen(false);
+                              setToast({
+                                title: "Report generated",
+                                message: `${option.label} report was created successfully.`
+                              });
+                              window.setTimeout(() => setToast(null), 4500);
+                            } catch {
+                              setToast({
+                                title: "Report generation failed",
+                                message: "The report could not be saved to the backend, so no notification was created."
+                              });
+                              window.setTimeout(() => setToast(null), 5000);
+                            } finally {
+                              setIsGeneratingReport(false);
+                            }
                           }}
                         >
                           <span>{option.label}</span>
@@ -240,8 +253,8 @@ const Reports = ({ user, searchValue = "" }) => {
         <DataTable
           columns={columns}
           rows={filteredReports}
-          getRowKey={(report) => report.name}
-          emptyMessage="No reports generated yet."
+          getRowKey={(report) => report.uuid ?? report.id}
+          emptyMessage={isLoading ? "Loading reports..." : "No reports generated yet."}
         />
       </div>
     </section>
@@ -266,31 +279,6 @@ const normalizeReport = (report) => {
 const toReportRouteId = (name) => (
   name ?? "report"
 ).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-
-const buildGeneratedReport = (option, currentCount) => {
-  const createdAt = new Date().toISOString();
-  const reportNumber = String(currentCount + 1).padStart(3, "0");
-
-  return {
-    id: `REP-${reportNumber}`,
-    name: `${option.label} Report`,
-    title: `${option.label} Report`,
-    type: option.value,
-    value: "Generated",
-    change: "Created from dummy data",
-    status: "Review",
-    owner: "Operations",
-    createdAt,
-    dataSnapshot: {
-      summary: {
-        value: "Generated",
-        change: "Created from dummy data",
-        status: "Review",
-        owner: "Operations"
-      }
-    }
-  };
-};
 
 const getDetailId = (pathname, basePath) => {
   if (pathname === basePath || !pathname.startsWith(`${basePath}/`)) return null;

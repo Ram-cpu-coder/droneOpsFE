@@ -8,7 +8,6 @@ import MetricCard from "../../components/common/MetricCard";
 import ProgressBar from "../../components/common/ProgressBar";
 import SectionHeader from "../../components/common/SectionHeader";
 import StatusBadge from "../../components/common/StatusBadge";
-import { drones } from "../../data/droneOpsData";
 import { hasClientPermission } from "../../features/auth/accessControl";
 import { useApiResource } from "../../hooks/useApiResource";
 import { useFleetSearch } from "../../hooks/useFleetSearch";
@@ -29,7 +28,7 @@ const Fleet = ({ searchValue, user }) => {
     if (!canReadTelemetry) return Promise.resolve([]);
     return droneOpsApi.telemetry.live();
   }, [canReadTelemetry]);
-  const { data: apiDrones, error, isLoading, isFallback, refresh } = useApiResource(loadDrones, drones);
+  const { data: apiDrones, error, isLoading, isFallback, refresh } = useApiResource(loadDrones, []);
   const { data: telemetryRows } = useApiResource(loadTelemetry, []);
   const normalizedDrones = useMemo(() => apiDrones.map((drone) => normalizeDrone(drone, telemetryRows)), [apiDrones, telemetryRows]);
   const filteredDrones = useFleetSearch(normalizedDrones, searchValue);
@@ -99,7 +98,7 @@ const Fleet = ({ searchValue, user }) => {
         <MetricCard label="Maintenance" value={isLoading ? "..." : maintenanceCount} delta="Requires engineer review" icon={Wrench} tone="red" />
       </div>
 
-      {error && <div className="auth-alert">Backend unavailable: showing fallback fleet data. {error}</div>}
+      {error && <div className="auth-alert">Fleet records could not be loaded. {error}</div>}
       {canManageDrones && showRegisterDrone && (
         <RegisterDroneForm
           onRegistered={(registeredDrone) => {

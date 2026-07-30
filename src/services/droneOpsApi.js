@@ -70,5 +70,15 @@ export const droneOpsApi = {
       ).toString();
       return apiClient.get(`/audit${query ? `?${query}` : ""}`);
     }
+  },
+  notifications: {
+    list: (params = {}) => {
+      const query = new URLSearchParams(
+        Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== "")
+      ).toString();
+      return apiClient.get(`/notifications${query ? `?${query}` : ""}`);
+    },
+    markRead: (auditLogIds = []) => apiClient.post("/notifications/read", { auditLogIds }),
+    markAllRead: () => apiClient.post("/notifications/read-all", {})
   }
 };

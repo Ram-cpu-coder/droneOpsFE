@@ -1,8 +1,9 @@
 import { AlertTriangle, MapPinned, RadioTower, Save, UserRoundCheck, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
-import { drones, incidents, missions } from "../../../data/droneOpsData";
+import { useApiResource } from "../../../hooks/useApiResource";
+import { droneOpsApi } from "../../../services/droneOpsApi";
 
 const severityLevels = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
 const incidentSources = ["Telemetry", "Weather", "Pilot Report", "Maintenance", "Geofence", "Manual Report"];
@@ -15,12 +16,6 @@ const incidentTypes = [
   { value: "EQUIPMENT_FAILURE", label: "Equipment issue" },
   { value: "WEATHER_EVENT", label: "Weather event" }
 ];
-const ownerOptionsSource = Array.from(new Set(incidents.map((incident) => incident.owner).filter(Boolean))).map((owner) => ({
-  id: owner,
-  name: owner,
-  role: owner === "Maintenance" ? "MAINTENANCE_COORDINATOR" : "SAFETY_OFFICER"
-}));
-
 const initialForm = {
   incidentCode: "",
   title: "",
@@ -39,10 +34,16 @@ const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, 
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
+  const loadDrones = useCallback(() => droneOpsApi.drones.list(), []);
+  const loadMissions = useCallback(() => droneOpsApi.missions.list(), []);
+  const loadUsers = useCallback(() => droneOpsApi.users.list(), []);
+  const { data: drones } = useApiResource(loadDrones, []);
+  const { data: missions } = useApiResource(loadMissions, []);
+  const { data: users } = useApiResource(loadUsers, []);
 
   const ownerOptions = useMemo(
-    () => ownerOptionsSource.filter((user) => ["SAFETY_OFFICER", "MAINTENANCE_COORDINATOR", "OPERATIONS_MANAGER", "SYSTEM_ADMINISTRATOR"].includes(user.role)),
-    []
+    () => users.filter((user) => ["SAFETY_OFFICER", "MAINTENANCE_COORDINATOR", "OPERATIONS_MANAGER", "SYSTEM_ADMINISTRATOR"].includes(user.role)),
+    [users]
   );
 
   useEffect(() => {
@@ -74,7 +75,6 @@ const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, 
 
     try {
       const payload = {
-        id: incident?.uuid ?? incident?.idRaw ?? incident?.id ?? form.incidentCode,
         incidentCode: form.incidentCode,
         title: form.title,
         type: form.type,
@@ -85,28 +85,19 @@ const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, 
         source: form.source || undefined,
         location: form.location || undefined,
         place: form.location || undefined,
-        details: form.details || undefined,
-        owner: ownerOptionsSource.find((owner) => owner.id === form.assignedToId)?.name ?? form.assignedToId ?? "Unassigned",
-        drone: form.droneId || undefined,
-        mission: form.missionId || undefined,
-        status: incident?.status ?? "Open",
-        time: incident?.time ?? "Just now",
-        createdAt: incident?.createdAt ?? new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        details: form.details || undefined
       };
+
+      const savedIncident = mode === "edit"
+        ? await droneOpsApi.incidents.update(incident?.uuid ?? incident?.idRaw ?? incident?.id, payload)
+        : await droneOpsApi.incidents.create(payload);
 
       setForm(initialForm);
       setIsConfirmed(false);
       if (mode === "edit") {
-        onUpdated?.({
-          ...payload,
-          incidentCode: payload.incidentCode ?? form.incidentCode
-        });
+        onUpdated?.(savedIncident);
       } else {
-        onCreated?.({
-          ...payload,
-          incidentCode: payload.incidentCode ?? form.incidentCode
-        });
+        onCreated?.(savedIncident);
       }
     } catch (requestError) {
       setError(requestError.message);
@@ -145,14 +136,14 @@ const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, 
                 label="Drone"
                 value={form.droneId}
                 onChange={(value) => updateField("droneId", value)}
-                options={drones.map((drone) => ({ value: drone.id, label: `${drone.droneCode ?? drone.id} - ${drone.model}` }))}
+                options={drones.map((drone) => ({ value: drone.uuid ?? drone.id, label: `${drone.droneCode ?? drone.id} - ${drone.model}` }))}
                 required
               />
               <SelectField
                 label="Mission"
                 value={form.missionId}
                 onChange={(value) => updateField("missionId", value)}
-                options={missions.map((mission) => ({ value: mission.id, label: `${mission.missionCode ?? mission.id} - ${mission.name}` }))}
+                options={missions.map((mission) => ({ value: mission.uuid ?? mission.id, label: `${mission.missionCode ?? mission.id} - ${mission.name}` }))}
               />
               <SelectField label="Source" value={form.source} onChange={(value) => updateField("source", value)} options={incidentSources} />
             </FormSection>

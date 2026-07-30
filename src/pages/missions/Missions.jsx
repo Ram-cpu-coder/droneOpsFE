@@ -7,7 +7,6 @@ import MetricCard from "../../components/common/MetricCard";
 import ProgressBar from "../../components/common/ProgressBar";
 import SectionHeader from "../../components/common/SectionHeader";
 import StatusBadge from "../../components/common/StatusBadge";
-import { missions } from "../../data/droneOpsData";
 import { hasClientPermission } from "../../features/auth/accessControl";
 import { useApiResource } from "../../hooks/useApiResource";
 import { useFleetSearch } from "../../hooks/useFleetSearch";
@@ -23,7 +22,7 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
   const [toast, setToast] = useState(null);
   const canManageMissions = hasClientPermission(user, "missions:manage");
   const loadMissions = useCallback(() => droneOpsApi.missions.list(), []);
-  const { data: apiMissions, error, isLoading, isFallback, refresh } = useApiResource(loadMissions, missions);
+  const { data: apiMissions, error, isLoading, isFallback, refresh } = useApiResource(loadMissions, []);
   const normalizedMissions = useMemo(() => apiMissions.map(normalizeMission), [apiMissions]);
   const filteredMissions = useFleetSearch(normalizedMissions, searchValue);
   const metricMissions = isFallback ? [] : normalizedMissions;
@@ -117,7 +116,7 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
         <MetricCard label="Scheduled Missions" value={isLoading ? "..." : scheduledMissions} delta="Planned or approved" icon={CalendarClock} tone="purple" />
         <MetricCard label="Avg Completion" value={isLoading ? "..." : `${averageProgress}%`} delta="Calculated from mission records" icon={Route} tone="blue" />
       </div>
-      {error && <div className="auth-alert">Backend unavailable: showing fallback missions. {error}</div>}
+      {error && <div className="auth-alert">Mission records could not be loaded. {error}</div>}
       <div className="panel">
         <SectionHeader
           title="Mission Control"
