@@ -104,11 +104,16 @@ const Reports = ({ user, searchValue = "" }) => {
           report={selectedReport}
           canDelete={canDeleteReports}
           canManageStatus={canManageReportStatus}
-          onStatusChange={(report, status) => {
-            setSelectedReport((current) => current ? { ...current, status } : current);
+          onStatusChange={async (report, status) => {
+            const reportId = getReportIdentity(report);
+            const updatedReport = await droneOpsApi.reports.updateStatus(reportId, status);
+            setReportRecords((current) => current.map((item) => (
+              getReportIdentity(item) === reportId ? updatedReport : item
+            )));
+            setSelectedReport(normalizeReport(updatedReport));
             setToast({
               title: "Report status updated",
-              message: `${selectedReport.name} is now ${status}.`
+              message: `${selectedReport.name} is now ${formatReportStatus(status)}.`
             });
             window.setTimeout(() => setToast(null), 4500);
           }}
@@ -271,7 +276,7 @@ const normalizeReport = (report) => {
     type: report.type,
     value: report.value ?? report.dataSnapshot?.summary?.value ?? report.type ?? "Snapshot",
     change: report.change ?? report.dataSnapshot?.summary?.change ?? "Stored audit snapshot",
-    status: report.status ?? "Ready",
+    status: report.status ?? report.dataSnapshot?.summary?.status ?? "REVIEW",
     owner: report.owner ?? report.generatedBy?.name ?? report.dataSnapshot?.summary?.owner ?? "DroneOps"
   };
 };
@@ -288,5 +293,7 @@ const getDetailId = (pathname, basePath) => {
 const isReportExportable = (report) => exportableStatuses.has(String(report.status ?? "").toUpperCase());
 
 const getReportIdentity = (report) => report.id ?? report.uuid ?? toReportRouteId(report.title ?? report.name);
+
+const formatReportStatus = (status = "") => status.toString().toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 export default Reports;

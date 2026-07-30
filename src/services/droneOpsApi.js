@@ -6,6 +6,15 @@ export const droneOpsApi = {
   },
   drones: {
     list: () => apiClient.get("/drones"),
+    catalog: (params = {}) => {
+      const query = new URLSearchParams(
+        Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== "")
+      ).toString();
+      return apiClient.get(`/drones/catalog${query ? `?${query}` : ""}`);
+    },
+    createCatalogModel: (payload) => apiClient.post("/drones/catalog", payload),
+    updateCatalogModel: (id, payload) => apiClient.put(`/drones/catalog/${id}`, payload),
+    removeCatalogModel: (id) => apiClient.delete(`/drones/catalog/${id}`),
     create: (payload) => apiClient.post("/drones", payload),
     update: (id, payload) => apiClient.put(`/drones/${id}`, payload),
     remove: (id) => apiClient.delete(`/drones/${id}`)
@@ -45,6 +54,7 @@ export const droneOpsApi = {
     summary: () => apiClient.get("/reports/summary"),
     create: (payload) => apiClient.post("/reports", payload),
     generate: (payload) => apiClient.post("/reports/generate", payload),
+    updateStatus: (id, status) => apiClient.put(`/reports/${id}/status`, { status }),
     remove: (id) => apiClient.delete(`/reports/${id}`)
   },
   geofences: {

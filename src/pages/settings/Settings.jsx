@@ -1,4 +1,4 @@
-import { AlertTriangle, Bell, CheckCircle2, ImagePlus, Mail, Pencil, Save, ShieldCheck, UserRound, X } from "lucide-react";
+import { AlertTriangle, Bell, CheckCircle2, Database, ImagePlus, Mail, Pencil, Plus, Save, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch } from "react-redux";
 import ActionButton from "../../components/common/ActionButton";
@@ -26,9 +26,14 @@ const Settings = ({ user }) => {
   const [isSavingOrganisation, setIsSavingOrganisation] = useState(false);
   const [isEditingThresholds, setIsEditingThresholds] = useState(false);
   const [isSavingThresholds, setIsSavingThresholds] = useState(false);
+  const [catalogRows, setCatalogRows] = useState([]);
+  const [catalogDraft, setCatalogDraft] = useState(defaultCatalogDraft);
+  const [editingCatalogId, setEditingCatalogId] = useState("");
+  const [isSavingCatalog, setIsSavingCatalog] = useState(false);
   const [toast, setToast] = useState(null);
   const canEditThresholds = Boolean(user?.permissions?.includes("*") || user?.role === "system_administrator");
   const canEditOrganisation = canEditThresholds;
+  const canManageCatalog = canEditThresholds;
   const roleLabel = useMemo(
     () => userRoles.find((role) => role.id === user?.role)?.label ?? user?.roleLabel ?? "DroneOps user",
     [user?.role, user?.roleLabel]
@@ -48,9 +53,10 @@ const Settings = ({ user }) => {
 
     Promise.all([
       droneOpsApi.settings.alertThresholds(),
-      droneOpsApi.settings.organisation()
+      droneOpsApi.settings.organisation(),
+      canManageCatalog ? droneOpsApi.drones.catalog({ includeInactive: true }) : Promise.resolve([])
     ])
-      .then(([thresholdResult, organisationResult]) => {
+      .then(([thresholdResult, organisationResult, catalogResult]) => {
         if (!isMounted) return;
         const nextThresholds = toThresholdRows(thresholdResult);
         const nextOrganisation = toOrganisationForm({ organisation: organisationResult });
@@ -58,6 +64,7 @@ const Settings = ({ user }) => {
         setThresholdDraft(nextThresholds);
         setOrganisation(nextOrganisation);
         setOrganisationDraft(nextOrganisation);
+        setCatalogRows(toCatalogRows(catalogResult));
       })
       .catch((error) => {
         if (!isMounted) return;
@@ -67,7 +74,7 @@ const Settings = ({ user }) => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [canManageCatalog]);
 
   const showToast = (nextToast) => {
     setToast(nextToast);
@@ -201,6 +208,82 @@ const Settings = ({ user }) => {
       showToast({ type: "error", title: "Thresholds could not be saved", message: error.message });
     } finally {
       setIsSavingThresholds(false);
+    }
+  };
+
+  const updateCatalogDraft = (field, value) => {
+    setCatalogDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const resetCatalogForm = () => {
+    setCatalogDraft(defaultCatalogDraft);
+    setEditingCatalogId("");
+  };
+
+  const handleEditCatalogModel = (row) => {
+    setEditingCatalogId(row.id);
+    setCatalogDraft({
+      manufacturer: row.manufacturer ?? "",
+      model: row.model ?? "",
+      batteryType: row.batteryType ?? "",
+      telemetryProvider: row.telemetryProvider ?? "NONE",
+      category: row.category ?? "",
+      sourceUrl: row.sourceUrl ?? "",
+      isActive: row.isActive !== false,
+      lastVerifiedAt: toDateInputValue(row.lastVerifiedAt)
+    });
+  };
+
+  const handleSaveCatalogModel = async (event) => {
+    event.preventDefault();
+    setIsSavingCatalog(true);
+
+    try {
+      const payload = {
+        manufacturer: catalogDraft.manufacturer.trim(),
+        model: catalogDraft.model.trim(),
+        batteryType: catalogDraft.batteryType.trim(),
+        telemetryProvider: catalogDraft.telemetryProvider,
+        category: catalogDraft.category.trim() || undefined,
+        sourceUrl: catalogDraft.sourceUrl.trim() || undefined,
+        isActive: catalogDraft.isActive,
+        lastVerifiedAt: catalogDraft.lastVerifiedAt ? new Date(catalogDraft.lastVerifiedAt).toISOString() : undefined
+      };
+
+      if (editingCatalogId) {
+        await droneOpsApi.drones.updateCatalogModel(editingCatalogId, payload);
+      } else {
+        await droneOpsApi.drones.createCatalogModel(payload);
+      }
+
+      const refreshedCatalog = await droneOpsApi.drones.catalog({ includeInactive: true });
+      setCatalogRows(toCatalogRows(refreshedCatalog));
+      resetCatalogForm();
+      showToast({
+        type: "success",
+        title: editingCatalogId ? "Catalog model updated" : "Catalog model added",
+        message: "Drone registration will now use the updated approved model catalog."
+      });
+    } catch (error) {
+      showToast({ type: "error", title: "Catalog could not be saved", message: error.message });
+    } finally {
+      setIsSavingCatalog(false);
+    }
+  };
+
+  const handleRemoveCatalogModel = async (row) => {
+    setIsSavingCatalog(true);
+
+    try {
+      await droneOpsApi.drones.removeCatalogModel(row.id);
+      const refreshedCatalog = await droneOpsApi.drones.catalog({ includeInactive: true });
+      setCatalogRows(toCatalogRows(refreshedCatalog));
+      if (editingCatalogId === row.id) resetCatalogForm();
+      showToast({ type: "success", title: "Catalog model deactivated", message: `${row.model} will no longer appear in drone registration.` });
+    } catch (error) {
+      showToast({ type: "error", title: "Catalog model could not be removed", message: error.message });
+    } finally {
+      setIsSavingCatalog(false);
     }
   };
 
@@ -366,6 +449,109 @@ const Settings = ({ user }) => {
           </div>
           {!canEditThresholds && <p className="settings-note">Only the System Administrator can change operational alert thresholds.</p>}
         </div>
+        {canManageCatalog && (
+          <div className="panel wide">
+            <SectionHeader
+              title="Drone Catalog"
+              description="Approved manufacturers, models, battery types, and telemetry defaults used by fleet registration."
+              action={<ActionButton icon={Plus} type="button" onClick={resetCatalogForm}>New Model</ActionButton>}
+            />
+            <form className="catalog-form" onSubmit={handleSaveCatalogModel}>
+              <div className="form-grid account-settings-form">
+                <label className="field">
+                  <span>Manufacturer</span>
+                  <input value={catalogDraft.manufacturer} onChange={(event) => updateCatalogDraft("manufacturer", event.target.value)} required />
+                </label>
+                <label className="field">
+                  <span>Model</span>
+                  <input value={catalogDraft.model} onChange={(event) => updateCatalogDraft("model", event.target.value)} required />
+                </label>
+                <label className="field">
+                  <span>Battery Type</span>
+                  <input value={catalogDraft.batteryType} onChange={(event) => updateCatalogDraft("batteryType", event.target.value)} required />
+                </label>
+                <label className="field">
+                  <span>Telemetry Provider</span>
+                  <select value={catalogDraft.telemetryProvider} onChange={(event) => updateCatalogDraft("telemetryProvider", event.target.value)}>
+                    {telemetryProviders.map((provider) => (
+                      <option key={provider} value={provider}>{formatOptionLabel(provider)}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Category</span>
+                  <input value={catalogDraft.category} onChange={(event) => updateCatalogDraft("category", event.target.value)} placeholder="Enterprise thermal" />
+                </label>
+                <label className="field">
+                  <span>Source URL</span>
+                  <input type="url" value={catalogDraft.sourceUrl} onChange={(event) => updateCatalogDraft("sourceUrl", event.target.value)} placeholder="https://manufacturer.example/specs" />
+                </label>
+                <label className="field">
+                  <span>Last Verified</span>
+                  <input type="date" value={catalogDraft.lastVerifiedAt} onChange={(event) => updateCatalogDraft("lastVerifiedAt", event.target.value)} />
+                </label>
+                <label className="checkbox-row catalog-active-toggle">
+                  <input type="checkbox" checked={catalogDraft.isActive} onChange={(event) => updateCatalogDraft("isActive", event.target.checked)} />
+                  <span>Active in registration</span>
+                </label>
+              </div>
+              <div className="form-actions catalog-form-actions">
+                {editingCatalogId && <ActionButton type="button" onClick={resetCatalogForm} disabled={isSavingCatalog}>Cancel Edit</ActionButton>}
+                <ActionButton icon={Save} variant="primary" type="submit" isLoading={isSavingCatalog} disabled={isSavingCatalog}>
+                  {editingCatalogId ? "Update Model" : "Add Model"}
+                </ActionButton>
+              </div>
+            </form>
+
+            <div className="catalog-table-wrap">
+              <table className="data-table catalog-table">
+                <thead>
+                  <tr>
+                    <th>Manufacturer</th>
+                    <th>Model</th>
+                    <th>Battery Type</th>
+                    <th>Telemetry</th>
+                    <th>Status</th>
+                    <th aria-label="Actions" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {catalogRows.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.manufacturer}</td>
+                      <td><strong>{row.model}</strong></td>
+                      <td>{row.batteryType}</td>
+                      <td>{formatOptionLabel(row.telemetryProvider)}</td>
+                      <td><StatusBadge>{row.isActive ? "Active" : "Inactive"}</StatusBadge></td>
+                      <td>
+                        <div className="table-actions">
+                          <button className="icon-button" type="button" onClick={() => handleEditCatalogModel(row)} aria-label={`Edit ${row.model}`} title="Edit model">
+                            <Pencil size={16} />
+                          </button>
+                          {row.isActive && (
+                            <button className="icon-button danger" type="button" onClick={() => handleRemoveCatalogModel(row)} aria-label={`Deactivate ${row.model}`} title="Deactivate model" disabled={isSavingCatalog}>
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {!catalogRows.length && (
+                    <tr>
+                      <td colSpan="6">
+                        <div className="empty-table-state">
+                          <Database size={22} />
+                          <span>No drone catalog models found.</span>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
         <div className="panel wide">
           <SectionHeader title="Access Roles" description="Current role definitions used for account access control." />
           <div className="role-grid">
@@ -380,6 +566,19 @@ const Settings = ({ user }) => {
       </div>
     </section>
   );
+};
+
+const telemetryProviders = ["NONE", "DJI", "AUTEL", "MAVLINK"];
+
+const defaultCatalogDraft = {
+  manufacturer: "",
+  model: "",
+  batteryType: "",
+  telemetryProvider: "NONE",
+  category: "",
+  sourceUrl: "",
+  isActive: true,
+  lastVerifiedAt: ""
 };
 
 const toUserForm = (user) => ({
@@ -398,5 +597,25 @@ const getInitials = (name = "") => {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   return parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "U";
 };
+
+const toCatalogRows = (catalog = []) => (
+  catalog.flatMap((manufacturerGroup) => (
+    (manufacturerGroup.models ?? []).map((model) => ({
+      ...model,
+      manufacturer: manufacturerGroup.manufacturer,
+      telemetryProvider: model.telemetryProvider ?? manufacturerGroup.telemetryProvider ?? "NONE"
+    }))
+  ))
+);
+
+const toDateInputValue = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+};
+
+const formatOptionLabel = (value = "") => (
+  value.toString().toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
+);
 
 export default Settings;

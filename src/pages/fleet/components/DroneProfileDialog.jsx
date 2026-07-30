@@ -9,7 +9,7 @@ import { droneOpsApi } from "../../../services/droneOpsApi";
 const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
 const droneStatuses = ["AVAILABLE", "IN_MISSION", "MAINTENANCE", "GROUNDED", "DISCONNECTED", "AWAITING_APPROVAL"];
 const certificationStatuses = ["CERTIFIED", "AWAITING_APPROVAL", "AWAITING_RENEWAL", "EXPIRED", "GROUNDED_PENDING_INSPECTION"];
-const telemetryProviders = ["NONE", "GENERIC_REST", "DJI", "AUTEL", "MAVLINK"];
+const telemetryProviders = ["NONE", "DJI", "AUTEL", "MAVLINK"];
 
 const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, onClose }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -18,13 +18,32 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState(() => toEditableForm(drone));
+  const [modelCatalog, setModelCatalog] = useState([]);
   const telemetry = drone.latestTelemetry;
   const droneUuid = drone.uuid ?? drone.idRaw ?? drone.id;
   const locationState = useMemo(() => getDroneLocationState(drone), [drone]);
+  const manufacturerOptions = modelCatalog.map((entry) => entry.manufacturer);
+  const selectedModelOptions = getModelOptions(modelCatalog, form.manufacturer);
 
   useEffect(() => {
     setForm(toEditableForm(drone));
   }, [drone]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    droneOpsApi.drones.catalog()
+      .then((catalog) => {
+        if (isMounted) setModelCatalog(Array.isArray(catalog) ? catalog : []);
+      })
+      .catch(() => {
+        if (isMounted) setError("Drone model catalog could not be loaded. Please try again.");
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -54,7 +73,18 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
   }), [drone, form]);
 
   const updateField = (field, value) => {
-    setForm((current) => ({ ...current, [field]: value }));
+    setForm((current) => {
+      if (field === "manufacturer") {
+        return { ...current, manufacturer: value, model: "", batteryType: "" };
+      }
+
+      if (field === "model") {
+        const selectedModel = getModelOptions(modelCatalog, current.manufacturer).find((item) => item.model === value);
+        return { ...current, model: value, batteryType: selectedModel?.batteryType ?? current.batteryType };
+      }
+
+      return { ...current, [field]: value };
+    });
   };
 
   const handleSave = async (event) => {
@@ -64,7 +94,6 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
 
     try {
       const updatedDrone = await droneOpsApi.drones.update(droneUuid, {
-        droneCode: form.droneCode,
         model: form.model,
         manufacturer: form.manufacturer || undefined,
         serialNumber: form.serialNumber,
@@ -75,8 +104,7 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
         purchaseDate: form.purchaseDate ? new Date(form.purchaseDate).toISOString() : undefined,
         certificationStatus: form.certificationStatus,
         telemetryProvider: form.telemetryProvider,
-        externalDeviceId: form.externalDeviceId || undefined,
-        connectorConfig: form.telemetryUrl ? { telemetryUrl: form.telemetryUrl } : undefined
+        externalDeviceId: form.externalDeviceId || undefined
       });
 
       onUpdated?.(updatedDrone);
@@ -154,19 +182,18 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
 
           {isEditing ? (
             <div className="profile-edit-grid">
-              <Field label="Drone ID" value={form.droneCode} onChange={(value) => updateField("droneCode", value)} required />
-              <Field label="Model" value={form.model} onChange={(value) => updateField("model", value)} required />
-              <Field label="Manufacturer" value={form.manufacturer} onChange={(value) => updateField("manufacturer", value)} />
+              <ReadOnlyField label="System ID" value={form.droneCode} />
+              <SelectField label="Manufacturer" value={form.manufacturer} onChange={(value) => updateField("manufacturer", value)} options={manufacturerOptions} disabled={!manufacturerOptions.length} />
+              <SelectField label="Model" value={form.model} onChange={(value) => updateField("model", value)} options={selectedModelOptions.map((item) => item.model)} disabled={!form.manufacturer || !selectedModelOptions.length} />
               <Field label="Serial Number" value={form.serialNumber} onChange={(value) => updateField("serialNumber", value)} required />
-              <Field label="Battery Type" value={form.batteryType} onChange={(value) => updateField("batteryType", value)} />
+              <ReadOnlyField label="Battery Type" value={form.batteryType || "Select model first"} />
               <Field label="Firmware Version" value={form.firmwareVersion} onChange={(value) => updateField("firmwareVersion", value)} />
               <SelectField label="Status" value={form.status} onChange={(value) => updateField("status", value)} options={droneStatuses} />
               <Field label="Flight Hours" type="number" value={form.flightHours} onChange={(value) => updateField("flightHours", value)} min="0" />
               <Field label="Purchase Date" type="date" value={form.purchaseDate} onChange={(value) => updateField("purchaseDate", value)} />
               <SelectField label="Certification" value={form.certificationStatus} onChange={(value) => updateField("certificationStatus", value)} options={certificationStatuses} />
               <SelectField label="Telemetry Provider" value={form.telemetryProvider} onChange={(value) => updateField("telemetryProvider", value)} options={telemetryProviders} />
-              <Field label="External Drone ID" value={form.externalDeviceId} onChange={(value) => updateField("externalDeviceId", value)} />
-              <Field label="Vendor Telemetry URL" value={form.telemetryUrl} onChange={(value) => updateField("telemetryUrl", value)} />
+              <Field label="Vendor Device ID" value={form.externalDeviceId} onChange={(value) => updateField("externalDeviceId", value)} />
             </div>
           ) : (
             <div className="profile-grid">
@@ -177,7 +204,7 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
                 <ProfileRow label="Firmware" value={drone.firmwareVersion} />
                 <ProfileRow label="Certification" value={drone.certificationStatus} />
                 <ProfileRow label="Telemetry Provider" value={drone.telemetryProvider} />
-                <ProfileRow label="External Drone ID" value={drone.externalDeviceId} />
+                <ProfileRow label="Vendor Device ID" value={drone.externalDeviceId} />
                 <ProfileRow label="Connector Status" value={drone.connectorStatus} />
               </ProfileSection>
 
@@ -327,14 +354,22 @@ const Field = ({ label, type = "text", value, onChange, required = false, min })
   </label>
 );
 
-const SelectField = ({ label, options, value, onChange }) => (
+const SelectField = ({ label, options, value, onChange, disabled = false }) => (
   <label className="field">
     <span>{label}</span>
-    <select value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
+    <select value={value ?? ""} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
+      <option value="" disabled>Select {label.toLowerCase()}</option>
       {options.map((option) => (
-        <option key={option} value={option}>{option}</option>
+        <option key={option} value={option}>{formatOptionLabel(option)}</option>
       ))}
     </select>
+  </label>
+);
+
+const ReadOnlyField = ({ label, value }) => (
+  <label className="field">
+    <span>{label}</span>
+    <input value={value ?? ""} readOnly />
   </label>
 );
 
@@ -349,10 +384,17 @@ const toEditableForm = (drone) => ({
   flightHours: drone.flightHours ?? 0,
   purchaseDate: drone.purchaseDate ? new Date(drone.purchaseDate).toISOString().slice(0, 10) : "",
   certificationStatus: drone.certificationStatus ?? "AWAITING_APPROVAL",
-  telemetryProvider: drone.telemetryProvider ?? "NONE",
-  externalDeviceId: drone.externalDeviceId ?? "",
-  telemetryUrl: drone.connectorConfig?.telemetryUrl ?? ""
+  telemetryProvider: drone.telemetryProvider === "GENERIC_REST" ? "NONE" : drone.telemetryProvider ?? "NONE",
+  externalDeviceId: drone.externalDeviceId ?? ""
 });
+
+const getModelOptions = (catalog, manufacturer) => (
+  catalog.find((entry) => entry.manufacturer === manufacturer)?.models ?? []
+);
+
+const formatOptionLabel = (value = "") => (
+  value.toString().toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
+);
 
 const getDroneLocationState = (drone) => {
   const telemetryLocation = drone.latestTelemetry?.location;
