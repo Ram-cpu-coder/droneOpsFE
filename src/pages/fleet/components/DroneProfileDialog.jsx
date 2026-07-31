@@ -102,7 +102,13 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
         status: form.status,
         flightHours: Number(form.flightHours || 0),
         purchaseDate: form.purchaseDate ? new Date(form.purchaseDate).toISOString() : undefined,
+        lastMaintenanceDate: form.lastMaintenanceDate ? new Date(form.lastMaintenanceDate).toISOString() : undefined,
+        nextMaintenanceDate: form.nextMaintenanceDate ? new Date(form.nextMaintenanceDate).toISOString() : undefined,
+        inspectionThresholdHours: form.inspectionThresholdHours ? Number(form.inspectionThresholdHours) : undefined,
         certificationStatus: form.certificationStatus,
+        certificationReference: form.certificationReference || undefined,
+        certificationExpiry: form.certificationExpiry ? new Date(form.certificationExpiry).toISOString() : undefined,
+        remoteId: form.remoteId || undefined,
         telemetryProvider: form.telemetryProvider,
         externalDeviceId: form.externalDeviceId || undefined
       });
@@ -190,8 +196,14 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
               <Field label="Firmware Version" value={form.firmwareVersion} onChange={(value) => updateField("firmwareVersion", value)} />
               <SelectField label="Status" value={form.status} onChange={(value) => updateField("status", value)} options={droneStatuses} />
               <Field label="Flight Hours" type="number" value={form.flightHours} onChange={(value) => updateField("flightHours", value)} min="0" />
-              <Field label="Purchase Date" type="date" value={form.purchaseDate} onChange={(value) => updateField("purchaseDate", value)} />
+              <Field label="Purchase Date" type="date" value={form.purchaseDate} onChange={(value) => updateField("purchaseDate", value)} max={todayInputValue()} />
+              <Field label="Last Maintenance Date" type="date" value={form.lastMaintenanceDate} onChange={(value) => updateField("lastMaintenanceDate", value)} max={todayInputValue()} />
+              <Field label="Next Inspection Due" type="date" value={form.nextMaintenanceDate} onChange={(value) => updateField("nextMaintenanceDate", value)} />
+              <Field label="Flight-Hour Inspection Threshold" type="number" value={form.inspectionThresholdHours} onChange={(value) => updateField("inspectionThresholdHours", value)} min="0" />
               <SelectField label="Certification" value={form.certificationStatus} onChange={(value) => updateField("certificationStatus", value)} options={certificationStatuses} />
+              <Field label="Certification Reference" value={form.certificationReference} onChange={(value) => updateField("certificationReference", value)} />
+              <Field label="Certification Expiry" type="date" value={form.certificationExpiry} onChange={(value) => updateField("certificationExpiry", value)} />
+              <Field label="Remote ID" value={form.remoteId} onChange={(value) => updateField("remoteId", value)} />
               <SelectField label="Telemetry Provider" value={form.telemetryProvider} onChange={(value) => updateField("telemetryProvider", value)} options={telemetryProviders} />
               <Field label="Vendor Device ID" value={form.externalDeviceId} onChange={(value) => updateField("externalDeviceId", value)} />
             </div>
@@ -203,6 +215,9 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
                 <ProfileRow label="Battery Type" value={drone.batteryType} />
                 <ProfileRow label="Firmware" value={drone.firmwareVersion} />
                 <ProfileRow label="Certification" value={drone.certificationStatus} />
+                <ProfileRow label="Certification Reference" value={drone.certificationReference} />
+                <ProfileRow label="Certification Expiry" value={formatDate(drone.certificationExpiry)} />
+                <ProfileRow label="Remote ID" value={drone.remoteId} />
                 <ProfileRow label="Telemetry Provider" value={drone.telemetryProvider} />
                 <ProfileRow label="Vendor Device ID" value={drone.externalDeviceId} />
                 <ProfileRow label="Connector Status" value={drone.connectorStatus} />
@@ -210,7 +225,9 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
 
               <ProfileSection icon={CalendarClock} title="Lifecycle">
                 <ProfileRow label="Purchased" value={formatDate(drone.purchaseDate)} />
+                <ProfileRow label="Last Maintenance" value={formatDate(drone.lastMaintenanceDate)} />
                 <ProfileRow label="Next Service" value={drone.nextMaintenance} />
+                <ProfileRow label="Inspection Threshold" value={drone.inspectionThresholdHours ? `${drone.inspectionThresholdHours} hours` : "Not provided"} />
                 <ProfileRow label="Created" value={formatDate(drone.createdAt)} />
                 <ProfileRow label="Updated" value={formatDate(drone.updatedAt)} />
               </ProfileSection>
@@ -347,10 +364,10 @@ const ProfileRow = ({ label, value }) => (
   </div>
 );
 
-const Field = ({ label, type = "text", value, onChange, required = false, min }) => (
+const Field = ({ label, type = "text", value, onChange, required = false, min, max }) => (
   <label className="field">
     <span>{label}</span>
-    <input type={type} value={value ?? ""} onChange={(event) => onChange(event.target.value)} required={required} min={min} />
+    <input type={type} value={value ?? ""} onChange={(event) => onChange(event.target.value)} required={required} min={min} max={max} />
   </label>
 );
 
@@ -383,7 +400,13 @@ const toEditableForm = (drone) => ({
   status: drone.status ?? "AVAILABLE",
   flightHours: drone.flightHours ?? 0,
   purchaseDate: drone.purchaseDate ? new Date(drone.purchaseDate).toISOString().slice(0, 10) : "",
+  lastMaintenanceDate: drone.lastMaintenanceDate ? new Date(drone.lastMaintenanceDate).toISOString().slice(0, 10) : "",
+  nextMaintenanceDate: drone.nextMaintenanceDate ? new Date(drone.nextMaintenanceDate).toISOString().slice(0, 10) : "",
+  inspectionThresholdHours: drone.inspectionThresholdHours ?? "",
   certificationStatus: drone.certificationStatus ?? "AWAITING_APPROVAL",
+  certificationReference: drone.certificationReference ?? "",
+  certificationExpiry: drone.certificationExpiry ? new Date(drone.certificationExpiry).toISOString().slice(0, 10) : "",
+  remoteId: drone.remoteId ?? "",
   telemetryProvider: drone.telemetryProvider === "GENERIC_REST" ? "NONE" : drone.telemetryProvider ?? "NONE",
   externalDeviceId: drone.externalDeviceId ?? ""
 });
@@ -455,6 +478,8 @@ const formatDate = (value) => {
   if (!value) return "Not provided";
   return new Date(value).toLocaleDateString();
 };
+
+const todayInputValue = () => new Date().toISOString().slice(0, 10);
 
 const formatDateTime = (value) => {
   if (!value) return "Not provided";

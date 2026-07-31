@@ -166,8 +166,6 @@ const severityPriority = (severity) => {
   return ["HIGH", "CRITICAL"].includes(String(severity ?? "").toUpperCase()) ? "critical" : "warning";
 };
 
-const formatAction = (action = "") => action.toString().toLowerCase().replaceAll("_", " ");
-
 const getNotificationTargetPath = (log) => {
   const entityId = log.entityId ? encodeURIComponent(log.entityId) : "";
   const isDeleted = log.action?.toString().endsWith("_DELETED");

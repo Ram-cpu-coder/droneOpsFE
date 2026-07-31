@@ -30,7 +30,7 @@ const Reports = ({ user, searchValue = "" }) => {
   const filteredReports = useFleetSearch(normalizedReports, searchValue);
   const metricReports = isFallback ? [] : normalizedReports;
   const routeReportId = useMemo(() => getDetailId(location.pathname, "/reports"), [location.pathname]);
-  const canGenerateReports = hasClientPermission(user, "reports:read");
+  const canGenerateReports = hasClientPermission(user, "reports:manage");
   const canDeleteReports = hasClientPermission(user, "*");
   const canManageReportStatus = hasClientPermission(user, "*") || hasClientPermission(user, "reports:manage");
   const exportableReports = useMemo(() => normalizedReports.filter(isReportExportable), [normalizedReports]);

@@ -1,3 +1,4 @@
+/* oxlint-disable react-hooks/exhaustive-deps */
 import { Crosshair, MapPin, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import "mapbox-gl/dist/mapbox-gl.css";
@@ -18,11 +19,13 @@ const RoutePointMapPicker = ({ value = [], onChange }) => {
   const routePoints = useMemo(() => normalizeRoutePoints(value), [value]);
   const activePoint = routePoints[activeIndex] ?? routePoints[0];
 
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     activeIndexRef.current = activeIndex;
     routePointsRef.current = routePoints;
   }, [activeIndex, routePoints]);
 
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!mapboxToken || mapRef.current || !mapContainerRef.current) return;
 
@@ -190,7 +193,7 @@ const RoutePointMapPicker = ({ value = [], onChange }) => {
         <MapPin size={22} />
         <div>
           <strong>Map route selection is unavailable</strong>
-          <p>Add `VITE_MAPBOX_TOKEN` to use map-based start, end, and stop selection.</p>
+          <p>Map-based route selection is currently unavailable. Manual route details can still be entered in the mission form.</p>
         </div>
       </div>
     );

@@ -5,7 +5,6 @@ import ActionButton from "../../components/common/ActionButton";
 import BatteryMeter from "../../components/common/BatteryMeter";
 import DataTable from "../../components/common/DataTable";
 import MetricCard from "../../components/common/MetricCard";
-import ProgressBar from "../../components/common/ProgressBar";
 import SectionHeader from "../../components/common/SectionHeader";
 import StatusBadge from "../../components/common/StatusBadge";
 import { hasClientPermission } from "../../features/auth/accessControl";
