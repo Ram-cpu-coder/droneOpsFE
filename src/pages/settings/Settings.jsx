@@ -1,4 +1,4 @@
-import { AlertTriangle, Bell, CheckCircle2, Copy, Database, ImagePlus, Mail, Pencil, Plus, RefreshCw, Save, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
+import { AlertTriangle, Bell, CheckCircle2, ChevronLeft, ChevronRight, Copy, Database, ImagePlus, Mail, Pencil, Plus, RefreshCw, Save, Search, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch } from "react-redux";
 import ActionButton from "../../components/common/ActionButton";
@@ -11,9 +11,13 @@ import { sessionUserUpdated } from "../../features/auth/authSlice";
 import { droneOpsApi } from "../../services/droneOpsApi";
 import { defaultThresholds, getEmailChangeToast, toThresholdPayload, toThresholdRows } from "./settingsConfig";
 
+const CATALOG_PAGE_SIZE = 10;
+
 const Settings = ({ user }) => {
   const dispatch = useDispatch();
   const toastTimerRef = useRef(null);
+  const catalogFormRef = useRef(null);
+  const catalogModelInputRef = useRef(null);
   const [form, setForm] = useState(() => toUserForm(user));
   const [isSaving, setIsSaving] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
@@ -30,6 +34,9 @@ const Settings = ({ user }) => {
   const [isSavingThresholds, setIsSavingThresholds] = useState(false);
   const [catalogRows, setCatalogRows] = useState([]);
   const [catalogDraft, setCatalogDraft] = useState(defaultCatalogDraft);
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [catalogPage, setCatalogPage] = useState(1);
+  const [isCatalogFormOpen, setIsCatalogFormOpen] = useState(false);
   const [editingCatalogId, setEditingCatalogId] = useState("");
   const [isSavingCatalog, setIsSavingCatalog] = useState(false);
   const [toast, setToast] = useState(null);
@@ -40,6 +47,29 @@ const Settings = ({ user }) => {
     () => userRoles.find((role) => role.id === user?.role)?.label ?? user?.roleLabel ?? "DroneOps user",
     [user?.role, user?.roleLabel]
   );
+  const filteredCatalogRows = useMemo(() => {
+    const query = catalogSearch.trim().toLowerCase();
+    if (!query) return catalogRows;
+
+    return catalogRows.filter((row) => (
+      [
+        row.manufacturer,
+        row.model,
+        row.batteryType,
+        row.telemetryProvider,
+        row.category,
+        row.sourceUrl,
+        row.isActive ? "active" : "inactive"
+      ]
+        .filter(Boolean)
+        .some((value) => value.toString().toLowerCase().includes(query))
+    ));
+  }, [catalogRows, catalogSearch]);
+  const catalogTotalPages = Math.max(1, Math.ceil(filteredCatalogRows.length / CATALOG_PAGE_SIZE));
+  const catalogPageStart = (catalogPage - 1) * CATALOG_PAGE_SIZE;
+  const paginatedCatalogRows = filteredCatalogRows.slice(catalogPageStart, catalogPageStart + CATALOG_PAGE_SIZE);
+  const catalogShowingStart = filteredCatalogRows.length ? catalogPageStart + 1 : 0;
+  const catalogShowingEnd = Math.min(catalogPageStart + CATALOG_PAGE_SIZE, filteredCatalogRows.length);
 
   useEffect(() => {
     setForm(toUserForm(user));
@@ -84,6 +114,14 @@ const Settings = ({ user }) => {
       isMounted = false;
     };
   }, [canManageCatalog]);
+
+  useEffect(() => {
+    setCatalogPage(1);
+  }, [catalogSearch]);
+
+  useEffect(() => {
+    setCatalogPage((current) => Math.min(current, catalogTotalPages));
+  }, [catalogTotalPages]);
 
   const showToast = (nextToast) => {
     setToast(nextToast);
@@ -255,10 +293,22 @@ const Settings = ({ user }) => {
   const resetCatalogForm = () => {
     setCatalogDraft(defaultCatalogDraft);
     setEditingCatalogId("");
+    setIsCatalogFormOpen(false);
+  };
+
+  const handleNewCatalogModel = () => {
+    setCatalogDraft(defaultCatalogDraft);
+    setEditingCatalogId("");
+    setIsCatalogFormOpen(true);
+    window.requestAnimationFrame(() => {
+      catalogFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      catalogModelInputRef.current?.focus({ preventScroll: true });
+    });
   };
 
   const handleEditCatalogModel = (row) => {
     setEditingCatalogId(row.id);
+    setIsCatalogFormOpen(true);
     setCatalogDraft({
       manufacturer: row.manufacturer ?? "",
       model: row.model ?? "",
@@ -269,6 +319,11 @@ const Settings = ({ user }) => {
       isActive: row.isActive !== false,
       lastVerifiedAt: toDateInputValue(row.lastVerifiedAt)
     });
+    window.requestAnimationFrame(() => {
+      catalogFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      catalogModelInputRef.current?.focus({ preventScroll: true });
+    });
+    showToast({ type: "success", title: "Catalog model ready to edit", message: `${row.manufacturer} ${row.model} is loaded in the form above.` });
   };
 
   const handleSaveCatalogModel = async (event) => {
@@ -513,54 +568,73 @@ const Settings = ({ user }) => {
             <SectionHeader
               title="Drone Catalog"
               description="Approved manufacturers, models, battery types, and telemetry defaults used by fleet registration."
-              action={<ActionButton icon={Plus} type="button" onClick={resetCatalogForm}>New Model</ActionButton>}
+              action={<ActionButton icon={Plus} type="button" onClick={handleNewCatalogModel}>New Model</ActionButton>}
             />
-            <form className="catalog-form" onSubmit={handleSaveCatalogModel}>
-              <div className="form-grid account-settings-form">
-                <label className="field">
-                  <span>Manufacturer</span>
-                  <input value={catalogDraft.manufacturer} onChange={(event) => updateCatalogDraft("manufacturer", event.target.value)} required />
-                </label>
-                <label className="field">
-                  <span>Model</span>
-                  <input value={catalogDraft.model} onChange={(event) => updateCatalogDraft("model", event.target.value)} required />
-                </label>
-                <label className="field">
-                  <span>Battery Type</span>
-                  <input value={catalogDraft.batteryType} onChange={(event) => updateCatalogDraft("batteryType", event.target.value)} required />
-                </label>
-                <label className="field">
-                  <span>Telemetry Provider</span>
-                  <select value={catalogDraft.telemetryProvider} onChange={(event) => updateCatalogDraft("telemetryProvider", event.target.value)}>
-                    {telemetryProviders.map((provider) => (
-                      <option key={provider} value={provider}>{formatOptionLabel(provider)}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Category</span>
-                  <input value={catalogDraft.category} onChange={(event) => updateCatalogDraft("category", event.target.value)} placeholder="Enterprise thermal" />
-                </label>
-                <label className="field">
-                  <span>Source URL</span>
-                  <input type="url" value={catalogDraft.sourceUrl} onChange={(event) => updateCatalogDraft("sourceUrl", event.target.value)} placeholder="https://manufacturer.example/specs" />
-                </label>
-                <label className="field">
-                  <span>Last Verified</span>
-                  <input type="date" value={catalogDraft.lastVerifiedAt} onChange={(event) => updateCatalogDraft("lastVerifiedAt", event.target.value)} />
-                </label>
-                <label className="checkbox-row catalog-active-toggle">
-                  <input type="checkbox" checked={catalogDraft.isActive} onChange={(event) => updateCatalogDraft("isActive", event.target.checked)} />
-                  <span>Active in registration</span>
-                </label>
-              </div>
-              <div className="form-actions catalog-form-actions">
-                {editingCatalogId && <ActionButton type="button" onClick={resetCatalogForm} disabled={isSavingCatalog}>Cancel Edit</ActionButton>}
-                <ActionButton icon={Save} variant="primary" type="submit" isLoading={isSavingCatalog} disabled={isSavingCatalog}>
-                  {editingCatalogId ? "Update Model" : "Add Model"}
-                </ActionButton>
-              </div>
-            </form>
+            {isCatalogFormOpen && (
+              <form className={`catalog-form ${editingCatalogId ? "is-editing" : ""}`} ref={catalogFormRef} onSubmit={handleSaveCatalogModel}>
+                <div className="form-grid account-settings-form">
+                  <label className="field">
+                    <span>Manufacturer</span>
+                    <input value={catalogDraft.manufacturer} onChange={(event) => updateCatalogDraft("manufacturer", event.target.value)} required />
+                  </label>
+                  <label className="field">
+                    <span>Model</span>
+                    <input ref={catalogModelInputRef} value={catalogDraft.model} onChange={(event) => updateCatalogDraft("model", event.target.value)} required />
+                  </label>
+                  <label className="field">
+                    <span>Battery Type</span>
+                    <input value={catalogDraft.batteryType} onChange={(event) => updateCatalogDraft("batteryType", event.target.value)} required />
+                  </label>
+                  <label className="field">
+                    <span>Telemetry Provider</span>
+                    <select value={catalogDraft.telemetryProvider} onChange={(event) => updateCatalogDraft("telemetryProvider", event.target.value)}>
+                      {telemetryProviders.map((provider) => (
+                        <option key={provider} value={provider}>{formatOptionLabel(provider)}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Category</span>
+                    <input value={catalogDraft.category} onChange={(event) => updateCatalogDraft("category", event.target.value)} placeholder="Enterprise thermal" />
+                  </label>
+                  <label className="field">
+                    <span>Source URL</span>
+                    <input type="url" value={catalogDraft.sourceUrl} onChange={(event) => updateCatalogDraft("sourceUrl", event.target.value)} placeholder="https://manufacturer.example/specs" />
+                  </label>
+                  <label className="field">
+                    <span>Last Verified</span>
+                    <input type="date" value={catalogDraft.lastVerifiedAt} onChange={(event) => updateCatalogDraft("lastVerifiedAt", event.target.value)} />
+                  </label>
+                  <label className="checkbox-row catalog-active-toggle">
+                    <input type="checkbox" checked={catalogDraft.isActive} onChange={(event) => updateCatalogDraft("isActive", event.target.checked)} />
+                    <span>Active in registration</span>
+                  </label>
+                </div>
+                <div className="form-actions catalog-form-actions">
+                  <ActionButton type="button" onClick={resetCatalogForm} disabled={isSavingCatalog}>
+                    {editingCatalogId ? "Cancel Edit" : "Cancel"}
+                  </ActionButton>
+                  <ActionButton icon={Save} variant="primary" type="submit" isLoading={isSavingCatalog} disabled={isSavingCatalog}>
+                    {editingCatalogId ? "Update Model" : "Add Model"}
+                  </ActionButton>
+                </div>
+              </form>
+            )}
+
+            <div className="catalog-table-toolbar">
+              <label className="catalog-search-field">
+                <Search size={17} />
+                <input
+                  value={catalogSearch}
+                  onChange={(event) => setCatalogSearch(event.target.value)}
+                  placeholder="Search catalog models"
+                  aria-label="Search drone catalog models"
+                />
+              </label>
+              <span>
+                Showing {catalogShowingStart}-{catalogShowingEnd} of {filteredCatalogRows.length}
+              </span>
+            </div>
 
             <div className="catalog-table-wrap">
               <table className="data-table catalog-table">
@@ -575,8 +649,8 @@ const Settings = ({ user }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {catalogRows.map((row) => (
-                    <tr key={row.id}>
+                  {paginatedCatalogRows.map((row) => (
+                    <tr key={row.id} className={editingCatalogId === row.id ? "is-selected" : ""}>
                       <td>{row.manufacturer}</td>
                       <td><strong>{row.model}</strong></td>
                       <td>{row.batteryType}</td>
@@ -596,12 +670,12 @@ const Settings = ({ user }) => {
                       </td>
                     </tr>
                   ))}
-                  {!catalogRows.length && (
+                  {!filteredCatalogRows.length && (
                     <tr>
                       <td colSpan="6">
                         <div className="empty-table-state">
                           <Database size={22} />
-                          <span>No drone catalog models found.</span>
+                          <span>{catalogRows.length ? "No catalog models match this search." : "No drone catalog models found."}</span>
                         </div>
                       </td>
                     </tr>
@@ -609,6 +683,33 @@ const Settings = ({ user }) => {
                 </tbody>
               </table>
             </div>
+            {filteredCatalogRows.length > CATALOG_PAGE_SIZE && (
+              <div className="catalog-pagination">
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => setCatalogPage((current) => Math.max(1, current - 1))}
+                  disabled={catalogPage === 1}
+                  aria-label="Previous catalog page"
+                  title="Previous page"
+                >
+                  <ChevronLeft size={17} />
+                </button>
+                <span>
+                  Page {catalogPage} of {catalogTotalPages}
+                </span>
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => setCatalogPage((current) => Math.min(catalogTotalPages, current + 1))}
+                  disabled={catalogPage === catalogTotalPages}
+                  aria-label="Next catalog page"
+                  title="Next page"
+                >
+                  <ChevronRight size={17} />
+                </button>
+              </div>
+            )}
           </div>
         )}
         <div className="panel wide">

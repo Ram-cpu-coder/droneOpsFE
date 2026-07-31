@@ -5147,6 +5147,13 @@ tr:last-child td {
   display: grid;
   gap: 18px;
   padding: 0 24px 22px;
+  scroll-margin-top: 96px;
+  transition: background 180ms ease, box-shadow 180ms ease;
+}
+
+.catalog-form.is-editing {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--blue) 9%, transparent), transparent 68%);
+  box-shadow: inset 3px 0 0 var(--blue);
 }
 
 .catalog-active-toggle {
@@ -5157,6 +5164,54 @@ tr:last-child td {
 .catalog-form-actions {
   justify-content: flex-end;
   padding-top: 0;
+}
+
+.catalog-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 0 24px 16px;
+}
+
+.catalog-table-toolbar > span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.catalog-search-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(420px, 100%);
+  min-height: 42px;
+  padding: 0 12px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(137, 160, 190, 0.2);
+  border-radius: 8px;
+}
+
+.catalog-search-field:focus-within {
+  color: var(--blue);
+  border-color: color-mix(in srgb, var(--blue) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 16%, transparent);
+}
+
+.catalog-search-field input {
+  width: 100%;
+  min-width: 0;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+}
+
+.catalog-search-field input::placeholder {
+  color: var(--muted);
 }
 
 .catalog-table-wrap {
@@ -5193,8 +5248,36 @@ tr:last-child td {
   color: var(--text);
 }
 
+.catalog-table tbody tr {
+  transition: background 160ms ease;
+}
+
+.catalog-table tbody tr.is-selected td {
+  background: color-mix(in srgb, var(--blue) 11%, transparent);
+}
+
 .catalog-table tbody tr:last-child td {
   border-bottom: 0;
+}
+
+.catalog-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 24px 20px;
+  border-top: 1px solid rgba(137, 160, 190, 0.14);
+}
+
+.catalog-pagination span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.catalog-pagination .icon-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .table-actions {
