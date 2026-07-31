@@ -6,6 +6,15 @@ export const droneOpsApi = {
   },
   drones: {
     list: () => apiClient.get("/drones"),
+    catalog: (params = {}) => {
+      const query = new URLSearchParams(
+        Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== "")
+      ).toString();
+      return apiClient.get(`/drones/catalog${query ? `?${query}` : ""}`);
+    },
+    createCatalogModel: (payload) => apiClient.post("/drones/catalog", payload),
+    updateCatalogModel: (id, payload) => apiClient.put(`/drones/catalog/${id}`, payload),
+    removeCatalogModel: (id) => apiClient.delete(`/drones/catalog/${id}`),
     create: (payload) => apiClient.post("/drones", payload),
     update: (id, payload) => apiClient.put(`/drones/${id}`, payload),
     remove: (id) => apiClient.delete(`/drones/${id}`)
@@ -45,6 +54,7 @@ export const droneOpsApi = {
     summary: () => apiClient.get("/reports/summary"),
     create: (payload) => apiClient.post("/reports", payload),
     generate: (payload) => apiClient.post("/reports/generate", payload),
+    updateStatus: (id, status) => apiClient.put(`/reports/${id}/status`, { status }),
     remove: (id) => apiClient.delete(`/reports/${id}`)
   },
   geofences: {
@@ -60,6 +70,7 @@ export const droneOpsApi = {
   settings: {
     organisation: () => apiClient.get("/settings/organisation"),
     updateOrganisation: (payload) => apiClient.put("/settings/organisation", payload),
+    regenerateOrganisationJoinCode: () => apiClient.post("/settings/organisation/join-code/regenerate", {}),
     alertThresholds: () => apiClient.get("/settings/alert-thresholds"),
     updateAlertThresholds: (payload) => apiClient.put("/settings/alert-thresholds", payload)
   },
@@ -70,5 +81,15 @@ export const droneOpsApi = {
       ).toString();
       return apiClient.get(`/audit${query ? `?${query}` : ""}`);
     }
+  },
+  notifications: {
+    list: (params = {}) => {
+      const query = new URLSearchParams(
+        Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== "")
+      ).toString();
+      return apiClient.get(`/notifications${query ? `?${query}` : ""}`);
+    },
+    markRead: (auditLogIds = []) => apiClient.post("/notifications/read", { auditLogIds }),
+    markAllRead: () => apiClient.post("/notifications/read-all", {})
   }
 };

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Eye, EyeOff, ImagePlus, UserPlus } from "lucide-react";
 import ActionButton from "../../components/common/ActionButton";
 import { userRoles } from "../../data/authData";
@@ -44,13 +44,15 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
     name: "",
     email: "",
     password: "",
-    organization: "",
+    organizationCode: "",
     role: "operations_manager",
     profileImageUrl: "",
   });
 
   // Password visibility.
   const [showPassword, setShowPassword] = useState(false);
+  const [resolvedOrganization, setResolvedOrganization] = useState(null);
+  const [organizationLookup, setOrganizationLookup] = useState({ isLoading: false, error: "" });
 
   // Profile image upload state.
   const [imageUpload, setImageUpload] = useState({
@@ -68,12 +70,44 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
   // True only if all rules pass.
   const isPasswordValid = passwordStatus.every((rule) => rule.isValid);
 
+  useEffect(() => {
+    const code = form.organizationCode.trim();
+    setResolvedOrganization(null);
+
+    if (code.length < 4) {
+      setOrganizationLookup({ isLoading: false, error: "" });
+      return;
+    }
+
+    let isMounted = true;
+    setOrganizationLookup({ isLoading: true, error: "" });
+
+    const lookupTimer = window.setTimeout(async () => {
+      try {
+        const organisation = await authService.resolveOrganisationCode(code);
+        if (!isMounted) return;
+        setResolvedOrganization(organisation);
+        setOrganizationLookup({ isLoading: false, error: "" });
+      } catch (lookupError) {
+        if (!isMounted) return;
+        setResolvedOrganization(null);
+        setOrganizationLookup({ isLoading: false, error: lookupError.message });
+      }
+    }, 350);
+
+    return () => {
+      isMounted = false;
+      window.clearTimeout(lookupTimer);
+    };
+  }, [form.organizationCode]);
+
   // Submit signup form.
   const handleSubmit = (event) => {
     event.preventDefault();
 
     if (isLoading) return;
     if (!isPasswordValid) return;
+    if (!resolvedOrganization) return;
 
     onSignup(form);
   };
@@ -123,8 +157,7 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
       <div>
         <h2>Create account</h2>
         <p>
-          Register with identity, organization details, role, and optional
-          profile image reference.
+          Enter your organization code to join the correct DroneOps workspace.
         </p>
       </div>
 
@@ -196,17 +229,35 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
           ))}
         </div>
 
-        {/* Organization input */}
         <label className="field wide-field">
-          <span>Organization</span>
+          <span>Organization Code</span>
           <input
-            value={form.organization}
+            value={form.organizationCode}
             onChange={(event) =>
-              setForm({ ...form, organization: event.target.value })
+              setForm({ ...form, organizationCode: event.target.value })
             }
-            placeholder="Organization name"
+            placeholder="Organization code"
             required
           />
+          {organizationLookup.isLoading && (
+            <div className="organisation-code-status checking">
+              <small>Checking organisation code...</small>
+            </div>
+          )}
+          {!organizationLookup.isLoading && resolvedOrganization && (
+            <div className="organisation-code-status verified">
+              <Check size={14} strokeWidth={3} />
+              <div className="organisation-code-result">
+                <strong>{resolvedOrganization.name}</strong>
+                <small>Verified organisation</small>
+              </div>
+            </div>
+          )}
+          {!organizationLookup.isLoading && organizationLookup.error && (
+            <div className="organisation-code-status error">
+              <small>{organizationLookup.error}</small>
+            </div>
+          )}
         </label>
 
         {/* Role selection */}
@@ -263,7 +314,7 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
         icon={UserPlus}
         variant="primary"
         type="submit"
-        disabled={isLoading || imageUpload.isUploading || !isPasswordValid}
+        disabled={isLoading || imageUpload.isUploading || !isPasswordValid || !resolvedOrganization}
         isLoading={isLoading}
       >
         {isLoading ? "Creating account..." : "Create account"}

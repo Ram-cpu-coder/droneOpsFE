@@ -3,14 +3,22 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
 import StatusBadge from "../../../components/common/StatusBadge";
+import { droneOpsApi } from "../../../services/droneOpsApi";
 import IncidentForm from "./IncidentForm";
 
 const IncidentProfileDialog = ({ incident, canManage = false, onUpdated, onDeleted, onClose }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (event.key === "Escape") onClose?.();
+      if (event.key !== "Escape") return;
+      if (showDeleteConfirm) {
+        setShowDeleteConfirm(false);
+        return;
+      }
+      onClose?.();
     };
 
     document.body.classList.add("modal-open");
@@ -20,16 +28,20 @@ const IncidentProfileDialog = ({ incident, canManage = false, onUpdated, onDelet
       document.body.classList.remove("modal-open");
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose]);
+  }, [onClose, showDeleteConfirm]);
 
-  const handleDelete = () => {
-    const confirmed = window.confirm(`Delete ${incident.id} from the incident register?`);
-    if (!confirmed) return;
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    setError("");
 
     try {
+      await droneOpsApi.incidents.remove(incident.uuid ?? incident.idRaw ?? incident.id);
+      setShowDeleteConfirm(false);
       onDeleted?.(incident);
     } catch (requestError) {
       setError(requestError.message);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -118,13 +130,36 @@ const IncidentProfileDialog = ({ incident, canManage = false, onUpdated, onDelet
           {canManage && (
             <div className="form-actions">
               <ActionButton icon={Pencil} onClick={() => setIsEditing(true)}>Edit</ActionButton>
-              <ActionButton icon={Trash2} variant="danger" onClick={handleDelete}>Delete</ActionButton>
+              <ActionButton icon={Trash2} variant="danger" onClick={() => setShowDeleteConfirm(true)} disabled={isDeleting}>Delete</ActionButton>
             </div>
           )}
           <div className="form-actions">
             <ActionButton onClick={onClose}>Close</ActionButton>
           </div>
         </div>
+        {showDeleteConfirm && (
+          <div className="delete-confirm-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !isDeleting && setShowDeleteConfirm(false)}>
+            <div className="delete-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-incident-title" aria-describedby="delete-incident-description">
+              <div className="delete-confirm-icon">
+                <Trash2 size={24} />
+              </div>
+              <div>
+                <h3 id="delete-incident-title">Delete {incident.id}?</h3>
+                <p id="delete-incident-description">
+                  This removes the incident from the register and audit history will keep the deletion record.
+                </p>
+              </div>
+              <div className="delete-confirm-actions">
+                <ActionButton type="button" onClick={() => setShowDeleteConfirm(false)} disabled={isDeleting}>
+                  Cancel
+                </ActionButton>
+                <ActionButton icon={Trash2} variant="danger" type="button" onClick={handleDelete} disabled={isDeleting} isLoading={isDeleting}>
+                  {isDeleting ? "Deleting" : "Delete Incident"}
+                </ActionButton>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

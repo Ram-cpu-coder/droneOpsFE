@@ -136,6 +136,7 @@ const request = async (path, options = {}, retry = true) => {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers,
+    cache: "no-store",
     body:
       options.body instanceof FormData
         ? options.body

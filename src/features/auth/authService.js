@@ -362,7 +362,7 @@ export const authService = {
 
         const result = await apiClient.post("/auth/google/complete-profile", {
             credential: payload.credential,
-            organisationName: payload.organization,
+            organisationJoinCode: payload.organizationCode || undefined,
             role: apiRole,
         });
 
@@ -402,7 +402,7 @@ export const authService = {
             name: payload.name,
             email: payload.email,
             password: payload.password,
-            organisationName: payload.organization,
+            organisationJoinCode: payload.organizationCode || undefined,
             industry: payload.industry,
             profileImageUrl: profileImageUrl,
             role: apiRole,
@@ -414,6 +414,12 @@ export const authService = {
             devVerificationToken: result.devVerificationToken,
             user: decorateUser(result.user),
         };
+    },
+
+    async resolveOrganisationCode(organizationCode) {
+        return apiClient.post("/auth/organisation/resolve-code", {
+            organisationJoinCode: organizationCode,
+        });
     },
 
     /*

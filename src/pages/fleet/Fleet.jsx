@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Plane, Plus, Wrench, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Plane, Plus, Wrench, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ActionButton from "../../components/common/ActionButton";
 import BatteryMeter from "../../components/common/BatteryMeter";
 import DataTable from "../../components/common/DataTable";
 import MetricCard from "../../components/common/MetricCard";
-import ProgressBar from "../../components/common/ProgressBar";
 import SectionHeader from "../../components/common/SectionHeader";
 import StatusBadge from "../../components/common/StatusBadge";
-import { drones } from "../../data/droneOpsData";
 import { hasClientPermission } from "../../features/auth/accessControl";
 import { useApiResource } from "../../hooks/useApiResource";
 import { useFleetSearch } from "../../hooks/useFleetSearch";
@@ -29,7 +27,7 @@ const Fleet = ({ searchValue, user }) => {
     if (!canReadTelemetry) return Promise.resolve([]);
     return droneOpsApi.telemetry.live();
   }, [canReadTelemetry]);
-  const { data: apiDrones, error, isLoading, isFallback, refresh } = useApiResource(loadDrones, drones);
+  const { data: apiDrones, error, isLoading, isFallback, refresh } = useApiResource(loadDrones, []);
   const { data: telemetryRows } = useApiResource(loadTelemetry, []);
   const normalizedDrones = useMemo(() => apiDrones.map((drone) => normalizeDrone(drone, telemetryRows)), [apiDrones, telemetryRows]);
   const filteredDrones = useFleetSearch(normalizedDrones, searchValue);
@@ -76,12 +74,17 @@ const Fleet = ({ searchValue, user }) => {
     setShowRegisterDrone(true);
   };
 
+  const showToast = (nextToast) => {
+    setToast(nextToast);
+    window.setTimeout(() => setToast(null), 4500);
+  };
+
   return (
     <section className="page-stack">
       {toast && (
         <div className="toast-region" role="status" aria-live="polite">
-          <div className="toast-card success">
-            <CheckCircle2 size={20} />
+          <div className={`toast-card ${toast.type === "error" ? "error" : "success"}`}>
+            {toast.type === "error" ? <AlertTriangle size={20} /> : <CheckCircle2 size={20} />}
             <div>
               <strong>{toast.title}</strong>
               <p>{toast.message}</p>
@@ -99,17 +102,17 @@ const Fleet = ({ searchValue, user }) => {
         <MetricCard label="Maintenance" value={isLoading ? "..." : maintenanceCount} delta="Requires engineer review" icon={Wrench} tone="red" />
       </div>
 
-      {error && <div className="auth-alert">Backend unavailable: showing fallback fleet data. {error}</div>}
+      {error && <div className="auth-alert">Fleet records could not be loaded. {error}</div>}
       {canManageDrones && showRegisterDrone && (
         <RegisterDroneForm
           onRegistered={(registeredDrone) => {
             refresh();
             setShowRegisterDrone(false);
-            setToast({
+            showToast({
+              type: "success",
               title: "Drone registered",
               message: `${registeredDrone.droneCode} is now available in the fleet inventory.`
             });
-            window.setTimeout(() => setToast(null), 4500);
           }}
           onCancel={() => setShowRegisterDrone(false)}
         />
@@ -121,20 +124,20 @@ const Fleet = ({ searchValue, user }) => {
           onUpdated={(updatedDrone) => {
             refresh();
             navigate("/fleet");
-            setToast({
+            showToast({
+              type: "success",
               title: "Drone updated",
               message: `${updatedDrone.droneCode ?? updatedDrone.id} profile was saved.`
             });
-            window.setTimeout(() => setToast(null), 4500);
           }}
           onDeleted={(deletedDrone) => {
             refresh();
             navigate("/fleet");
-            setToast({
+            showToast({
+              type: "success",
               title: "Drone deleted",
               message: `${deletedDrone.id} was removed from the fleet.`
             });
-            window.setTimeout(() => setToast(null), 4500);
           }}
           onClose={() => navigate("/fleet")}
         />

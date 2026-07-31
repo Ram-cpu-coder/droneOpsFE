@@ -12,7 +12,7 @@ import {
   Sun,
   UserRound
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import LoadingLogo from "../common/LoadingLogo";
 import { hasClientPermission } from "../../features/auth/accessControl";
@@ -26,22 +26,13 @@ const themeOptions = [
   { id: "light", label: "Light", icon: Sun }
 ];
 
-const readStoredNotificationIds = (key) => {
-  try {
-    const stored = window.localStorage.getItem(key);
-    const parsed = stored ? JSON.parse(stored) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
 const TopBar = ({ title, description, routes = [], user, searchValue, themeMode, onSearchChange, onThemeModeChange }) => {
   const navigate = useNavigate();
   const notificationRef = useRef(null);
   const searchRef = useRef(null);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [notificationError, setNotificationError] = useState("");
   const [isNotificationLoading, setIsNotificationLoading] = useState(false);
   const lastLoadedAtRef = useRef(0);
@@ -50,17 +41,6 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
   const [globalResults, setGlobalResults] = useState([]);
   const [isGlobalSearching, setIsGlobalSearching] = useState(false);
   const [globalSearchError, setGlobalSearchError] = useState("");
-  const storageKeys = useMemo(() => {
-    const keys = new Set(["droneops-read-notifications"]);
-    if (user?.id) keys.add(`droneops-read-notifications:${user.id}`);
-    if (user?.email) keys.add(`droneops-read-notifications:${user.email.toLowerCase()}`);
-    return Array.from(keys);
-  }, [user?.email, user?.id]);
-  const [readNotificationIds, setReadNotificationIds] = useState([]);
-  const unreadCount = useMemo(
-    () => notifications.filter((item) => !readNotificationIds.includes(item.id)).length,
-    [notifications, readNotificationIds]
-  );
   const normalizedSearchValue = searchValue.trim().toLowerCase();
   const canRunGlobalSearch = normalizedSearchValue.length >= 2;
 
@@ -73,12 +53,13 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
     setNotificationError("");
 
     try {
-      const auditResult = canRead("audit:read") ? await droneOpsApi.audit.list({ limit: 20 }).catch(() => []) : [];
+      const notificationResult = await droneOpsApi.notifications.list({ limit: 30 });
 
       setNotifications(buildNotificationsFromEvents({
-        auditLogs: auditResult,
+        auditLogs: notificationResult.items ?? [],
         telemetryRows: []
       }));
+      setUnreadCount(Number(notificationResult.unreadCount ?? 0));
       const loadedAt = Date.now();
       lastLoadedAtRef.current = loadedAt;
     } catch (error) {
@@ -86,12 +67,7 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
     } finally {
       setIsNotificationLoading(false);
     }
-  }, [canRead]);
-
-  useEffect(() => {
-    const mergedIds = storageKeys.flatMap((key) => readStoredNotificationIds(key));
-    setReadNotificationIds(Array.from(new Set(mergedIds)));
-  }, [storageKeys]);
+  }, []);
 
   useEffect(() => {
     loadNotifications();
@@ -166,17 +142,53 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
     return () => window.clearTimeout(timerId);
   }, [canRead, canRunGlobalSearch, normalizedSearchValue, routes]);
 
-  const markNotificationsRead = useCallback((items) => {
+  const markNotificationsRead = useCallback(async (items) => {
     if (!items.length) return;
 
-    setReadNotificationIds((current) => {
-      const next = Array.from(new Set([...current, ...items.map((item) => item.id)]));
-      storageKeys.forEach((key) => {
-        window.localStorage.setItem(key, JSON.stringify(next));
-      });
-      return next;
-    });
-  }, [storageKeys]);
+    const unreadItems = items.filter((item) => !item.isRead);
+    if (!unreadItems.length) return;
+
+    setNotifications((current) =>
+      current.map((item) =>
+        unreadItems.some((unreadItem) => unreadItem.auditLogId === item.auditLogId)
+          ? { ...item, isRead: true, readAt: new Date().toISOString() }
+          : item
+      )
+    );
+    setUnreadCount((current) => Math.max(0, current - unreadItems.length));
+
+    try {
+      const result = await droneOpsApi.notifications.markRead(unreadItems.map((item) => item.auditLogId));
+
+      setNotifications(buildNotificationsFromEvents({
+        auditLogs: result.items ?? [],
+        telemetryRows: []
+      }));
+      setUnreadCount(Number(result.unreadCount ?? 0));
+    } catch (error) {
+      setNotificationError(error.message ?? "Notifications could not be marked read.");
+      loadNotifications({ force: true });
+    }
+  }, [loadNotifications]);
+
+  const markAllNotificationsRead = useCallback(async () => {
+    if (!unreadCount) return;
+
+    setNotifications((current) => current.map((item) => ({ ...item, isRead: true, readAt: new Date().toISOString() })));
+    setUnreadCount(0);
+
+    try {
+      const result = await droneOpsApi.notifications.markAllRead();
+      setNotifications(buildNotificationsFromEvents({
+        auditLogs: result.items ?? [],
+        telemetryRows: []
+      }));
+      setUnreadCount(Number(result.unreadCount ?? 0));
+    } catch (error) {
+      setNotificationError(error.message ?? "Notifications could not be marked read.");
+      loadNotifications({ force: true });
+    }
+  }, [loadNotifications, unreadCount]);
 
   const handleNotificationClick = () => {
     const nextOpenState = !isNotificationsOpen;
@@ -287,7 +299,7 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
                     <button
                       className="notification-read-button"
                       type="button"
-                      onClick={() => markNotificationsRead(notifications)}
+                      onClick={markAllNotificationsRead}
                     >
                       Mark all read
                     </button>
@@ -317,10 +329,9 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
                 )}
                 {notifications.map((item) => {
                   const Icon = item.priority === "info" ? CheckCircle2 : AlertTriangle;
-                  const isRead = readNotificationIds.includes(item.id);
                   return (
                     <button
-                      className={`notification-item ${item.priority} ${isRead ? "is-read" : "is-unread"}`}
+                      className={`notification-item ${item.priority} ${item.isRead ? "is-read" : "is-unread"}`}
                       key={item.id}
                       type="button"
                       onClick={() => handleNotificationItemClick(item)}

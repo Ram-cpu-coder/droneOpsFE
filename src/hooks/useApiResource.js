@@ -21,7 +21,7 @@ export const useApiResource = (loader, fallbackData = [], options = {}) => {
   const [isFallback, setIsFallback] = useState(false);
   const fallbackRef = useRef(fallbackData);
 
-  const loadWithColdStartRetry = async () => {
+  const loadWithColdStartRetry = useCallback(async () => {
     try {
       return await loader();
     } catch (error) {
@@ -33,7 +33,7 @@ export const useApiResource = (loader, fallbackData = [], options = {}) => {
       await new Promise((resolve) => window.setTimeout(resolve, 800));
       return loader();
     }
-  };
+  }, [loader]);
 
   useEffect(() => {
     fallbackRef.current = fallbackData;
@@ -67,7 +67,7 @@ export const useApiResource = (loader, fallbackData = [], options = {}) => {
     } finally {
       setIsLoading(false);
     }
-  }, [cacheKey, cachedEntry, enabled, loader]);
+  }, [cacheKey, cachedEntry, enabled, loadWithColdStartRetry]);
 
   useEffect(() => {
     if (isCacheFresh) return;

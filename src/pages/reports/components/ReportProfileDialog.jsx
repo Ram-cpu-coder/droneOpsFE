@@ -3,15 +3,17 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
 import StatusBadge from "../../../components/common/StatusBadge";
+import { droneOpsApi } from "../../../services/droneOpsApi";
 import { exportSingleReport } from "../../../utils/reportExport";
 
 const exportableStatuses = new Set(["READY", "GENERATED"]);
-const reviewStatuses = ["Review", "Ready"];
+const reviewStatuses = ["REVIEW", "READY"];
 
 const ReportProfileDialog = ({ report, canDelete = false, canManageStatus = false, onStatusChange, onDeleted, onClose }) => {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [exportError, setExportError] = useState("");
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const isExportable = exportableStatuses.has(String(report.status ?? "").toUpperCase());
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -32,8 +34,9 @@ const ReportProfileDialog = ({ report, canDelete = false, canManageStatus = fals
     };
   }, [onClose, showDeleteConfirm]);
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     try {
+      await droneOpsApi.reports.remove(report.uuid ?? report.id);
       onDeleted?.(report);
       setShowDeleteConfirm(false);
     } catch (requestError) {
@@ -155,15 +158,22 @@ const ReportProfileDialog = ({ report, canDelete = false, canManageStatus = fals
                 {reviewStatuses.map((status) => (
                   <ActionButton
                     key={status}
-                    icon={status === "Ready" ? Download : FileText}
-                    variant={status === "Ready" ? "primary" : "secondary"}
-                    onClick={() => {
-                      onStatusChange?.(report, status);
+                    icon={status === "READY" ? Download : FileText}
+                    variant={status === "READY" ? "primary" : "secondary"}
+                    onClick={async () => {
+                      setIsUpdatingStatus(true);
                       setExportError("");
+                      try {
+                        await onStatusChange?.(report, status);
+                      } catch (requestError) {
+                        setExportError(requestError.message);
+                      } finally {
+                        setIsUpdatingStatus(false);
+                      }
                     }}
-                    disabled={status === report.status}
+                    disabled={isUpdatingStatus || status === String(report.status ?? "").toUpperCase()}
                   >
-                    {status === "Ready" ? "Approve for Export" : "Return to Review"}
+                    {status === "READY" ? "Approve for Export" : "Return to Review"}
                   </ActionButton>
                 ))}
               </div>

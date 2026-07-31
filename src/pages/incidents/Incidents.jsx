@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, ShieldCheck, UserRoundCheck, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ActionButton from "../../components/common/ActionButton";
@@ -6,9 +6,10 @@ import DataTable from "../../components/common/DataTable";
 import MetricCard from "../../components/common/MetricCard";
 import SectionHeader from "../../components/common/SectionHeader";
 import StatusBadge from "../../components/common/StatusBadge";
-import { incidents } from "../../data/droneOpsData";
 import { hasClientPermission } from "../../features/auth/accessControl";
+import { useApiResource } from "../../hooks/useApiResource";
 import { useFleetSearch } from "../../hooks/useFleetSearch";
+import { droneOpsApi } from "../../services/droneOpsApi";
 import IncidentForm from "./components/IncidentForm";
 import IncidentProfileDialog from "./components/IncidentProfileDialog";
 
@@ -17,13 +18,14 @@ const Incidents = ({ searchValue, user }) => {
   const navigate = useNavigate();
   const [showIncidentForm, setShowIncidentForm] = useState(false);
   const [selectedIncident, setSelectedIncident] = useState(null);
-  const [incidentRecords, setIncidentRecords] = useState(incidents);
   const [toast, setToast] = useState(null);
   const canCreateIncident = hasClientPermission(user, "incidents:manage") || hasClientPermission(user, "incidents:create");
   const canManageIncident = hasClientPermission(user, "incidents:manage");
-  const normalizedIncidents = useMemo(() => incidentRecords.map(normalizeIncident), [incidentRecords]);
+  const loadIncidents = useCallback(() => droneOpsApi.incidents.list(), []);
+  const { data: apiIncidents, error, isLoading, isFallback, refresh } = useApiResource(loadIncidents, []);
+  const normalizedIncidents = useMemo(() => apiIncidents.map(normalizeIncident), [apiIncidents]);
   const filteredIncidents = useFleetSearch(normalizedIncidents, searchValue);
-  const metricIncidents = normalizedIncidents;
+  const metricIncidents = isFallback ? [] : normalizedIncidents;
   const routeIncidentId = useMemo(() => getDetailId(location.pathname, "/incidents"), [location.pathname]);
   const openIncidentCount = metricIncidents.filter((incident) => !["CLOSED", "Closed", "RESOLVED", "Resolved"].includes(incident.status)).length;
   const highCount = metricIncidents.filter((incident) => ["HIGH", "CRITICAL", "High", "Critical"].includes(incident.severity)).length;
@@ -76,19 +78,13 @@ const Incidents = ({ searchValue, user }) => {
           incident={selectedIncident}
           canManage={canManageIncident}
           onUpdated={(updatedIncident) => {
-            setIncidentRecords((current) => current.map((incident) => (
-              incident.id === updatedIncident.id || incident.id === updatedIncident.incidentCode
-                ? updatedIncident
-                : incident
-            )));
+            refresh();
             navigate("/incidents");
-            setToast({ title: "Incident updated", message: `${selectedIncident.id} was updated successfully.` });
+            setToast({ title: "Incident updated", message: `${updatedIncident?.incidentCode ?? selectedIncident.id} was updated successfully.` });
             window.setTimeout(() => setToast(null), 4500);
           }}
           onDeleted={() => {
-            setIncidentRecords((current) => current.filter((incident) => (
-              incident.id !== selectedIncident.id && incident.id !== selectedIncident.idRaw && incident.incidentCode !== selectedIncident.id
-            )));
+            refresh();
             navigate("/incidents");
             setToast({ title: "Incident deleted", message: `${selectedIncident.id} was removed from the register.` });
             window.setTimeout(() => setToast(null), 4500);
@@ -112,10 +108,11 @@ const Incidents = ({ searchValue, user }) => {
       )}
 
       <div className="stats-grid three">
-        <MetricCard label="Open Incidents" value={openIncidentCount} delta="Dummy incident records" icon={AlertTriangle} tone="red" />
+        <MetricCard label="Open Incidents" value={isLoading ? "..." : openIncidentCount} delta={isFallback ? "Backend unavailable" : "Live incident records"} icon={AlertTriangle} tone="red" />
         <MetricCard label="High Severity" value={highCount} delta="High or critical records" icon={ShieldCheck} tone="red" />
         <MetricCard label="Assigned Owners" value={assignedOwnerCount} delta="Unique assigned owners" icon={UserRoundCheck} tone="green" />
       </div>
+      {error && <div className="auth-alert">Incident records could not be loaded. {error}</div>}
       <div className="panel">
         <SectionHeader
           title="Incident Register"
@@ -134,13 +131,13 @@ const Incidents = ({ searchValue, user }) => {
           columns={columns}
           rows={filteredIncidents}
           getRowKey={(incident) => incident.id}
-          emptyMessage="No incidents logged yet."
+          emptyMessage={isLoading ? "Loading incidents..." : "No incidents logged yet."}
         />
       </div>
       {canCreateIncident && showIncidentForm && (
         <IncidentForm
           onCreated={(incident) => {
-            setIncidentRecords((current) => [incident, ...current]);
+            refresh();
             setShowIncidentForm(false);
             setToast({
               title: "Incident logged",
