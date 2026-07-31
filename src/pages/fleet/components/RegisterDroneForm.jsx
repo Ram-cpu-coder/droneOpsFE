@@ -1,5 +1,5 @@
-import { CalendarClock, ClipboardCheck, Cpu, FileCheck2, Info, Plane, RadioTower, Save, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AlertTriangle, CalendarClock, ClipboardCheck, Cpu, FileCheck2, Info, Plane, RadioTower, Save, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
 import { droneOpsApi } from "../../../services/droneOpsApi";
@@ -42,12 +42,14 @@ const initialForm = {
 };
 
 const RegisterDroneForm = ({ onRegistered, onCancel }) => {
+  const validationToastTimerRef = useRef(null);
   const [form, setForm] = useState(initialForm);
-  const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [modelCatalog, setModelCatalog] = useState([]);
+  const [validationToast, setValidationToast] = useState(null);
+  const [fieldErrors, setFieldErrors] = useState({});
   const needsCertificationDetails = form.certificationStatus === "CERTIFIED";
   const manufacturerOptions = modelCatalog.map((entry) => entry.manufacturer);
   const selectedModelOptions = getModelOptions(modelCatalog, form.manufacturer);
@@ -63,6 +65,7 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
     return () => {
       document.body.classList.remove("modal-open");
       window.removeEventListener("keydown", handleKeyDown);
+      window.clearTimeout(validationToastTimerRef.current);
     };
   }, [onCancel]);
 
@@ -74,7 +77,7 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
         if (isMounted) setModelCatalog(Array.isArray(catalog) ? catalog : []);
       })
       .catch(() => {
-        if (isMounted) setError("Drone model catalog could not be loaded. Please try again.");
+        if (isMounted) showRegistrationError("Drone model catalog could not be loaded. Please try again.");
       });
 
     return () => {
@@ -83,6 +86,11 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
   }, []);
 
   const updateField = (field, value) => {
+    setFieldErrors((current) => {
+      if (!current[field]) return current;
+      const { [field]: _removed, ...nextErrors } = current;
+      return nextErrors;
+    });
     setForm((current) => {
       if (field === "manufacturer") {
         return {
@@ -110,18 +118,28 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
     });
   };
 
+  const showRegistrationError = (message) => {
+    setValidationToast({
+      title: "Drone registration needs review",
+      message
+    });
+    window.clearTimeout(validationToastTimerRef.current);
+    validationToastTimerRef.current = window.setTimeout(() => setValidationToast(null), 4500);
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setIsSaving(true);
-    setError("");
 
     try {
       const validationError = validateDroneRegistration(form);
       if (validationError) {
-        setError(validationError);
+        setFieldErrors(validationError.fields ?? {});
+        showRegistrationError(validationError.message);
         return;
       }
 
+      setFieldErrors({});
       const registeredDrone = await droneOpsApi.drones.create({
         model: form.model,
         manufacturer: form.manufacturer,
@@ -149,7 +167,8 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
         droneCode: registeredDrone.droneCode
       });
     } catch (requestError) {
-      setError(requestError.message);
+      setFieldErrors({});
+      showRegistrationError(requestError.message);
     } finally {
       setIsSaving(false);
     }
@@ -157,6 +176,20 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
 
   const dialog = (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onCancel?.()}>
+      {validationToast && (
+        <div className="modal-toast-region" role="status" aria-live="polite">
+          <div className="toast-card error">
+            <AlertTriangle size={20} />
+            <div>
+              <strong>{validationToast.title}</strong>
+              <p>{validationToast.message}</p>
+            </div>
+            <button className="toast-close" type="button" onClick={() => setValidationToast(null)} aria-label="Dismiss notification">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
       <form className="modal-dialog registration-dialog" role="dialog" aria-modal="true" aria-labelledby="register-drone-title" onSubmit={handleSubmit}>
         <div className="modal-header">
           <div>
@@ -170,8 +203,6 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
         </div>
 
         <div className="modal-body">
-          {error && <div className="auth-alert">{error}</div>}
-
           <div className="form-layout modal-form-layout">
             <FormSection icon={Plane} title="Aircraft Identity" variant="primary">
               <SelectField label="Manufacturer" value={form.manufacturer} onChange={(value) => updateField("manufacturer", value)} options={manufacturerOptions} required disabled={!manufacturerOptions.length} />
@@ -201,9 +232,9 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
             </FormSection>
 
             <FormSection icon={CalendarClock} title="Maintenance">
-              <Field label="Purchase Date" type="date" value={form.purchaseDate} onChange={(value) => updateField("purchaseDate", value)} max={todayInputValue()} />
-              <Field label="Next Inspection Due" type="date" value={form.nextInspectionDue} onChange={(value) => updateField("nextInspectionDue", value)} />
-              <Field label="Last Maintenance Date" type="date" value={form.lastMaintenanceDate} onChange={(value) => updateField("lastMaintenanceDate", value)} max={todayInputValue()} />
+              <Field label="Purchase Date" type="date" value={form.purchaseDate} onChange={(value) => updateField("purchaseDate", value)} max={todayInputValue()} error={fieldErrors.purchaseDate} />
+              <Field label="Next Inspection Due" type="date" value={form.nextInspectionDue} onChange={(value) => updateField("nextInspectionDue", value)} error={fieldErrors.nextInspectionDue} />
+              <Field label="Last Maintenance Date" type="date" value={form.lastMaintenanceDate} onChange={(value) => updateField("lastMaintenanceDate", value)} max={todayInputValue()} error={fieldErrors.lastMaintenanceDate} />
               <Field label="Flight-Hour Inspection Threshold" type="number" value={form.inspectionThresholdHours} onChange={(value) => updateField("inspectionThresholdHours", value)} placeholder="50" min="0" />
             </FormSection>
 
@@ -281,12 +312,12 @@ const FormSection = ({ icon: Icon, title, children, variant = "" }) => {
   );
 };
 
-const Field = ({ label, type = "text", placeholder = "", value, onChange, required = false, min, max, help }) => {
+const Field = ({ label, type = "text", placeholder = "", value, onChange, required = false, min, max, help, error }) => {
   return (
-    <label className="field">
+    <label className={`field ${error ? "has-error" : ""}`}>
       <span>{label}</span>
       <input type={type} value={value ?? ""} onChange={(event) => onChange?.(event.target.value)} placeholder={placeholder} required={required} min={min} max={max} />
-      {help && <small>{help}</small>}
+      {error ? <small className="field-error">{error}</small> : help && <small>{help}</small>}
     </label>
   );
 };
@@ -355,37 +386,45 @@ const validateDroneRegistration = (form) => {
   const nextInspectionDue = toDateOnly(form.nextInspectionDue);
   const certificationExpiry = toDateOnly(form.certificationExpiry);
 
-  if (!form.manufacturer) return "Manufacturer is required.";
-  if (!form.model) return "Model is required.";
-  if (!form.batteryType) return "Battery type could not be detected for this model.";
-  if (purchaseDate && purchaseDate > today) return "Purchase date cannot be in the future.";
-  if (lastMaintenanceDate && lastMaintenanceDate > today) return "Last maintenance date cannot be in the future.";
+  if (!form.manufacturer) return validationResult("Manufacturer is required.");
+  if (!form.model) return validationResult("Model is required.");
+  if (!form.batteryType) return validationResult("Battery type could not be detected for this model.");
+  if (purchaseDate && purchaseDate > today) return validationResult("Purchase date cannot be in the future.", { purchaseDate: "Cannot be in the future." });
+  if (lastMaintenanceDate && lastMaintenanceDate > today) return validationResult("Last maintenance date cannot be in the future.", { lastMaintenanceDate: "Cannot be in the future." });
   if (purchaseDate && lastMaintenanceDate && lastMaintenanceDate < purchaseDate) {
-    return "Last maintenance date cannot be before the purchase date.";
+    return validationResult("Last maintenance date cannot be before the purchase date.", {
+      purchaseDate: "Check this purchase date.",
+      lastMaintenanceDate: "Cannot be before purchase date."
+    });
   }
   if (lastMaintenanceDate && nextInspectionDue && nextInspectionDue < lastMaintenanceDate) {
-    return "Next inspection due cannot be before the last maintenance date.";
+    return validationResult("Next inspection due cannot be before the last maintenance date.", {
+      lastMaintenanceDate: "Check this maintenance date.",
+      nextInspectionDue: "Cannot be before last maintenance."
+    });
   }
   if (form.certificationStatus === "CERTIFIED" && !form.certificationReference.trim()) {
-    return "Certification reference is required when certification status is Certified.";
+    return validationResult("Certification reference is required when certification status is Certified.");
   }
   if (form.certificationStatus === "CERTIFIED" && !certificationExpiry) {
-    return "Certification expiry is required when certification status is Certified.";
+    return validationResult("Certification expiry is required when certification status is Certified.");
   }
   if (form.certificationStatus === "CERTIFIED" && certificationExpiry < today) {
-    return "Expired certification cannot be marked Certified.";
+    return validationResult("Expired certification cannot be marked Certified.");
   }
   if (form.status === "AVAILABLE" && form.certificationStatus !== "CERTIFIED") {
-    return "Only certified drones can be marked Available.";
+    return validationResult("Only certified drones can be marked Available.");
   }
   if (form.status === "AVAILABLE" && certificationExpiry && certificationExpiry < today) {
-    return "A drone with expired certification cannot be marked Available.";
+    return validationResult("A drone with expired certification cannot be marked Available.");
   }
   if (form.telemetryProvider !== "NONE" && !form.externalDeviceId.trim()) {
-    return "Vendor drone/device ID is required when a telemetry connector is selected.";
+    return validationResult("Vendor drone/device ID is required when a telemetry connector is selected.");
   }
 
-  return "";
+  return null;
 };
+
+const validationResult = (message, fields = {}) => ({ message, fields });
 
 export default RegisterDroneForm;

@@ -1867,6 +1867,14 @@ body.modal-open {
   width: min(420px, calc(100vw - 28px));
 }
 
+.modal-toast-region {
+  position: fixed;
+  top: 22px;
+  right: 22px;
+  z-index: 10030;
+  width: min(420px, calc(100vw - 28px));
+}
+
 .toast-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -5487,6 +5495,19 @@ input[type="number"] {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.35;
+}
+
+.field.has-error input,
+.field.has-error select,
+.field.has-error textarea {
+  border-color: rgba(255, 93, 115, 0.78);
+  background: rgba(255, 93, 115, 0.1);
+  box-shadow: 0 0 0 3px rgba(255, 93, 115, 0.13);
+}
+
+.field .field-error {
+  color: #ff9baa;
+  font-weight: 750;
 }
 
 .field-note {
