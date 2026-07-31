@@ -43,6 +43,8 @@ const shouldNotifyActivityChange = (method = "GET", path = "") => {
     "/auth/refresh-token",
     "/auth/forgot-password",
     "/auth/reset-password",
+    "/notifications/read",
+    "/notifications/read-all",
   ];
 
   return !ignoredPaths.some((ignoredPath) => path.startsWith(ignoredPath));

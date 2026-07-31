@@ -86,7 +86,7 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
           user={user}
           onUpdated={(updatedMission, action) => {
             refresh();
-            navigate("/missions");
+            if (action !== "riskAssessment") navigate("/missions");
             setToast({
               title: getMissionToastTitle(action),
               message: getMissionToastMessage(updatedMission ?? selectedMission, action)
@@ -175,6 +175,7 @@ const normalizeMission = (mission) => ({
 
 const getMissionToastTitle = (action) => {
   if (action === "approve") return "Mission approved";
+  if (action === "riskAssessment") return "Risk assessment saved";
   if (action === "start") return "Mission started";
   if (action === "complete") return "Mission completed";
   return "Mission updated";
@@ -183,6 +184,7 @@ const getMissionToastTitle = (action) => {
 const getMissionToastMessage = (mission, action) => {
   const label = mission?.missionCode ?? mission?.id ?? "Mission";
   if (action === "approve") return `${label} is approved and ready to be started.`;
+  if (action === "riskAssessment") return `${label} passed pre-flight risk assessment checks.`;
   if (action === "start") return `${label} is now active.`;
   if (action === "complete") return `${label} is now completed.`;
   return `${label} was updated successfully.`;

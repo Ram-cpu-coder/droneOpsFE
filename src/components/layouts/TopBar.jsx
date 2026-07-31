@@ -36,6 +36,7 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
   const [notificationError, setNotificationError] = useState("");
   const [isNotificationLoading, setIsNotificationLoading] = useState(false);
   const lastLoadedAtRef = useRef(0);
+  const notificationRequestRef = useRef(0);
   const searchRequestRef = useRef(0);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [globalResults, setGlobalResults] = useState([]);
@@ -49,11 +50,14 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
   const loadNotifications = useCallback(async ({ force = false } = {}) => {
     if (!force && lastLoadedAtRef.current && Date.now() - lastLoadedAtRef.current < 60000) return;
 
+    const requestId = notificationRequestRef.current + 1;
+    notificationRequestRef.current = requestId;
     setIsNotificationLoading(true);
     setNotificationError("");
 
     try {
       const notificationResult = await droneOpsApi.notifications.list({ limit: 30 });
+      if (notificationRequestRef.current !== requestId) return;
 
       setNotifications(buildNotificationsFromEvents({
         auditLogs: notificationResult.items ?? [],
@@ -63,9 +67,12 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
       const loadedAt = Date.now();
       lastLoadedAtRef.current = loadedAt;
     } catch (error) {
+      if (notificationRequestRef.current !== requestId) return;
       setNotificationError(error.message ?? "Notifications could not be loaded.");
     } finally {
-      setIsNotificationLoading(false);
+      if (notificationRequestRef.current === requestId) {
+        setIsNotificationLoading(false);
+      }
     }
   }, []);
 
@@ -156,6 +163,7 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
       )
     );
     setUnreadCount((current) => Math.max(0, current - unreadItems.length));
+    notificationRequestRef.current += 1;
 
     try {
       const result = await droneOpsApi.notifications.markRead(unreadItems.map((item) => item.auditLogId));
@@ -176,6 +184,7 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
 
     setNotifications((current) => current.map((item) => ({ ...item, isRead: true, readAt: new Date().toISOString() })));
     setUnreadCount(0);
+    notificationRequestRef.current += 1;
 
     try {
       const result = await droneOpsApi.notifications.markAllRead();

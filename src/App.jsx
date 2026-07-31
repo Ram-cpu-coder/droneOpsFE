@@ -58,6 +58,31 @@ const authViewToPath = {
   google_onboarding: "/google-setup",
 };
 
+const protectedRedirectKey = "droneops_redirect_after_login";
+
+const getProtectedRedirect = (location) => {
+  const params = new URLSearchParams(location.search);
+  const redirect = params.get("redirect");
+
+  if (isAppRedirectPath(redirect)) return redirect;
+
+  const storedRedirect = window.sessionStorage.getItem(protectedRedirectKey);
+  return isAppRedirectPath(storedRedirect) ? storedRedirect : "";
+};
+
+const getRouteForPath = (path) => {
+  return appRoutes.find(
+    (route) =>
+      path === route.path ||
+      path.startsWith(`${route.path}/`),
+  ) ?? null;
+};
+
+const isAppRedirectPath = (path) => {
+  if (!path || !path.startsWith("/") || path.startsWith("//")) return false;
+  return Boolean(getRouteForPath(path));
+};
+
 const App = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -147,6 +172,14 @@ const App = () => {
       }
 
       const pathAuthView = authPathToView[location.pathname];
+      const isAuthPath = Boolean(pathAuthView);
+
+      if (!isAuthPath && location.pathname !== "/") {
+        const redirectPath = `${location.pathname}${location.search}`;
+        window.sessionStorage.setItem(protectedRedirectKey, redirectPath);
+        navigate(`/login?redirect=${encodeURIComponent(redirectPath)}`, { replace: true });
+        return;
+      }
 
       // First auth route setup.
       if (!authRouteInitializedRef.current) {
@@ -160,7 +193,11 @@ const App = () => {
         }
 
         if (location.pathname !== initialAuthPath) {
-          navigate(initialAuthPath, { replace: true });
+          const redirectPath = getProtectedRedirect(location);
+          const authPath = initialAuthPath === "/login" && redirectPath
+            ? `/login?redirect=${encodeURIComponent(redirectPath)}`
+            : initialAuthPath;
+          navigate(authPath, { replace: true });
         }
 
         return;
@@ -170,7 +207,11 @@ const App = () => {
       const nextAuthPath = authViewToPath[authView] ?? "/login";
 
       if (location.pathname !== nextAuthPath) {
-        navigate(nextAuthPath, { replace: true });
+        const redirectPath = getProtectedRedirect(location);
+        const authPath = nextAuthPath === "/login" && redirectPath
+          ? `/login?redirect=${encodeURIComponent(redirectPath)}`
+          : nextAuthPath;
+        navigate(authPath, { replace: true });
       }
 
       return;
@@ -178,6 +219,20 @@ const App = () => {
 
     // User is logged in, so auth setup can reset.
     authRouteInitializedRef.current = false;
+
+    const pendingProtectedPath = getProtectedRedirect(location);
+    const pendingRoute = pendingProtectedPath ? getRouteForPath(pendingProtectedPath) : null;
+
+    if (pendingProtectedPath && pendingRoute && canAccessRoute(session.user, pendingRoute)) {
+      window.sessionStorage.removeItem(protectedRedirectKey);
+      dispatch(routeChanged(pendingRoute.id));
+      navigate(pendingProtectedPath, { replace: true });
+      return;
+    }
+
+    if (pendingProtectedPath && pendingRoute) {
+      window.sessionStorage.removeItem(protectedRedirectKey);
+    }
 
     // Use current route or first allowed route.
     const nextRoute =
@@ -200,7 +255,9 @@ const App = () => {
     currentAppRoute,
     dispatch,
     isBootstrapping,
+    location,
     location.pathname,
+    location.search,
     navigate,
     session,
   ]);
@@ -213,11 +270,15 @@ const App = () => {
 
     restoredRouteHandledRef.current = true;
 
+    if (getProtectedRedirect(location)) return;
+
+    if (currentAppRoute) return;
+
     if (location.pathname !== "/dashboard") {
       dispatch(routeChanged("dashboard"));
       navigate("/dashboard", { replace: true });
     }
-  }, [dispatch, location.pathname, navigate, restoredSession, session]);
+  }, [currentAppRoute, dispatch, location, location.pathname, navigate, restoredSession, session]);
 
   // Navigate between app routes.
   const handleNavigate = useCallback(
@@ -282,6 +343,7 @@ const App = () => {
     restoredSession &&
     !restoredRouteHandledRef.current &&
     session?.user &&
+    !currentAppRoute &&
     location.pathname !== "/dashboard";
 
   // Page component to render.

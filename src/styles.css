@@ -1596,7 +1596,7 @@ body.modal-open {
 }
 
 .profile-dialog {
-  width: min(980px, 100%);
+  width: min(1040px, 100%);
 }
 
 .delete-confirm-overlay {
@@ -1666,11 +1666,14 @@ body.modal-open {
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
-  margin: 20px 24px;
-  padding: 18px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(137, 160, 190, 0.16);
+  margin: 20px 24px 16px;
+  padding: 18px 20px;
+  background:
+    linear-gradient(135deg, rgba(77, 141, 255, 0.1), rgba(82, 211, 172, 0.055)),
+    rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(137, 160, 190, 0.2);
   border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
 }
 
 .profile-header-actions {
@@ -1682,11 +1685,12 @@ body.modal-open {
 .profile-aircraft-icon {
   display: grid;
   place-items: center;
-  width: 70px;
-  height: 70px;
+  width: 68px;
+  height: 68px;
   color: #ffffff;
   background: linear-gradient(145deg, #1d6fea, #52d3ac);
   border-radius: 16px;
+  box-shadow: 0 18px 38px rgba(29, 111, 234, 0.22);
 }
 
 .user-profile-avatar {
@@ -1753,24 +1757,28 @@ body.modal-open {
 .profile-hero p {
   margin-top: 4px;
   color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 .profile-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  padding: 0 24px 20px;
+  gap: 12px;
+  padding: 0 24px 16px;
 }
 
 .profile-metric {
   display: grid;
-  gap: 6px;
-  min-height: 118px;
-  padding: 16px;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 7px;
+  min-height: 106px;
+  padding: 15px;
   color: var(--text);
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(137, 160, 190, 0.16);
   border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
 .profile-metric svg {
@@ -1780,17 +1788,21 @@ body.modal-open {
 .profile-metric span {
   color: var(--muted);
   font-size: 12px;
+  font-weight: 750;
 }
 
 .profile-metric strong {
-  font-size: 24px;
+  align-self: end;
+  overflow-wrap: anywhere;
+  font-size: clamp(18px, 2vw, 23px);
+  line-height: 1.15;
 }
 
 .profile-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  padding: 0 24px 24px;
+  gap: 12px;
+  padding: 0 24px 18px;
 }
 
 .profile-edit-grid {
@@ -1805,14 +1817,19 @@ body.modal-open {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(137, 160, 190, 0.16);
   border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
 .profile-section-title {
   display: flex;
   gap: 9px;
   align-items: center;
-  margin-bottom: 14px;
+  margin-bottom: 13px;
   color: var(--text);
+}
+
+.profile-section-title svg {
+  color: #8bb8ff;
 }
 
 .profile-section-title h3 {
@@ -1828,12 +1845,19 @@ body.modal-open {
 
 .profile-section dl {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .profile-section dl > div {
   display: grid;
-  gap: 3px;
+  gap: 4px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid rgba(137, 160, 190, 0.09);
+}
+
+.profile-section dl > div:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 
 .profile-section dt {
@@ -3896,12 +3920,15 @@ tr:last-child td {
 
 .profile-location-card {
   display: grid;
-  gap: 14px;
-  margin: 0 24px 24px;
+  gap: 16px;
+  margin: 0 24px 18px;
   padding: 18px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(137, 160, 190, 0.16);
-  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.052), rgba(255, 255, 255, 0.032)),
+    rgba(5, 12, 23, 0.24);
+  border: 1px solid rgba(137, 160, 190, 0.18);
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .profile-location-header,
@@ -3919,13 +3946,14 @@ tr:last-child td {
 
 .profile-location-header h3 {
   color: var(--text);
-  font-size: 16px;
+  font-size: 17px;
 }
 
 .profile-location-header p,
 .profile-location-meta {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .profile-location-header > span {
@@ -4563,22 +4591,22 @@ tr:last-child td {
 }
 
 .mission-progress-panel {
-  margin-top: 8px;
+  margin-top: 0;
 }
 
 .mission-route-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
-  margin-top: 14px;
+  margin-top: 0;
 }
 
 .mission-route-summary > div,
 .mission-waypoint-list > div {
   padding: 12px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(137, 160, 190, 0.16);
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.038);
+  border: 1px solid rgba(137, 160, 190, 0.14);
+  border-radius: 10px;
 }
 
 .mission-route-summary dt {
@@ -4598,11 +4626,11 @@ tr:last-child td {
 .mission-notes-panel,
 .dialog-rich-text,
 .dialog-json-block {
-  margin-top: 14px;
-  padding: 14px;
+  margin-top: 0;
+  padding: 14px 15px;
   color: var(--text);
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(137, 160, 190, 0.16);
+  background: rgba(255, 255, 255, 0.038);
+  border: 1px solid rgba(137, 160, 190, 0.15);
   border-radius: 10px;
 }
 
@@ -4616,6 +4644,204 @@ tr:last-child td {
   margin: 0;
   color: var(--muted);
   line-height: 1.6;
+}
+
+.mission-profile-map-shell,
+.mission-profile-map-empty {
+  position: relative;
+  min-height: 300px;
+  margin-top: 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.032);
+  border: 1px solid rgba(137, 160, 190, 0.18);
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(2, 8, 18, 0.2);
+}
+
+.mission-profile-map {
+  width: 100%;
+  min-height: 300px;
+}
+
+.mission-profile-map .mapboxgl-canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.mission-profile-map-empty,
+.mission-profile-map-status {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.mission-profile-map-empty {
+  gap: 8px;
+}
+
+.mission-profile-map-empty svg {
+  color: #8bb8ff;
+}
+
+.mission-profile-map-status {
+  position: absolute;
+  inset: 14px;
+  color: var(--text);
+  background: rgba(2, 8, 18, 0.68);
+  border: 1px solid rgba(137, 160, 190, 0.16);
+  border-radius: 8px;
+}
+
+.mission-profile-map-status.error {
+  color: #ffadb9;
+}
+
+.mission-profile-map-marker {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #6fb1ff, #1d6fea);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  box-shadow: 0 10px 24px rgba(29, 111, 234, 0.34);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.mission-route-compact-summary {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  min-height: 30px;
+  padding: 0 11px;
+  color: #a9c6ff;
+  background: rgba(77, 141, 255, 0.1);
+  border: 1px solid rgba(77, 141, 255, 0.18);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.risk-assessment-panel {
+  display: grid;
+  gap: 13px;
+}
+
+.mission-readiness-section {
+  width: calc(100% - 48px);
+  margin: 0 24px 18px;
+}
+
+.risk-assessment-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px;
+  background: rgba(77, 141, 255, 0.07);
+  border: 1px solid rgba(119, 168, 255, 0.18);
+  border-radius: 10px;
+}
+
+.risk-assessment-status p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.risk-assessment-readout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.risk-assessment-readout > div,
+.risk-assessment-note {
+  min-height: 108px;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.038);
+  border: 1px solid rgba(137, 160, 190, 0.15);
+  border-radius: 10px;
+}
+
+.risk-assessment-readout strong {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+.risk-assessment-readout ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.risk-assessment-readout li {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.028);
+  border: 1px solid rgba(137, 160, 190, 0.1);
+  border-radius: 8px;
+}
+
+.risk-assessment-readout span {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.risk-assessment-readout small,
+.risk-assessment-readout p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.risk-assessment-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.032);
+  border: 1px solid rgba(137, 160, 190, 0.14);
+  border-radius: 10px;
+}
+
+.risk-assessment-form .field:first-child {
+  grid-column: 1 / -1;
+  max-width: 260px;
+}
+
+.risk-assessment-form textarea {
+  min-height: 104px;
+  resize: vertical;
+}
+
+.risk-assessment-form > button {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+
+.risk-assessment-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.risk-assessment-note svg {
+  flex: 0 0 auto;
+  color: #ffbf69;
 }
 
 .mission-waypoint-list {
@@ -6480,6 +6706,55 @@ input[type="number"]::-webkit-outer-spin-button {
     width: 82px;
   }
 
+  .catalog-table-wrap {
+    overflow-x: visible;
+  }
+
+  .catalog-table {
+    min-width: 0;
+    border-spacing: 0 12px;
+  }
+
+  .catalog-table tr {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+  }
+
+  .catalog-table td {
+    display: grid;
+    grid-template-columns: minmax(92px, 0.42fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    min-height: 0;
+    padding: 0;
+    border-bottom: 0;
+    color: var(--text-soft);
+    text-align: left;
+  }
+
+  .catalog-table td::before {
+    flex: none;
+    color: var(--muted);
+    font-size: 10px;
+    text-align: left;
+  }
+
+  .catalog-table td > * {
+    justify-content: flex-start;
+    max-width: none;
+    text-align: left;
+  }
+
+  .catalog-table .status-badge {
+    width: max-content;
+  }
+
+  .catalog-table .table-actions {
+    justify-content: flex-start;
+  }
+
   .map-canvas,
   .mapbox-canvas {
     height: 280px;
@@ -6550,9 +6825,40 @@ input[type="number"]::-webkit-outer-spin-button {
   }
 
   .mission-route-summary,
+  .risk-assessment-readout,
+  .risk-assessment-form,
   .route-map-picker,
   .waypoint-row {
     grid-template-columns: 1fr;
+  }
+
+  .profile-location-card {
+    margin-right: 18px;
+    margin-left: 18px;
+    padding: 16px;
+  }
+
+  .mission-readiness-section {
+    width: auto;
+    margin-right: 18px;
+    margin-left: 18px;
+  }
+
+  .profile-location-header,
+  .risk-assessment-status {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mission-profile-map-shell,
+  .mission-profile-map-empty,
+  .mission-profile-map {
+    min-height: 260px;
+  }
+
+  .mission-route-compact-summary {
+    justify-self: start;
+    max-width: 100%;
   }
 
   .route-map-picker {
@@ -6574,6 +6880,11 @@ input[type="number"]::-webkit-outer-spin-button {
   .mission-waypoint-list > div {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .risk-assessment-form > button {
+    justify-self: stretch;
+    width: 100%;
   }
 
   .waypoint-remove,
@@ -7155,4 +7466,43 @@ tr {
 
 * {
   scrollbar-color: color-mix(in srgb, var(--blue) 42%, transparent) transparent;
+}
+
+/* Mission profile final polish after the shared theme normalization. */
+.profile-dialog .profile-hero {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--blue) 13%, transparent), color-mix(in srgb, var(--success-text) 7%, transparent)),
+    var(--surface-muted);
+  border-color: color-mix(in srgb, var(--blue) 18%, var(--line));
+}
+
+.profile-dialog .profile-metric,
+.profile-dialog .profile-section,
+.profile-dialog .profile-location-card {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--text) 3%, transparent), transparent),
+    var(--surface-muted);
+  border-color: var(--line);
+}
+
+.profile-dialog .profile-location-card {
+  border-radius: 12px;
+}
+
+.profile-dialog .risk-assessment-status {
+  background: color-mix(in srgb, var(--blue) 10%, var(--surface-muted));
+  border-color: color-mix(in srgb, var(--blue) 24%, var(--line));
+}
+
+.profile-dialog .risk-assessment-form,
+.profile-dialog .risk-assessment-readout > div,
+.profile-dialog .risk-assessment-note,
+.profile-dialog .mission-notes-panel {
+  background: color-mix(in srgb, var(--surface-muted) 82%, transparent);
+  border-color: var(--line);
+}
+
+.profile-dialog .mission-profile-map-shell,
+.profile-dialog .mission-profile-map-empty {
+  border-color: color-mix(in srgb, var(--blue) 14%, var(--line));
 }

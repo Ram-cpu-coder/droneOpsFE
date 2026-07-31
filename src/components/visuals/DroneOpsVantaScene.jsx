@@ -19,9 +19,10 @@ const DroneOpsVantaScene = () => {
     const loadVanta = async () => {
       const THREE = await import("three");
       const module = await import("vanta/dist/vanta.net.min");
-      const NET = module.default;
+      const NET = typeof module.default === "function" ? module.default : module.NET;
 
       if (cancelled || !sceneRef.current) return;
+      if (typeof NET !== "function") return;
 
       vantaRef.current = NET({
         el: sceneRef.current,
