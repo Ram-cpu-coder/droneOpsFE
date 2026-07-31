@@ -1,4 +1,4 @@
-import { AlertTriangle, Bell, CheckCircle2, Database, ImagePlus, Mail, Pencil, Plus, Save, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
+import { AlertTriangle, Bell, CheckCircle2, Copy, Database, ImagePlus, Mail, Pencil, Plus, RefreshCw, Save, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch } from "react-redux";
 import ActionButton from "../../components/common/ActionButton";
@@ -24,6 +24,8 @@ const Settings = ({ user }) => {
   const [organisationDraft, setOrganisationDraft] = useState(() => toOrganisationForm(user));
   const [isEditingOrganisation, setIsEditingOrganisation] = useState(false);
   const [isSavingOrganisation, setIsSavingOrganisation] = useState(false);
+  const [isRegeneratingJoinCode, setIsRegeneratingJoinCode] = useState(false);
+  const [isJoinCodeCopied, setIsJoinCodeCopied] = useState(false);
   const [isEditingThresholds, setIsEditingThresholds] = useState(false);
   const [isSavingThresholds, setIsSavingThresholds] = useState(false);
   const [catalogRows, setCatalogRows] = useState([]);
@@ -47,6 +49,13 @@ const Settings = ({ user }) => {
   }, [user]);
 
   useEffect(() => () => window.clearTimeout(toastTimerRef.current), []);
+
+  useEffect(() => {
+    if (!isJoinCodeCopied) return undefined;
+
+    const copiedTimer = window.setTimeout(() => setIsJoinCodeCopied(false), 2200);
+    return () => window.clearTimeout(copiedTimer);
+  }, [isJoinCodeCopied]);
 
   useEffect(() => {
     let isMounted = true;
@@ -211,6 +220,34 @@ const Settings = ({ user }) => {
     }
   };
 
+  const handleRegenerateJoinCode = async () => {
+    setIsRegeneratingJoinCode(true);
+
+    try {
+      const updatedOrganisation = await droneOpsApi.settings.regenerateOrganisationJoinCode();
+      const nextOrganisation = toOrganisationForm({ organisation: updatedOrganisation });
+      setOrganisation(nextOrganisation);
+      setOrganisationDraft(nextOrganisation);
+      setIsJoinCodeCopied(false);
+      showToast({ type: "success", title: "Organisation code regenerated", message: "Share the new code only with users who should join this workspace." });
+    } catch (error) {
+      showToast({ type: "error", title: "Organisation code could not be regenerated", message: error.message });
+    } finally {
+      setIsRegeneratingJoinCode(false);
+    }
+  };
+
+  const handleCopyJoinCode = async () => {
+    if (!organisation.joinCode) return;
+
+    try {
+      await copyTextToClipboard(organisation.joinCode);
+      setIsJoinCodeCopied(true);
+    } catch (error) {
+      showToast({ type: "error", title: "Code could not be copied", message: error.message });
+    }
+  };
+
   const updateCatalogDraft = (field, value) => {
     setCatalogDraft((current) => ({ ...current, [field]: value }));
   };
@@ -341,7 +378,7 @@ const Settings = ({ user }) => {
             <div className="profile-metric">
               <UserRound size={18} />
               <span>Organisation</span>
-              <strong>{user?.organization ?? user?.organisation?.name ?? "DroneOps"}</strong>
+              <strong>{organisation.name}</strong>
             </div>
             <label className="upload-field wide-field">
               <input type="file" accept="image/*" onChange={handleProfileImageChange} disabled={isSaving || imageUpload.isUploading} />
@@ -369,7 +406,7 @@ const Settings = ({ user }) => {
         <div className="panel">
           <SectionHeader
             title="Organisation"
-            description="Workspace details shared across DroneOps records."
+            description="Workspace identity and secure access code for this organisation."
             action={canEditOrganisation ? (
               isEditingOrganisation ? (
                 <div className="button-group compact">
@@ -383,25 +420,47 @@ const Settings = ({ user }) => {
               )
             ) : null}
           />
-          <div className="form-grid account-settings-form">
-            <label className="field">
-              <span>Organisation Name</span>
-              <input
-                value={isEditingOrganisation ? organisationDraft.name : organisation.name}
-                onChange={(event) => updateOrganisationDraft("name", event.target.value)}
-                disabled={!isEditingOrganisation}
-                required
-              />
-            </label>
-            <label className="field">
-              <span>Industry</span>
-              <input
-                value={isEditingOrganisation ? organisationDraft.industry : organisation.industry}
-                onChange={(event) => updateOrganisationDraft("industry", event.target.value)}
-                disabled={!isEditingOrganisation}
-                placeholder="Drone operations"
-              />
-            </label>
+          <div className="organisation-settings-body">
+            <div className="form-grid account-settings-form organisation-fields">
+              <label className="field">
+                <span>Organisation Name</span>
+                <input
+                  value={isEditingOrganisation ? organisationDraft.name : organisation.name}
+                  onChange={(event) => updateOrganisationDraft("name", event.target.value)}
+                  disabled={!isEditingOrganisation}
+                  required
+                />
+              </label>
+              <label className="field">
+                <span>Industry</span>
+                <input
+                  value={isEditingOrganisation ? organisationDraft.industry : organisation.industry}
+                  onChange={(event) => updateOrganisationDraft("industry", event.target.value)}
+                  disabled={!isEditingOrganisation}
+                  placeholder="Drone operations"
+                />
+              </label>
+            </div>
+            {canEditOrganisation && (
+              <div className="organisation-code-card">
+                <div className="organisation-code-copy">
+                  <span>Organisation Join Code</span>
+                  <strong>{organisation.joinCode || "No code generated"}</strong>
+                  <p>Users need this code during signup to join this organisation.</p>
+                </div>
+                <div className="organisation-code-actions">
+                  <button className="icon-button" type="button" onClick={handleCopyJoinCode} disabled={!organisation.joinCode} aria-label="Copy organisation join code" title="Copy code">
+                    <Copy size={17} />
+                  </button>
+                  <span className={`copy-inline-feedback ${isJoinCodeCopied ? "visible" : ""}`} role="status" aria-live="polite">
+                    Copied
+                  </span>
+                  <ActionButton icon={RefreshCw} type="button" onClick={handleRegenerateJoinCode} isLoading={isRegeneratingJoinCode} disabled={isRegeneratingJoinCode}>
+                    Regenerate
+                  </ActionButton>
+                </div>
+              </div>
+            )}
           </div>
           {!canEditOrganisation && <p className="settings-note">Only the System Administrator can change organisation details.</p>}
         </div>
@@ -590,7 +649,8 @@ const toUserForm = (user) => ({
 const toOrganisationForm = (user) => ({
   id: user?.organisation?.id ?? "",
   name: user?.organisation?.name ?? user?.organization ?? "DroneOps",
-  industry: user?.organisation?.industry ?? ""
+  industry: user?.organisation?.industry ?? "",
+  joinCode: user?.organisation?.joinCode ?? ""
 });
 
 const getInitials = (name = "") => {
@@ -617,5 +677,23 @@ const toDateInputValue = (value) => {
 const formatOptionLabel = (value = "") => (
   value.toString().toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
 );
+
+const copyTextToClipboard = async (value) => {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = value;
+  textArea.setAttribute("readonly", "");
+  textArea.style.position = "fixed";
+  textArea.style.opacity = "0";
+  document.body.appendChild(textArea);
+  textArea.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textArea);
+  if (!copied) throw new Error("Clipboard is not available in this browser.");
+};
 
 export default Settings;

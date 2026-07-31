@@ -70,6 +70,7 @@ export const droneOpsApi = {
   settings: {
     organisation: () => apiClient.get("/settings/organisation"),
     updateOrganisation: (payload) => apiClient.put("/settings/organisation", payload),
+    regenerateOrganisationJoinCode: () => apiClient.post("/settings/organisation/join-code/regenerate", {}),
     alertThresholds: () => apiClient.get("/settings/alert-thresholds"),
     updateAlertThresholds: (payload) => apiClient.put("/settings/alert-thresholds", payload)
   },

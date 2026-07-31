@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { BriefcaseBusiness } from "lucide-react";
+import { useEffect, useState } from "react";
+import { BriefcaseBusiness, CheckCircle2 } from "lucide-react";
 import ActionButton from "../../components/common/ActionButton";
 import { userRoles } from "../../data/authData";
+import { authService } from "../../features/auth/authService";
 
 const selfSelectableRoles = userRoles.filter(
   (role) => role.id !== "system_administrator",
@@ -15,37 +16,57 @@ const GoogleProfileSetup = ({
   onAuthViewChange,
 }) => {
   const profile = pendingGoogleProfile?.profile;
-  const initialOrganization = useMemo(() => {
-    return profile?.hostedDomain ? `${profile.hostedDomain} Operations` : "";
-  }, [profile?.hostedDomain]);
-
   const [form, setForm] = useState({
-    organization: initialOrganization,
+    organizationCode: "",
     role: "operations_manager",
   });
+  const [resolvedOrganization, setResolvedOrganization] = useState(null);
+  const [organizationLookup, setOrganizationLookup] = useState({ isLoading: false, error: "" });
 
   useEffect(() => {
-    if (!initialOrganization) return;
-    setForm((current) =>
-      current.organization
-        ? current
-        : { ...current, organization: initialOrganization },
-    );
-  }, [initialOrganization]);
+    const code = form.organizationCode.trim();
+    setResolvedOrganization(null);
+
+    if (code.length < 4) {
+      setOrganizationLookup({ isLoading: false, error: "" });
+      return;
+    }
+
+    let isMounted = true;
+    setOrganizationLookup({ isLoading: true, error: "" });
+
+    const lookupTimer = window.setTimeout(async () => {
+      try {
+        const organisation = await authService.resolveOrganisationCode(code);
+        if (!isMounted) return;
+        setResolvedOrganization(organisation);
+        setOrganizationLookup({ isLoading: false, error: "" });
+      } catch (lookupError) {
+        if (!isMounted) return;
+        setResolvedOrganization(null);
+        setOrganizationLookup({ isLoading: false, error: lookupError.message });
+      }
+    }, 350);
+
+    return () => {
+      isMounted = false;
+      window.clearTimeout(lookupTimer);
+    };
+  }, [form.organizationCode]);
 
   const handleSubmit = (event) => {
     event.preventDefault();
     if (
       isLoading ||
       !pendingGoogleProfile?.credential ||
-      !form.organization.trim()
+      !resolvedOrganization
     )
       return;
 
     onComplete({
       credential: pendingGoogleProfile.credential,
       ...form,
-      organization: form.organization.trim(),
+      organizationCode: form.organizationCode.trim(),
     });
   };
 
@@ -54,8 +75,7 @@ const GoogleProfileSetup = ({
       <div>
         <h2>Complete profile</h2>
         <p>
-          Confirm your DroneOps organization and role before we create your
-          workspace access.
+          Enter your organization code to join the correct DroneOps workspace.
         </p>
       </div>
       {error && <div className="auth-alert">{error}</div>}
@@ -73,15 +93,34 @@ const GoogleProfileSetup = ({
         disabled={isLoading}
       >
         <label className="field">
-          <span>Organization</span>
+          <span>Organization Code</span>
           <input
-            value={form.organization}
+            value={form.organizationCode}
             onChange={(event) =>
-              setForm({ ...form, organization: event.target.value })
+              setForm({ ...form, organizationCode: event.target.value })
             }
-            placeholder="Organization name"
+            placeholder="Organization code"
             required
           />
+          {organizationLookup.isLoading && (
+            <div className="organisation-code-status checking">
+              <small>Checking organisation code...</small>
+            </div>
+          )}
+          {!organizationLookup.isLoading && resolvedOrganization && (
+            <div className="organisation-code-status verified">
+              <CheckCircle2 size={14} strokeWidth={2.8} />
+              <div className="organisation-code-result">
+                <strong>{resolvedOrganization.name}</strong>
+                <small>Verified organisation</small>
+              </div>
+            </div>
+          )}
+          {!organizationLookup.isLoading && organizationLookup.error && (
+            <div className="organisation-code-status error">
+              <small>{organizationLookup.error}</small>
+            </div>
+          )}
         </label>
         <label className="field">
           <span>Role</span>
@@ -104,7 +143,7 @@ const GoogleProfileSetup = ({
         disabled={
           isLoading ||
           !pendingGoogleProfile?.credential ||
-          !form.organization.trim()
+          !resolvedOrganization
         }
         isLoading={isLoading}
       >
