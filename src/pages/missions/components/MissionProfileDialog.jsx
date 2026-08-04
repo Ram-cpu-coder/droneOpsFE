@@ -20,6 +20,8 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
   const hasRiskAssessment = Boolean(mission.riskAssessment);
   const routeProgress = mission.plannedRoute?.progress;
   const waypoints = toWaypointRows(mission.plannedRoute?.waypoints ?? mission.plannedRoute?.coordinates);
+  const launchLocation = mission.plannedRoute?.launchSite ?? toSavedLocation(mission.launchSite);
+  const operatingLocation = mission.plannedRoute?.operatingArea ?? toSavedLocation(mission.operatingArea);
   const routeEndpoints = getRouteEndpoints(waypoints);
   const routeSummary = getRouteSummary(waypoints);
   useEffect(() => {
@@ -58,8 +60,8 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
         <div className="modal-header">
           <div>
             <p className="eyebrow">Mission Profile</p>
-            <h2 id="mission-profile-title">{mission.id}</h2>
-            <p>{mission.name}</p>
+            <h2 id="mission-profile-title">{mission.name}</h2>
+            <p className="mission-profile-id">Mission ID: {mission.id}</p>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Close mission profile">
             <X size={18} />
@@ -82,7 +84,7 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
           <div className="profile-metrics">
             <ProfileMetric icon={UserRound} label="Pilot" value={mission.pilot} />
             <ProfileMetric icon={MapPinned} label="Drone" value={mission.drone} />
-            <ProfileMetric icon={CalendarClock} label="ETA" value={mission.eta} />
+            <ProfileMetric icon={CalendarClock} label="Mission Planned On" value={formatMissionPlannedOn(mission.plannedStartAt)} />
           </div>
 
           <div className="profile-grid">
@@ -103,8 +105,8 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
             </ProfileSection>
 
             <ProfileSection icon={CalendarClock} title="Timing">
-              <ProfileRow label="Planned Start" value={formatDateTime(mission.plannedStartAt)} />
-              <ProfileRow label="Planned End" value={formatDateTime(mission.plannedEndAt)} />
+              <ProfileRow label="Mission Planned On" value={formatDateTime(mission.plannedStartAt)} />
+              <ProfileRow label="Mission Deadline" value={formatDateTime(mission.plannedEndAt)} />
               <ProfileRow label="Updated" value={formatDateTime(mission.updatedAt)} />
               <ProfileRow label="Created" value={formatDateTime(mission.createdAt)} />
             </ProfileSection>
@@ -121,9 +123,15 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
             <div className="mission-progress-panel">
               <ProgressBar value={Number(mission.progress ?? 0)} />
             </div>
-            <MissionRouteMap waypoints={waypoints} />
+            <MissionRouteMap waypoints={waypoints} launchSite={launchLocation} operatingArea={operatingLocation} />
             <div className="mission-route-compact-summary">
               <span>{routeSummary}</span>
+            </div>
+            <div className="mission-route-summary">
+              <ProfileRow label="Launch Site" value={formatLocationReadout(launchLocation, mission.launchSite)} />
+              <ProfileRow label="Operating Area" value={formatLocationReadout(operatingLocation, mission.operatingArea)} />
+              <ProfileRow label="Route Start" value={routeEndpoints.start} />
+              <ProfileRow label="Route End" value={routeEndpoints.end} />
             </div>
             {routeProgress?.source === "TELEMETRY" && (
               <div className="mission-route-summary">
@@ -358,6 +366,32 @@ const hasWaypointCoordinates = (waypoint) => {
   return Number.isFinite(latitude) && Number.isFinite(longitude);
 };
 
+const formatLocationReadout = (location, fallback) => {
+  if (location && hasWaypointCoordinates(location)) {
+    const label = location.label || "Selected location";
+    const radius = Number(location.radiusMeters);
+    const radiusText = Number.isFinite(radius) ? `, radius ${formatRadius(radius)}` : "";
+    return `${label} (${Number(location.latitude).toFixed(5)}, ${Number(location.longitude).toFixed(5)}${radiusText})`;
+  }
+
+  return fallback ?? "Not selected";
+};
+
+const formatMissionPlannedOn = (value) => {
+  if (!value) return "Not scheduled";
+  return new Date(value).toLocaleString([], {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+};
+
+const formatRadius = (radiusMeters) => (
+  radiusMeters >= 1000 ? `${(radiusMeters / 1000).toFixed(1)} km` : `${Math.round(radiusMeters)} m`
+);
+
 const getWaypointDisplayLabel = (waypoint, index, total) => {
   if (index === 0) return "Start Point";
   if (index === total - 1) return "End Point";
@@ -418,6 +452,18 @@ const createRiskForm = (assessment) => ({
 const formatRiskLines = (items, primaryKey, secondaryKey) => {
   if (!Array.isArray(items)) return "";
   return items.map((item) => `${item?.[primaryKey] ?? ""}: ${item?.[secondaryKey] ?? ""}`.trim()).filter(Boolean).join("\n");
+};
+
+const toSavedLocation = (value) => {
+  if (!value || typeof value !== "string") return null;
+  const match = value.match(/\((-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\)/);
+  if (!match) return null;
+
+  return {
+    label: value.replace(/\s*\(.+\)\s*$/, ""),
+    latitude: Number(match[1]),
+    longitude: Number(match[2])
+  };
 };
 
 const parseRiskLines = (text, primaryKey, secondaryKey) => {

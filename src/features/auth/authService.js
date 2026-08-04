@@ -98,15 +98,16 @@ const decorateUser = (user) => {
 
   Session contains:
   - accessToken
-  - refreshToken
   - user
 */
 const persistSession = (session) => {
-    const sessionText = JSON.stringify(session);
+    const safeSession = { ...session };
+    delete safeSession.refreshToken;
+    const sessionText = JSON.stringify(safeSession);
 
     localStorage.setItem(SESSION_KEY, sessionText);
 
-    return session;
+    return safeSession;
 };
 
 /*
@@ -205,15 +206,22 @@ export const authService = {
 
         try {
             const session = JSON.parse(rawSession);
+            const safeSession = { ...session };
+            const hadRefreshToken = Boolean(safeSession.refreshToken);
+            delete safeSession.refreshToken;
 
-            if (!session.user) {
+            if (hadRefreshToken) {
+                localStorage.setItem(SESSION_KEY, JSON.stringify(safeSession));
+            }
+
+            if (!safeSession.user) {
                 return null;
             }
 
-            const decoratedUser = decorateUser(session.user);
+            const decoratedUser = decorateUser(safeSession.user);
 
             return {
-                ...session,
+                ...safeSession,
                 user: decoratedUser,
             };
         } catch {
@@ -225,7 +233,7 @@ export const authService = {
     /*
       Restore user session when app starts.
   
-      It uses refreshToken to get new tokens from backend.
+      It uses the HttpOnly refresh cookie to get a new access token.
     */
     async restoreSession() {
         const rawSession = localStorage.getItem(SESSION_KEY);
@@ -237,18 +245,10 @@ export const authService = {
         try {
             const session = JSON.parse(rawSession);
 
-            // Without refresh token, session cannot be restored.
-            if (!session.refreshToken) {
-                clearSession();
-                return null;
-            }
-
             let result;
 
             try {
-                result = await apiClient.post("/auth/refresh-token", {
-                    refreshToken: session.refreshToken,
-                });
+                result = await apiClient.post("/auth/refresh-token", {});
             } catch (error) {
                 const shouldRetry = isTransientNetworkError(error);
 
@@ -260,15 +260,12 @@ export const authService = {
                 // Wait shortly and try one more time.
                 await wait(1400);
 
-                result = await apiClient.post("/auth/refresh-token", {
-                    refreshToken: session.refreshToken,
-                });
+                result = await apiClient.post("/auth/refresh-token", {});
             }
 
             // Save the refreshed session.
             const newSession = {
                 accessToken: result.accessToken,
-                refreshToken: result.refreshToken,
                 user: decorateUser(result.user || session.user),
             };
 
@@ -315,7 +312,6 @@ export const authService = {
 
         const session = {
             accessToken: result.accessToken,
-            refreshToken: result.refreshToken,
             user: decorateUser(result.user),
         };
 
@@ -341,7 +337,6 @@ export const authService = {
 
         const session = {
             accessToken: result.accessToken,
-            refreshToken: result.refreshToken,
             user: decorateUser(result.user),
         };
 
@@ -368,7 +363,6 @@ export const authService = {
 
         const session = {
             accessToken: result.accessToken,
-            refreshToken: result.refreshToken,
             user: decorateUser(result.user),
         };
 

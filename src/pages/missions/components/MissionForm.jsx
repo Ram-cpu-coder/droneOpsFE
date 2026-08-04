@@ -1,4 +1,4 @@
-import { CalendarClock, ChevronDown, MapPinned, Route, Save, Search, UserRound, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, ChevronDown, MapPinned, Route, Save, Search, UserRound, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
@@ -17,20 +17,27 @@ const initialForm = {
   pilotId: "",
   launchSite: "",
   operatingArea: "",
+  locationPlan: {
+    launchSite: null,
+    operatingArea: null
+  },
   plannedDate: "",
   startTime: "",
   endTime: "",
   status: "PLANNED",
   waypointNotes: "",
-  routeTrackingEnabled: false,
-  waypoints: []
+  routeTrackingEnabled: true,
+  waypoints: [
+    { label: "Start point", latitude: "", longitude: "", altitude: "" },
+    { label: "End point", latitude: "", longitude: "", altitude: "" }
+  ]
 };
 
 const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, onCreated, onUpdated, onCancel }) => {
   const [form, setForm] = useState(() => toFormState(mission));
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [isConfirmed, setIsConfirmed] = useState(false);
+  const errorRef = useRef(null);
   const loadDrones = useCallback(() => droneOpsApi.drones.list(), []);
   const loadUsers = useCallback(() => droneOpsApi.users.list(), []);
   const { data: drones } = useApiResource(loadDrones, []);
@@ -40,12 +47,22 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
     setForm(toFormState(mission));
   }, [mission]);
 
+  useEffect(() => {
+    if (!error) return;
+
+    window.requestAnimationFrame(() => {
+      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [error]);
+
   const droneOptions = useMemo(
     () => drones
       .filter((drone) => drone.status === "AVAILABLE" || drone.id === form.droneId)
       .map((drone) => ({
         value: drone.id,
-        label: `${drone.droneCode ?? drone.id} - ${drone.model}`,
+        label: drone.droneCode ?? drone.id,
+        title: [drone.manufacturer, drone.model].filter(Boolean).join(" ") || "Drone",
+        meta: [formatReadableValue(drone.status), drone.batteryType].filter(Boolean).join(" | "),
         searchText: `${drone.droneCode ?? drone.id} ${drone.model ?? ""} ${drone.manufacturer ?? ""} ${drone.serialNumber ?? ""}`.toLowerCase()
       })),
     [drones, form.droneId]
@@ -57,10 +74,42 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
       .map((user) => ({
         value: user.id,
         label: user.name,
+        title: user.name,
+        meta: user.email ?? "Available for assignment",
         searchText: `${user.name} ${user.email ?? ""} ${user.role ?? ""}`.toLowerCase()
       })),
     [users]
   );
+
+  const selectedDrone = useMemo(
+    () => drones.find((drone) => drone.id === form.droneId) ?? null,
+    [drones, form.droneId]
+  );
+
+  const selectedPilot = useMemo(
+    () => users.find((user) => user.id === form.pilotId) ?? null,
+    [users, form.pilotId]
+  );
+
+  const scheduleError = getScheduleError(form);
+  const hasLaunchSite = hasCoordinates(form.locationPlan.launchSite);
+  const hasOperatingArea = hasCoordinates(form.locationPlan.operatingArea);
+  const routeStart = form.waypoints[0];
+  const routeEnd = form.waypoints[form.waypoints.length - 1];
+  const hasRouteStart = hasCoordinates(routeStart);
+  const hasRouteEnd = hasCoordinates(routeEnd);
+  const operatingAreaError = getOperatingAreaCoverageError(form.locationPlan.operatingArea, routeStart, routeEnd);
+  const readinessItems = [
+    { label: "Mission name", complete: Boolean(form.name.trim()), detail: form.name.trim() || "Required" },
+    { label: "Mission type", complete: Boolean(form.type), detail: form.type || "Required" },
+    { label: "Schedule", complete: Boolean(form.plannedDate && form.startTime && form.endTime && !scheduleError), detail: scheduleError || "Date and time ready" },
+    { label: "Drone", complete: Boolean(form.droneId), detail: selectedDrone ? `${selectedDrone.droneCode ?? selectedDrone.id} - ${selectedDrone.model ?? "Selected"}` : "Required" },
+    { label: "Remote pilot", complete: Boolean(form.pilotId), detail: selectedPilot?.name ?? "Required" },
+    { label: "Launch site", complete: hasLaunchSite, detail: hasLaunchSite ? "Selected on map" : "Required" },
+    { label: "Operating area", complete: hasOperatingArea && !operatingAreaError, detail: operatingAreaError || (hasOperatingArea ? "Covers route start and end" : "Required") },
+    { label: "Route path", complete: hasRouteStart && hasRouteEnd, detail: hasRouteStart && hasRouteEnd ? `${form.waypoints.filter(hasCoordinates).length} point(s) selected` : "Start and end required" }
+  ];
+  const isMissionReady = readinessItems.every((item) => item.complete);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -80,19 +129,6 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
     setForm((current) => ({ ...current, [field]: value }));
   };
 
-  const toggleRouteTracking = (enabled) => {
-    setForm((current) => ({
-      ...current,
-      routeTrackingEnabled: enabled,
-      waypoints: enabled && current.waypoints.length === 0
-        ? [
-            { label: "Start point", latitude: "", longitude: "", altitude: "" },
-            { label: "End point", latitude: "", longitude: "", altitude: "" }
-          ]
-        : current.waypoints
-    }));
-  };
-
   const buildDateTime = (date, time) => {
     if (!date || !time) return undefined;
     return new Date(`${date}T${time}`).toISOString();
@@ -110,6 +146,8 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
 
     const route = {
       ...(form.waypointNotes ? { notes: form.waypointNotes } : {}),
+      ...(form.locationPlan.launchSite ? { launchSite: form.locationPlan.launchSite } : {}),
+      ...(form.locationPlan.operatingArea ? { operatingArea: form.locationPlan.operatingArea } : {}),
       ...(waypoints.length ? { waypoints, arrivalRadiusMeters: 50 } : {})
     };
 
@@ -123,19 +161,36 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
 
     try {
       const plannedRoute = buildPlannedRoute();
-      if (form.routeTrackingEnabled && (plannedRoute?.waypoints?.length ?? 0) < 2) {
-        setError("Add at least a start point and an end point to calculate progress from GPS.");
+      const firstIncompleteItem = readinessItems.find((item) => !item.complete);
+
+      if (firstIncompleteItem) {
+        setError(`${firstIncompleteItem.label} is required before creating the mission.`);
+        return;
+      }
+
+      if (scheduleError) {
+        setError(scheduleError);
+        return;
+      }
+
+      if ((plannedRoute?.waypoints?.length ?? 0) < 2) {
+        setError("Add at least a start point and an end point on the mission planning map.");
+        return;
+      }
+
+      if (operatingAreaError) {
+        setError(operatingAreaError);
         return;
       }
 
       const payload = {
-        missionCode: form.missionCode,
+        ...(mode === "edit" && form.missionCode ? { missionCode: form.missionCode } : {}),
         name: form.name,
         type: form.type,
         droneId: form.droneId || undefined,
         pilotId: form.pilotId || undefined,
-        launchSite: form.launchSite || undefined,
-        operatingArea: form.operatingArea || undefined,
+        launchSite: formatLocationLabel(form.locationPlan.launchSite),
+        operatingArea: formatLocationLabel(form.locationPlan.operatingArea),
         plannedStartAt: buildDateTime(form.plannedDate, form.startTime),
         plannedEndAt: buildDateTime(form.plannedDate, form.endTime),
         plannedRoute,
@@ -147,7 +202,6 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
         : await droneOpsApi.missions.create(payload);
 
       setForm(initialForm);
-      setIsConfirmed(false);
       if (mode === "edit") {
         onUpdated?.({
           ...savedMission,
@@ -160,7 +214,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
         });
       }
     } catch (requestError) {
-      setError(requestError.message);
+      setError(getMissionSubmitErrorMessage(requestError.message));
     } finally {
       setIsSaving(false);
     }
@@ -181,14 +235,12 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
         </div>
 
         <div className="modal-body">
-          {error && <div className="auth-alert">{error}</div>}
+          {error && <div className="auth-alert" ref={errorRef}>{error}</div>}
 
           <div className="form-layout modal-form-layout">
             <FormSection icon={Route} title="Mission Details">
-              <Field label="Mission ID" value={form.missionCode} onChange={(value) => updateField("missionCode", value)} placeholder="MIS-1046" required />
               <Field label="Mission Name" value={form.name} onChange={(value) => updateField("name", value)} placeholder="North Ridge Inspection" required />
               <SelectField label="Mission Type" value={form.type} onChange={(value) => updateField("type", value)} options={missionTypes} required />
-              <Field label="Operating Area" value={form.operatingArea} onChange={(value) => updateField("operatingArea", value)} placeholder="Site A - Zone 1" />
             </FormSection>
 
             <FormSection icon={UserRound} title="Assignment">
@@ -199,6 +251,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
                 options={droneOptions}
                 placeholder="Search drone ID, model, manufacturer"
               />
+              <AssignmentSummaryCard type="drone" item={selectedDrone} />
               <SearchableSelectField
                 label={`Remote Pilot (${pilotOptions.length})`}
                 value={form.pilotId}
@@ -206,13 +259,14 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
                 options={pilotOptions}
                 placeholder="Search pilot name, email, role"
               />
-              <Field label="Launch Site" value={form.launchSite} onChange={(value) => updateField("launchSite", value)} placeholder="Main dock / roof pad" />
+              <AssignmentSummaryCard type="pilot" item={selectedPilot} />
             </FormSection>
 
             <FormSection icon={CalendarClock} title="Schedule">
               <Field label="Planned Date" type="date" value={form.plannedDate} onChange={(value) => updateField("plannedDate", value)} />
               <Field label="Start Time" type="time" value={form.startTime} onChange={(value) => updateField("startTime", value)} />
               <Field label="End Time" type="time" value={form.endTime} onChange={(value) => updateField("endTime", value)} />
+              {scheduleError && <InlineFormAlert message={scheduleError} />}
               {canEditStatus && mode === "edit" && (
                 <SelectField label="Mission Status" value={form.status} onChange={(value) => updateField("status", value)} options={missionStatuses} />
               )}
@@ -227,44 +281,28 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
               />
             </FormSection>
 
-            <FormSection icon={MapPinned} title="Drone Path" className="wide-form-section">
+            <FormSection icon={MapPinned} title="Mission Planning Map" className="wide-form-section">
               <div className="route-tracking-panel">
-                <label className="switch-row">
-                  <input
-                    type="checkbox"
-                    checked={form.routeTrackingEnabled}
-                    onChange={(event) => toggleRouteTracking(event.target.checked)}
-                  />
-                  <span>
-                    <strong>Track mission progress from the drone path</strong>
-                    <small>Optional. Select the start, end, and any stops on the map. DroneOps stores the coordinates internally.</small>
-                  </span>
-                </label>
-
-                {form.routeTrackingEnabled && (
-                  <RoutePointMapPicker
-                    value={form.waypoints}
-                    onChange={(waypoints) => updateField("waypoints", waypoints)}
-                  />
-                )}
+                <RoutePointMapPicker
+                  value={form.waypoints}
+                  onChange={(waypoints) => updateField("waypoints", waypoints)}
+                  locationPlan={form.locationPlan}
+                  onLocationPlanChange={(locationPlan) => updateField("locationPlan", locationPlan)}
+                />
+                <ReadinessChecklist items={readinessItems} />
               </div>
             </FormSection>
           </div>
         </div>
 
         <div className="modal-footer">
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={isConfirmed}
-              onChange={(event) => setIsConfirmed(event.target.checked)}
-              required
-            />
-            <span>I confirm the mission details, assigned drone, and pilot information are correct.</span>
-          </label>
+          <div className={`mission-readiness-footer ${isMissionReady ? "ready" : ""}`}>
+            {isMissionReady ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+            <span>{isMissionReady ? "Mission plan is ready to create." : "Complete the readiness checklist before creating this mission."}</span>
+          </div>
           <div className="form-actions">
             <ActionButton onClick={onCancel}>Cancel</ActionButton>
-            <ActionButton icon={Save} variant="primary" type="submit" disabled={isSaving || !isConfirmed}>
+            <ActionButton icon={Save} variant="primary" type="submit" disabled={isSaving || !isMissionReady}>
               {isSaving ? (mode === "edit" ? "Saving" : "Creating") : (mode === "edit" ? "Save Mission" : "Create Mission")}
             </ActionButton>
           </div>
@@ -353,7 +391,7 @@ const SearchableSelectField = ({
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, []);
 
-  const inputValue = isOpen ? query : (selectedOption ? (typeof selectedOption === "string" ? selectedOption : selectedOption.label) : "");
+  const inputValue = isOpen ? query : (selectedOption ? (typeof selectedOption === "string" ? selectedOption : `${selectedOption.label}${selectedOption.title ? ` - ${selectedOption.title}` : ""}`) : "");
 
   return (
     <div className="field searchable-select-field" ref={wrapperRef}>
@@ -381,6 +419,9 @@ const SearchableSelectField = ({
             filteredOptions.map((option) => {
               const optionValue = typeof option === "string" ? option : option.value;
               const optionLabel = typeof option === "string" ? option : option.label;
+              const optionTitle = typeof option === "string" ? option : option.title;
+              const optionMeta = typeof option === "string" ? "" : option.meta;
+              const optionBadge = typeof option === "string" ? "" : option.badge;
               const isSelected = optionValue === value;
 
               return (
@@ -395,7 +436,13 @@ const SearchableSelectField = ({
                     setIsOpen(false);
                   }}
                 >
-                  <span>{optionLabel}</span>
+                  <span className="combo-option-main">
+                    <span className="combo-option-copy">
+                      <strong>{optionTitle || optionLabel}</strong>
+                      <small>{optionMeta || optionLabel}</small>
+                    </span>
+                    {optionBadge && <span className="combo-option-badge">{optionBadge}</span>}
+                  </span>
                 </button>
               );
             })
@@ -415,6 +462,62 @@ const TextareaField = ({ label, placeholder = "", value, onChange }) => (
   </label>
 );
 
+const InlineFormAlert = ({ message }) => (
+  <div className="inline-form-alert">
+    <AlertTriangle size={15} />
+    <span>{message}</span>
+  </div>
+);
+
+const AssignmentSummaryCard = ({ type, item }) => {
+  if (!item) {
+    return (
+      <div className="assignment-summary-card empty">
+        <span>{type === "drone" ? "No drone selected" : "No pilot selected"}</span>
+        <strong>{type === "drone" ? "Select an available drone" : "Select a remote pilot"}</strong>
+      </div>
+    );
+  }
+
+  if (type === "drone") {
+    return (
+      <div className="assignment-summary-card">
+        <span>{item.droneCode ?? item.id}</span>
+        <strong>{[item.manufacturer, item.model].filter(Boolean).join(" ") || "Drone selected"}</strong>
+        <small>Status: {formatReadableValue(item.status)}{item.batteryType ? ` | Battery: ${item.batteryType}` : ""}</small>
+      </div>
+    );
+  }
+
+  return (
+    <div className="assignment-summary-card">
+      <span>{formatReadableValue(item.role)}</span>
+      <strong>{item.name}</strong>
+      <small>{item.email ?? "Pilot selected"}</small>
+    </div>
+  );
+};
+
+const ReadinessChecklist = ({ items }) => (
+  <div className="mission-readiness-checklist">
+    <div className="mission-readiness-heading">
+      <CheckCircle2 size={17} />
+      <strong>Mission readiness</strong>
+    </div>
+    <div className="mission-readiness-grid">
+      {items.map((item) => (
+        <div className={`mission-readiness-item ${item.complete ? "complete" : ""}`} key={item.label}>
+          {item.complete ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+          <div>
+            <span>{item.label}</span>
+            <small>{item.detail}</small>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
 const toFormState = (mission) => {
   if (!mission) return initialForm;
 
@@ -429,6 +532,10 @@ const toFormState = (mission) => {
     pilotId: mission.pilot?.id ?? mission.pilotId ?? "",
     launchSite: mission.launchSite ?? "",
     operatingArea: mission.operatingArea ?? "",
+    locationPlan: {
+      launchSite: mission.plannedRoute?.launchSite ?? toSavedLocation(mission.launchSite),
+      operatingArea: mission.plannedRoute?.operatingArea ?? toSavedLocation(mission.operatingArea)
+    },
     plannedDate: plannedStart ? plannedStart.toISOString().slice(0, 10) : "",
     startTime: plannedStart ? plannedStart.toTimeString().slice(0, 5) : "",
     endTime: plannedEnd ? plannedEnd.toTimeString().slice(0, 5) : "",
@@ -436,6 +543,92 @@ const toFormState = (mission) => {
     waypointNotes: mission.plannedRoute?.notes ?? mission.routeNotes ?? "",
     routeTrackingEnabled: toWaypointRows(mission.plannedRoute?.waypoints ?? mission.plannedRoute?.coordinates ?? mission.routeWaypoints).length >= 2,
     waypoints: toWaypointRows(mission.plannedRoute?.waypoints ?? mission.plannedRoute?.coordinates ?? mission.routeWaypoints)
+  };
+};
+
+const formatLocationLabel = (location) => {
+  if (!location || !Number.isFinite(Number(location.latitude)) || !Number.isFinite(Number(location.longitude))) return undefined;
+  const label = location.label || "Selected on map";
+  return `${label} (${Number(location.latitude).toFixed(5)}, ${Number(location.longitude).toFixed(5)})`;
+};
+
+const getScheduleError = (form) => {
+  if (!form.plannedDate && !form.startTime && !form.endTime) return "";
+  if (!form.plannedDate || !form.startTime || !form.endTime) return "Planned date, start time, and end time are required.";
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const plannedDate = new Date(`${form.plannedDate}T00:00`);
+  if (plannedDate < today) return "Planned date cannot be in the past.";
+
+  const plannedStart = new Date(`${form.plannedDate}T${form.startTime}`);
+  const plannedEnd = new Date(`${form.plannedDate}T${form.endTime}`);
+  if (plannedEnd <= plannedStart) return "End time must be after start time.";
+
+  return "";
+};
+
+const getMissionSubmitErrorMessage = (message = "") => {
+  const normalizedMessage = message.toLowerCase().trim();
+
+  if (normalizedMessage.includes("body: required") || normalizedMessage === "required") {
+    return "Mission could not be submitted because the backend received an empty request body. Refresh the page and try again. If it still happens, restart the backend server because it is still running the old validator.";
+  }
+
+  if (normalizedMessage.includes("jwt expired") || normalizedMessage.includes("invalid token")) {
+    return "Your login session expired. Please log in again, then create the mission.";
+  }
+
+  return message || "Mission could not be created. Please review the required fields and try again.";
+};
+
+const hasCoordinates = (point) => {
+  if (!point) return false;
+  if (point.latitude === "" || point.longitude === "" || point.latitude == null || point.longitude == null) return false;
+  return Number.isFinite(Number(point.latitude)) && Number.isFinite(Number(point.longitude));
+};
+
+const getOperatingAreaCoverageError = (operatingArea, routeStart, routeEnd) => {
+  if (!hasCoordinates(operatingArea) || !hasCoordinates(routeStart) || !hasCoordinates(routeEnd)) return "";
+
+  const radiusMeters = Number(operatingArea.radiusMeters) || 500;
+  const uncoveredPoints = [
+    { label: "start point", point: routeStart },
+    { label: "end point", point: routeEnd }
+  ].filter(({ point }) => getDistanceMeters(operatingArea, point) > radiusMeters);
+
+  if (!uncoveredPoints.length) return "";
+
+  return `Operating area must cover the route ${uncoveredPoints.map(({ label }) => label).join(" and ")}. Increase the operating radius or move the operating area.`;
+};
+
+const getDistanceMeters = (from, to) => {
+  const earthRadiusMeters = 6371000;
+  const fromLat = toRadians(Number(from.latitude));
+  const toLat = toRadians(Number(to.latitude));
+  const deltaLat = toRadians(Number(to.latitude) - Number(from.latitude));
+  const deltaLng = toRadians(Number(to.longitude) - Number(from.longitude));
+  const haversine = Math.sin(deltaLat / 2) ** 2
+    + Math.cos(fromLat) * Math.cos(toLat) * Math.sin(deltaLng / 2) ** 2;
+  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+};
+
+const toRadians = (degrees) => degrees * (Math.PI / 180);
+
+const formatReadableValue = (value = "") => (
+  value.toString().toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
+);
+
+const toSavedLocation = (value) => {
+  if (!value || typeof value !== "string") return null;
+  const match = value.match(/\((-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\)/);
+  if (!match) return null;
+
+  return {
+    label: value.replace(/\s*\(.+\)\s*$/, ""),
+    latitude: Number(match[1]),
+    longitude: Number(match[2])
   };
 };
 

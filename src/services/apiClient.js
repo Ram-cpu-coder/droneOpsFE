@@ -15,7 +15,16 @@ const getSession = () => {
   if (!rawSession) return null;
 
   try {
-    return JSON.parse(rawSession);
+    const session = JSON.parse(rawSession);
+
+    if (session.refreshToken) {
+      const safeSession = { ...session };
+      delete safeSession.refreshToken;
+      localStorage.setItem(SESSION_KEY, JSON.stringify(safeSession));
+      return safeSession;
+    }
+
+    return session;
   } catch {
     // Clear broken session data.
     localStorage.removeItem(SESSION_KEY);
@@ -69,12 +78,15 @@ const notifyActivityChanged = (path, method) => {
 // Converts validation errors into readable text.
 const formatValidationDetails = (details) => {
   const fieldErrors = details?.fieldErrors;
+  const formErrors = Array.isArray(details?.formErrors) ? details.formErrors : [];
 
-  if (!fieldErrors || typeof fieldErrors !== "object") return "";
+  if (!fieldErrors || typeof fieldErrors !== "object") return formErrors.join(" ");
 
-  return Object.entries(fieldErrors)
+  const fieldMessages = Object.entries(fieldErrors)
     .flatMap(([field, messages]) => {
       if (!Array.isArray(messages) || !messages.length) return [];
+
+      if (field === "body") return messages;
 
       const label = field
         .replace(/([A-Z])/g, " $1")
@@ -83,18 +95,21 @@ const formatValidationDetails = (details) => {
       return messages.map((message) => `${label}: ${message}`);
     })
     .join(" ");
+
+  return [fieldMessages, ...formErrors].filter(Boolean).join(" ");
 };
 
-// Gets new access token using refresh token.
+// Gets a new access token using the HttpOnly refresh cookie.
 const refreshAccessToken = async () => {
   const session = getSession();
 
-  if (!session?.refreshToken) return null;
+  if (!session) return null;
 
   const response = await fetch(`${API_BASE_URL}/auth/refresh-token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refreshToken: session.refreshToken }),
+    credentials: "include",
+    body: JSON.stringify({}),
   });
 
   const payload = await response.json().catch(() => ({}));
@@ -110,7 +125,6 @@ const refreshAccessToken = async () => {
   const nextSession = {
     ...session,
     accessToken: payload.data.accessToken,
-    refreshToken: payload.data.refreshToken,
     user: payload.data.user ?? session.user,
   };
 
@@ -123,6 +137,9 @@ const refreshAccessToken = async () => {
 const request = async (path, options = {}, retry = true) => {
   const headers = new Headers(options.headers);
   const token = getAccessToken();
+  const method = (options.method ?? "GET").toUpperCase();
+  const hasRequestBody = Object.prototype.hasOwnProperty.call(options, "body");
+  const shouldSendJsonBody = method !== "GET" && method !== "HEAD" && !(options.body instanceof FormData);
 
   // Attach access token if user is logged in.
   if (token) {
@@ -130,7 +147,7 @@ const request = async (path, options = {}, retry = true) => {
   }
 
   // Add JSON header unless sending files.
-  if (options.body && !(options.body instanceof FormData)) {
+  if (shouldSendJsonBody) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -139,15 +156,14 @@ const request = async (path, options = {}, retry = true) => {
     ...options,
     headers,
     cache: "no-store",
+    credentials: "include",
     body:
       options.body instanceof FormData
         ? options.body
-        : options.body
-          ? JSON.stringify(options.body)
+        : shouldSendJsonBody
+          ? JSON.stringify(hasRequestBody ? options.body : {})
           : undefined,
   });
-
-  const method = options.method ?? "GET";
 
   // 204 means success with no response body.
   if (response.status === 204) {
