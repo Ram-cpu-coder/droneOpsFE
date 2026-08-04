@@ -1571,6 +1571,12 @@ body.modal-open {
   line-height: 1.45;
 }
 
+.mission-profile-id {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
 .modal-header .icon-button {
   color: #ff8a9a;
   border-color: rgba(238, 60, 83, 0.28);
@@ -1596,7 +1602,7 @@ body.modal-open {
 }
 
 .profile-dialog {
-  width: min(980px, 100%);
+  width: min(1040px, 100%);
 }
 
 .delete-confirm-overlay {
@@ -1666,11 +1672,14 @@ body.modal-open {
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
-  margin: 20px 24px;
-  padding: 18px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(137, 160, 190, 0.16);
+  margin: 20px 24px 16px;
+  padding: 18px 20px;
+  background:
+    linear-gradient(135deg, rgba(77, 141, 255, 0.1), rgba(82, 211, 172, 0.055)),
+    rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(137, 160, 190, 0.2);
   border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
 }
 
 .profile-header-actions {
@@ -1682,11 +1691,12 @@ body.modal-open {
 .profile-aircraft-icon {
   display: grid;
   place-items: center;
-  width: 70px;
-  height: 70px;
+  width: 68px;
+  height: 68px;
   color: #ffffff;
   background: linear-gradient(145deg, #1d6fea, #52d3ac);
   border-radius: 16px;
+  box-shadow: 0 18px 38px rgba(29, 111, 234, 0.22);
 }
 
 .user-profile-avatar {
@@ -1753,24 +1763,28 @@ body.modal-open {
 .profile-hero p {
   margin-top: 4px;
   color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 .profile-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  padding: 0 24px 20px;
+  gap: 12px;
+  padding: 0 24px 16px;
 }
 
 .profile-metric {
   display: grid;
-  gap: 6px;
-  min-height: 118px;
-  padding: 16px;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 7px;
+  min-height: 106px;
+  padding: 15px;
   color: var(--text);
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(137, 160, 190, 0.16);
   border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
 .profile-metric svg {
@@ -1780,17 +1794,21 @@ body.modal-open {
 .profile-metric span {
   color: var(--muted);
   font-size: 12px;
+  font-weight: 750;
 }
 
 .profile-metric strong {
-  font-size: 24px;
+  align-self: end;
+  overflow-wrap: anywhere;
+  font-size: clamp(18px, 2vw, 23px);
+  line-height: 1.15;
 }
 
 .profile-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  padding: 0 24px 24px;
+  gap: 12px;
+  padding: 0 24px 18px;
 }
 
 .profile-edit-grid {
@@ -1805,14 +1823,19 @@ body.modal-open {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(137, 160, 190, 0.16);
   border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
 .profile-section-title {
   display: flex;
   gap: 9px;
   align-items: center;
-  margin-bottom: 14px;
+  margin-bottom: 13px;
   color: var(--text);
+}
+
+.profile-section-title svg {
+  color: #8bb8ff;
 }
 
 .profile-section-title h3 {
@@ -1828,12 +1851,19 @@ body.modal-open {
 
 .profile-section dl {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .profile-section dl > div {
   display: grid;
-  gap: 3px;
+  gap: 4px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid rgba(137, 160, 190, 0.09);
+}
+
+.profile-section dl > div:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 
 .profile-section dt {
@@ -3896,12 +3926,15 @@ tr:last-child td {
 
 .profile-location-card {
   display: grid;
-  gap: 14px;
-  margin: 0 24px 24px;
+  gap: 16px;
+  margin: 0 24px 18px;
   padding: 18px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(137, 160, 190, 0.16);
-  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.052), rgba(255, 255, 255, 0.032)),
+    rgba(5, 12, 23, 0.24);
+  border: 1px solid rgba(137, 160, 190, 0.18);
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .profile-location-header,
@@ -3919,13 +3952,14 @@ tr:last-child td {
 
 .profile-location-header h3 {
   color: var(--text);
-  font-size: 16px;
+  font-size: 17px;
 }
 
 .profile-location-header p,
 .profile-location-meta {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .profile-location-header > span {
@@ -4563,22 +4597,22 @@ tr:last-child td {
 }
 
 .mission-progress-panel {
-  margin-top: 8px;
+  margin-top: 0;
 }
 
 .mission-route-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
-  margin-top: 14px;
+  margin-top: 0;
 }
 
 .mission-route-summary > div,
 .mission-waypoint-list > div {
   padding: 12px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(137, 160, 190, 0.16);
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.038);
+  border: 1px solid rgba(137, 160, 190, 0.14);
+  border-radius: 10px;
 }
 
 .mission-route-summary dt {
@@ -4598,11 +4632,11 @@ tr:last-child td {
 .mission-notes-panel,
 .dialog-rich-text,
 .dialog-json-block {
-  margin-top: 14px;
-  padding: 14px;
+  margin-top: 0;
+  padding: 14px 15px;
   color: var(--text);
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(137, 160, 190, 0.16);
+  background: rgba(255, 255, 255, 0.038);
+  border: 1px solid rgba(137, 160, 190, 0.15);
   border-radius: 10px;
 }
 
@@ -4616,6 +4650,212 @@ tr:last-child td {
   margin: 0;
   color: var(--muted);
   line-height: 1.6;
+}
+
+.mission-profile-map-shell,
+.mission-profile-map-empty {
+  position: relative;
+  min-height: 300px;
+  margin-top: 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.032);
+  border: 1px solid rgba(137, 160, 190, 0.18);
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(2, 8, 18, 0.2);
+}
+
+.mission-profile-map {
+  width: 100%;
+  min-height: 300px;
+}
+
+.mission-profile-map .mapboxgl-canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.mission-profile-map-empty,
+.mission-profile-map-status {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.mission-profile-map-empty {
+  gap: 8px;
+}
+
+.mission-profile-map-empty svg {
+  color: #8bb8ff;
+}
+
+.mission-profile-map-status {
+  position: absolute;
+  inset: 14px;
+  color: var(--text);
+  background: rgba(2, 8, 18, 0.68);
+  border: 1px solid rgba(137, 160, 190, 0.16);
+  border-radius: 8px;
+}
+
+.mission-profile-map-status.error {
+  color: #ffadb9;
+}
+
+.mission-profile-map-marker {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #6fb1ff, #1d6fea);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  box-shadow: 0 10px 24px rgba(29, 111, 234, 0.34);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.mission-profile-map-marker.location {
+  background: linear-gradient(135deg, #7df5c6, #2477ff);
+}
+
+.mission-profile-map-marker.location.area {
+  background: linear-gradient(135deg, #f7c85f, #8d6bff);
+}
+
+.mission-route-compact-summary {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  min-height: 30px;
+  padding: 0 11px;
+  color: #a9c6ff;
+  background: rgba(77, 141, 255, 0.1);
+  border: 1px solid rgba(77, 141, 255, 0.18);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.risk-assessment-panel {
+  display: grid;
+  gap: 13px;
+}
+
+.mission-readiness-section {
+  width: calc(100% - 48px);
+  margin: 0 24px 18px;
+}
+
+.risk-assessment-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px;
+  background: rgba(77, 141, 255, 0.07);
+  border: 1px solid rgba(119, 168, 255, 0.18);
+  border-radius: 10px;
+}
+
+.risk-assessment-status p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.risk-assessment-readout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.risk-assessment-readout > div,
+.risk-assessment-note {
+  min-height: 108px;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.038);
+  border: 1px solid rgba(137, 160, 190, 0.15);
+  border-radius: 10px;
+}
+
+.risk-assessment-readout strong {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+.risk-assessment-readout ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.risk-assessment-readout li {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.028);
+  border: 1px solid rgba(137, 160, 190, 0.1);
+  border-radius: 8px;
+}
+
+.risk-assessment-readout span {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.risk-assessment-readout small,
+.risk-assessment-readout p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.risk-assessment-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.032);
+  border: 1px solid rgba(137, 160, 190, 0.14);
+  border-radius: 10px;
+}
+
+.risk-assessment-form .field:first-child {
+  grid-column: 1 / -1;
+  max-width: 260px;
+}
+
+.risk-assessment-form textarea {
+  min-height: 104px;
+  resize: vertical;
+}
+
+.risk-assessment-form > button {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+
+.risk-assessment-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.risk-assessment-note svg {
+  flex: 0 0 auto;
+  color: #ffbf69;
 }
 
 .mission-waypoint-list {
@@ -4655,6 +4895,137 @@ tr:last-child td {
   display: grid;
   grid-column: 1 / -1;
   gap: 14px;
+}
+
+.assignment-summary-card {
+  display: grid;
+  gap: 4px;
+  min-height: 76px;
+  padding: 13px 14px;
+  background: rgba(91, 150, 255, 0.08);
+  border: 1px solid rgba(91, 150, 255, 0.22);
+  border-radius: 8px;
+}
+
+.assignment-summary-card.empty {
+  background: rgba(255, 255, 255, 0.025);
+  border-color: rgba(137, 160, 190, 0.14);
+}
+
+.assignment-summary-card span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.assignment-summary-card strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assignment-summary-card small {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inline-form-alert {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 10px 12px;
+  color: #ffb3bf;
+  background: rgba(255, 121, 145, 0.1);
+  border: 1px solid rgba(255, 121, 145, 0.24);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mission-readiness-checklist {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(137, 160, 190, 0.16);
+  border-radius: 8px;
+}
+
+.mission-readiness-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8bb8ff;
+}
+
+.mission-readiness-heading strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.mission-readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.mission-readiness-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  color: #ffbf6e;
+  background: rgba(247, 200, 95, 0.09);
+  border: 1px solid rgba(247, 200, 95, 0.18);
+  border-radius: 8px;
+}
+
+.mission-readiness-item.complete {
+  color: #79f1c4;
+  background: rgba(70, 211, 160, 0.08);
+  border-color: rgba(70, 211, 160, 0.18);
+}
+
+.mission-readiness-item > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mission-readiness-item span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.mission-readiness-item small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mission-readiness-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ffbf6e;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.mission-readiness-footer.ready {
+  color: #79f1c4;
 }
 
 .switch-row {
@@ -4736,6 +5107,125 @@ tr:last-child td {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.map-tool-selector {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.map-tool-selector button,
+.location-summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 10px;
+  color: var(--text-soft);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(137, 160, 190, 0.15);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.map-tool-selector button.active,
+.location-summary.active {
+  color: var(--text);
+  background: rgba(91, 150, 255, 0.14);
+  border-color: rgba(91, 150, 255, 0.45);
+  box-shadow: 0 0 0 3px rgba(91, 150, 255, 0.1);
+}
+
+.map-tool-selector button svg {
+  color: #8bb8ff;
+}
+
+.map-tool-selector button span {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.location-selection-list {
+  display: grid;
+  gap: 8px;
+}
+
+.location-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px;
+  cursor: default;
+}
+
+.location-summary > button:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.location-summary-clear {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: #ffadb9;
+  background: rgba(255, 121, 145, 0.08);
+  border: 1px solid rgba(255, 121, 145, 0.18);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.location-summary span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.location-summary strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operating-radius-control {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  background: rgba(141, 107, 255, 0.08);
+  border: 1px solid rgba(141, 107, 255, 0.2);
+  border-radius: 8px;
+}
+
+.operating-radius-control span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.operating-radius-control input {
+  width: 100%;
+  accent-color: #8d6bff;
+}
+
+.operating-radius-control strong {
+  color: var(--text);
+  font-size: 12px;
 }
 
 .route-point-list {
@@ -4893,6 +5383,18 @@ tr:last-child td {
   transform: scale(1.12);
 }
 
+.route-picker-marker.location-marker {
+  background: linear-gradient(135deg, #f7c85f, #f0647a);
+}
+
+.route-picker-marker.location-marker.launchSite {
+  background: linear-gradient(135deg, #7df5c6, #2477ff);
+}
+
+.route-picker-marker.location-marker.operatingArea {
+  background: linear-gradient(135deg, #f7c85f, #8d6bff);
+}
+
 .route-picker-empty {
   display: flex;
   align-items: center;
@@ -5022,6 +5524,11 @@ tr:last-child td {
 .secondary-inline-action:hover,
 .secondary-inline-action:focus-visible {
   background: rgba(91, 150, 255, 0.16);
+}
+
+.secondary-inline-action.muted {
+  color: #ffadb9;
+  border-color: rgba(255, 121, 145, 0.22);
 }
 
 .dialog-json-block {
@@ -5592,12 +6099,13 @@ input[type="number"]::-webkit-outer-spin-button {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 42px;
+  min-height: 48px;
   padding: 0 12px;
   color: var(--muted);
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(137, 160, 190, 0.2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.035));
+  border: 1px solid rgba(137, 160, 190, 0.24);
   border-radius: 8px;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
 .field-search-input.combo-input {
@@ -5615,16 +6123,22 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 
 .field-search-input input {
-  min-height: 40px;
+  min-height: 46px;
   padding: 0;
+  color: var(--text);
   background: transparent;
   border: 0;
   box-shadow: none;
+  font-weight: 750;
 }
 
 .field-search-input input:focus {
   border: 0;
   box-shadow: none;
+}
+
+.field-search-input input:focus-visible {
+  outline: none;
 }
 
 .combo-toggle {
@@ -5635,43 +6149,105 @@ input[type="number"]::-webkit-outer-spin-button {
   height: 32px;
   padding: 0;
   color: #8fa0b5;
-  background: transparent;
-  border: 0;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(137, 160, 190, 0.12);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.combo-toggle:focus-visible {
+  outline: none;
+  background: rgba(91, 150, 255, 0.12);
+  border-color: rgba(91, 150, 255, 0.26);
 }
 
 .combo-options {
   position: absolute;
-  top: calc(100% - 34px);
+  top: calc(100% + 8px);
   left: 0;
   right: 0;
-  z-index: 12;
+  z-index: 30;
   display: grid;
-  gap: 4px;
-  max-height: 220px;
+  gap: 6px;
+  max-height: 292px;
   padding: 8px;
   overflow-y: auto;
-  background: rgba(10, 18, 31, 0.96);
-  border: 1px solid rgba(137, 160, 190, 0.24);
-  border-radius: 8px;
-  box-shadow: 0 20px 36px rgba(8, 15, 28, 0.35);
+  background: rgba(7, 14, 27, 0.98);
+  border: 1px solid rgba(137, 160, 190, 0.28);
+  border-radius: 10px;
+  box-shadow: 0 24px 52px rgba(2, 8, 18, 0.48);
   backdrop-filter: blur(14px);
 }
 
 .combo-option {
-  display: block;
+  display: grid;
   width: 100%;
-  padding: 10px 12px;
+  min-height: 58px;
+  padding: 10px 11px;
   color: var(--text);
   text-align: left;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.03);
   border: 1px solid transparent;
   border-radius: 8px;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
 }
 
 .combo-option:hover,
 .combo-option.selected {
-  background: rgba(77, 141, 255, 0.12);
-  border-color: rgba(77, 141, 255, 0.22);
+  background: rgba(77, 141, 255, 0.14);
+  border-color: rgba(77, 141, 255, 0.32);
+}
+
+.combo-option:hover {
+  transform: translateY(-1px);
+}
+
+.combo-option-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.combo-option-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.combo-option-copy strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combo-option-copy small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combo-option-badge {
+  flex: 0 0 auto;
+  max-width: 138px;
+  padding: 5px 8px;
+  overflow: hidden;
+  color: #bcd5ff;
+  background: rgba(91, 150, 255, 0.12);
+  border: 1px solid rgba(91, 150, 255, 0.18);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .combo-empty {
@@ -6480,6 +7056,55 @@ input[type="number"]::-webkit-outer-spin-button {
     width: 82px;
   }
 
+  .catalog-table-wrap {
+    overflow-x: visible;
+  }
+
+  .catalog-table {
+    min-width: 0;
+    border-spacing: 0 12px;
+  }
+
+  .catalog-table tr {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+  }
+
+  .catalog-table td {
+    display: grid;
+    grid-template-columns: minmax(92px, 0.42fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    min-height: 0;
+    padding: 0;
+    border-bottom: 0;
+    color: var(--text-soft);
+    text-align: left;
+  }
+
+  .catalog-table td::before {
+    flex: none;
+    color: var(--muted);
+    font-size: 10px;
+    text-align: left;
+  }
+
+  .catalog-table td > * {
+    justify-content: flex-start;
+    max-width: none;
+    text-align: left;
+  }
+
+  .catalog-table .status-badge {
+    width: max-content;
+  }
+
+  .catalog-table .table-actions {
+    justify-content: flex-start;
+  }
+
   .map-canvas,
   .mapbox-canvas {
     height: 280px;
@@ -6550,9 +7175,40 @@ input[type="number"]::-webkit-outer-spin-button {
   }
 
   .mission-route-summary,
+  .risk-assessment-readout,
+  .risk-assessment-form,
   .route-map-picker,
   .waypoint-row {
     grid-template-columns: 1fr;
+  }
+
+  .profile-location-card {
+    margin-right: 18px;
+    margin-left: 18px;
+    padding: 16px;
+  }
+
+  .mission-readiness-section {
+    width: auto;
+    margin-right: 18px;
+    margin-left: 18px;
+  }
+
+  .profile-location-header,
+  .risk-assessment-status {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mission-profile-map-shell,
+  .mission-profile-map-empty,
+  .mission-profile-map {
+    min-height: 260px;
+  }
+
+  .mission-route-compact-summary {
+    justify-self: start;
+    max-width: 100%;
   }
 
   .route-map-picker {
@@ -6574,6 +7230,11 @@ input[type="number"]::-webkit-outer-spin-button {
   .mission-waypoint-list > div {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .risk-assessment-form > button {
+    justify-self: stretch;
+    width: 100%;
   }
 
   .waypoint-remove,
@@ -6956,6 +7617,13 @@ tr {
   border-color: var(--control-border);
 }
 
+.field .field-search-input input {
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
 .field select option {
   color: var(--text);
   background: var(--surface-solid);
@@ -7155,4 +7823,43 @@ tr {
 
 * {
   scrollbar-color: color-mix(in srgb, var(--blue) 42%, transparent) transparent;
+}
+
+/* Mission profile final polish after the shared theme normalization. */
+.profile-dialog .profile-hero {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--blue) 13%, transparent), color-mix(in srgb, var(--success-text) 7%, transparent)),
+    var(--surface-muted);
+  border-color: color-mix(in srgb, var(--blue) 18%, var(--line));
+}
+
+.profile-dialog .profile-metric,
+.profile-dialog .profile-section,
+.profile-dialog .profile-location-card {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--text) 3%, transparent), transparent),
+    var(--surface-muted);
+  border-color: var(--line);
+}
+
+.profile-dialog .profile-location-card {
+  border-radius: 12px;
+}
+
+.profile-dialog .risk-assessment-status {
+  background: color-mix(in srgb, var(--blue) 10%, var(--surface-muted));
+  border-color: color-mix(in srgb, var(--blue) 24%, var(--line));
+}
+
+.profile-dialog .risk-assessment-form,
+.profile-dialog .risk-assessment-readout > div,
+.profile-dialog .risk-assessment-note,
+.profile-dialog .mission-notes-panel {
+  background: color-mix(in srgb, var(--surface-muted) 82%, transparent);
+  border-color: var(--line);
+}
+
+.profile-dialog .mission-profile-map-shell,
+.profile-dialog .mission-profile-map-empty {
+  border-color: color-mix(in srgb, var(--blue) 14%, var(--line));
 }

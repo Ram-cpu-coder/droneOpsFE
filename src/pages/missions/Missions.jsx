@@ -66,7 +66,7 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
     { key: "status", label: "Status", render: (mission) => <StatusBadge>{mission.status}</StatusBadge> },
     { key: "risk", label: "Risk", render: (mission) => <StatusBadge type="risk">{mission.risk}</StatusBadge> },
     { key: "progress", label: "Progress", render: (mission) => <ProgressBar value={mission.progress} /> },
-    { key: "eta", label: "ETA" }
+    { key: "eta", label: "Mission Planned On" }
   ];
 
   const handleCreateMissionClick = () => {
@@ -86,7 +86,7 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
           user={user}
           onUpdated={(updatedMission, action) => {
             refresh();
-            navigate("/missions");
+            if (action !== "riskAssessment") navigate("/missions");
             setToast({
               title: getMissionToastTitle(action),
               message: getMissionToastMessage(updatedMission ?? selectedMission, action)
@@ -167,7 +167,7 @@ const normalizeMission = (mission) => ({
   pilot: mission.pilot?.name ?? mission.pilot ?? "Unassigned",
   status: mission.status === "PLANNED" ? "Awaiting Approval" : mission.status,
   risk: mission.riskAssessment?.level ?? mission.risk ?? "Pending",
-  eta: mission.eta ?? (mission.plannedStartAt ? new Date(mission.plannedStartAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Not scheduled"),
+  eta: mission.eta ?? formatMissionPlannedOn(mission.plannedStartAt),
   launchSite: mission.launchSite,
   operatingArea: mission.operatingArea,
   routeNotes: mission.plannedRoute?.notes
@@ -175,6 +175,7 @@ const normalizeMission = (mission) => ({
 
 const getMissionToastTitle = (action) => {
   if (action === "approve") return "Mission approved";
+  if (action === "riskAssessment") return "Risk assessment saved";
   if (action === "start") return "Mission started";
   if (action === "complete") return "Mission completed";
   return "Mission updated";
@@ -183,6 +184,7 @@ const getMissionToastTitle = (action) => {
 const getMissionToastMessage = (mission, action) => {
   const label = mission?.missionCode ?? mission?.id ?? "Mission";
   if (action === "approve") return `${label} is approved and ready to be started.`;
+  if (action === "riskAssessment") return `${label} passed pre-flight risk assessment checks.`;
   if (action === "start") return `${label} is now active.`;
   if (action === "complete") return `${label} is now completed.`;
   return `${label} was updated successfully.`;
@@ -191,6 +193,17 @@ const getMissionToastMessage = (mission, action) => {
 const getDetailId = (pathname, basePath) => {
   if (pathname === basePath || !pathname.startsWith(`${basePath}/`)) return null;
   return decodeURIComponent(pathname.slice(basePath.length + 1).split("/")[0] ?? "");
+};
+
+const formatMissionPlannedOn = (value) => {
+  if (!value) return "Not scheduled";
+  return new Date(value).toLocaleString([], {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 };
 
 export default Missions;

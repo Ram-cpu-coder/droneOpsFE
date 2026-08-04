@@ -651,12 +651,12 @@ const Settings = ({ user }) => {
                 <tbody>
                   {paginatedCatalogRows.map((row) => (
                     <tr key={row.id} className={editingCatalogId === row.id ? "is-selected" : ""}>
-                      <td>{row.manufacturer}</td>
-                      <td><strong>{row.model}</strong></td>
-                      <td>{row.batteryType}</td>
-                      <td>{formatOptionLabel(row.telemetryProvider)}</td>
-                      <td><StatusBadge>{row.isActive ? "Active" : "Inactive"}</StatusBadge></td>
-                      <td>
+                      <td data-label="Manufacturer">{row.manufacturer}</td>
+                      <td data-label="Model"><strong>{row.model}</strong></td>
+                      <td data-label="Battery Type">{row.batteryType}</td>
+                      <td data-label="Telemetry">{formatOptionLabel(row.telemetryProvider)}</td>
+                      <td data-label="Status"><StatusBadge>{row.isActive ? "Active" : "Inactive"}</StatusBadge></td>
+                      <td data-label="Actions">
                         <div className="table-actions">
                           <button className="icon-button" type="button" onClick={() => handleEditCatalogModel(row)} aria-label={`Edit ${row.model}`} title="Edit model">
                             <Pencil size={16} />

@@ -24,6 +24,7 @@ export const droneOpsApi = {
     create: (payload) => apiClient.post("/missions", payload),
     update: (id, payload) => apiClient.put(`/missions/${id}`, payload),
     approve: (id) => apiClient.post(`/missions/${id}/approve`, {}),
+    saveRiskAssessment: (id, payload) => apiClient.post(`/missions/${id}/risk-assessment`, payload),
     start: (id) => apiClient.post(`/missions/${id}/start`, {}),
     complete: (id) => apiClient.post(`/missions/${id}/complete`, {}),
     replay: (id) => apiClient.get(`/missions/${id}/replay`)
