@@ -1,16 +1,22 @@
 import { AlertTriangle, MapPinned, Pencil, ShieldCheck, Trash2, UserRoundCheck, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import "mapbox-gl/dist/mapbox-gl.css";
 import ActionButton from "../../../components/common/ActionButton";
 import StatusBadge from "../../../components/common/StatusBadge";
 import { droneOpsApi } from "../../../services/droneOpsApi";
 import IncidentForm from "./IncidentForm";
+
+const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
 const IncidentProfileDialog = ({ incident, canManage = false, onUpdated, onDeleted, onClose }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [resolvedAddress, setResolvedAddress] = useState("");
+  const incidentLocation = useMemo(() => parseIncidentLocation(incident.place ?? incident.location), [incident.location, incident.place]);
+  const displayLocation = resolvedAddress || incidentLocation?.label || incident.place || "No location recorded";
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key !== "Escape") return;
@@ -29,6 +35,20 @@ const IncidentProfileDialog = ({ incident, canManage = false, onUpdated, onDelet
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [onClose, showDeleteConfirm]);
+
+  useEffect(() => {
+    setResolvedAddress("");
+    if (!incidentLocation || !mapboxToken || incidentLocation.label !== "Selected location") return;
+    let isMounted = true;
+
+    reverseGeocodeIncidentLocation(incidentLocation.latitude, incidentLocation.longitude).then((address) => {
+      if (isMounted) setResolvedAddress(address);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [incidentLocation]);
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -86,7 +106,7 @@ const IncidentProfileDialog = ({ incident, canManage = false, onUpdated, onDelet
           <div className="profile-metrics">
             <ProfileMetric icon={ShieldCheck} label="Status" value={incident.status} />
             <ProfileMetric icon={UserRoundCheck} label="Owner" value={incident.owner} />
-            <ProfileMetric icon={MapPinned} label="Location" value={incident.place} />
+            <ProfileMetric icon={MapPinned} label="Location" value={displayLocation} />
           </div>
 
           <div className="profile-grid">
@@ -107,10 +127,12 @@ const IncidentProfileDialog = ({ incident, canManage = false, onUpdated, onDelet
             <ProfileSection icon={MapPinned} title="Timeline">
               <ProfileRow label="Reported" value={formatDateTime(incident.createdAt, incident.time)} />
               <ProfileRow label="Updated" value={formatDateTime(incident.updatedAt)} />
-              <ProfileRow label="Location" value={incident.place} />
+              <ProfileRow label="Location" value={displayLocation} />
               <ProfileRow label="Tracking" value={incident.status} />
             </ProfileSection>
           </div>
+
+          <IncidentLocationMap location={incidentLocation} address={displayLocation} fallback={incident.place} />
 
           <section className="profile-location-card">
             <div className="profile-location-header">
@@ -195,6 +217,117 @@ const ProfileRow = ({ label, value }) => (
 const formatDateTime = (value, fallback) => {
   if (value) return new Date(value).toLocaleString();
   return fallback || "Not provided";
+};
+
+const IncidentLocationMap = ({ location, address, fallback }) => {
+  const mapContainerRef = useRef(null);
+  const mapRef = useRef(null);
+  const markerRef = useRef(null);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapError, setMapError] = useState("");
+
+  useEffect(() => {
+    if (!mapboxToken || !location || mapRef.current || !mapContainerRef.current) return;
+    let isMounted = true;
+
+    const setupMap = async () => {
+      try {
+        const mapboxModule = await import("mapbox-gl");
+        if (!isMounted) return;
+
+        const mapboxgl = mapboxModule.default;
+        mapboxgl.accessToken = mapboxToken;
+        mapRef.current = new mapboxgl.Map({
+          container: mapContainerRef.current,
+          style: "mapbox://styles/mapbox/navigation-night-v1",
+          center: [location.longitude, location.latitude],
+          zoom: 14,
+          pitch: 18
+        });
+        mapRef.current.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "top-right");
+        mapRef.current.on("load", () => {
+          if (!isMounted) return;
+          setMapReady(true);
+
+          const markerElement = document.createElement("div");
+          markerElement.className = "incident-profile-map-marker";
+          markerElement.innerHTML = "<span>!</span>";
+          markerRef.current = new mapboxgl.Marker({ element: markerElement })
+            .setLngLat([location.longitude, location.latitude])
+            .addTo(mapRef.current);
+        });
+      } catch (setupError) {
+        if (isMounted) setMapError(setupError.message);
+      }
+    };
+
+    setupMap();
+
+    return () => {
+      isMounted = false;
+      markerRef.current?.remove();
+      markerRef.current = null;
+      mapRef.current?.remove();
+      mapRef.current = null;
+    };
+  }, [location]);
+
+  return (
+    <section className="profile-location-card incident-profile-map-card">
+      <div className="profile-location-header">
+        <div>
+          <h3>Incident Location</h3>
+          <p>{location ? address : fallback || "No map location recorded."}</p>
+        </div>
+        <span className={location ? "online" : "offline"}>{location ? "Mapped" : "No GPS"}</span>
+      </div>
+      {mapboxToken && location ? (
+        <div className="incident-profile-map" ref={mapContainerRef}>
+          {!mapReady && !mapError && <div className="mission-profile-map-status">Loading incident map...</div>}
+          {mapError && <div className="mission-profile-map-status error">{mapError}</div>}
+        </div>
+      ) : (
+        <div className="incident-profile-map-empty">
+          <MapPinned size={24} />
+          <strong>Map unavailable</strong>
+          <span>{location ? "Mapbox token is not configured." : "This incident does not have saved coordinates."}</span>
+        </div>
+      )}
+      {location && (
+        <div className="profile-location-meta">
+          <span>Coordinates: {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}</span>
+        </div>
+      )}
+    </section>
+  );
+};
+
+const parseIncidentLocation = (value) => {
+  if (!value || typeof value !== "string") return null;
+  const match = value.match(/\((-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\)/);
+  if (!match) return null;
+
+  return {
+    label: normalizeIncidentAddress(value.replace(/\s*\(.+\)\s*$/, "")),
+    latitude: Number(match[1]),
+    longitude: Number(match[2])
+  };
+};
+
+const normalizeIncidentAddress = (label) => {
+  const trimmedLabel = label?.trim();
+  if (!trimmedLabel || trimmedLabel.toLowerCase() === "incident location") return "Selected location";
+  return trimmedLabel;
+};
+
+const reverseGeocodeIncidentLocation = async (latitude, longitude) => {
+  try {
+    const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?limit=1&access_token=${mapboxToken}`);
+    const result = await response.json().catch(() => ({}));
+    return result.features?.[0]?.place_name ?? "Selected location";
+  } catch {
+    return "Selected location";
+  }
 };
 
 export default IncidentProfileDialog;

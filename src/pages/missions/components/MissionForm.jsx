@@ -573,7 +573,7 @@ const getMissionSubmitErrorMessage = (message = "") => {
   const normalizedMessage = message.toLowerCase().trim();
 
   if (normalizedMessage.includes("body: required") || normalizedMessage === "required") {
-    return "Mission could not be submitted because the backend received an empty request body. Refresh the page and try again. If it still happens, restart the backend server because it is still running the old validator.";
+    return "Mission could not be submitted right now. Please refresh and try again.";
   }
 
   if (normalizedMessage.includes("jwt expired") || normalizedMessage.includes("invalid token")) {
