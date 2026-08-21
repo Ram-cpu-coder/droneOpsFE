@@ -28,6 +28,7 @@ const Incidents = ({ searchValue, user }) => {
   const filteredIncidents = useFleetSearch(normalizedIncidents, searchValue);
   const metricIncidents = isFallback ? [] : normalizedIncidents;
   const routeIncidentId = useMemo(() => getDetailId(location.pathname, "/incidents"), [location.pathname]);
+  const profileReturnPath = location.state?.returnTo === "/dashboard" ? "/dashboard" : "/incidents";
   const openIncidentCount = metricIncidents.filter((incident) => !["CLOSED", "Closed", "RESOLVED", "Resolved"].includes(incident.status)).length;
   const highCount = metricIncidents.filter((incident) => ["HIGH", "CRITICAL", "High", "Critical"].includes(incident.severity)).length;
   const assignedOwnerCount = new Set(
@@ -85,17 +86,17 @@ const Incidents = ({ searchValue, user }) => {
           canManage={canManageIncident}
           onUpdated={(updatedIncident) => {
             refresh();
-            navigate("/incidents");
+            navigate(profileReturnPath);
             setToast({ title: "Incident updated", message: `${updatedIncident?.incidentCode ?? selectedIncident.id} was updated successfully.` });
             window.setTimeout(() => setToast(null), 4500);
           }}
           onDeleted={() => {
             refresh();
-            navigate("/incidents");
+            navigate(profileReturnPath);
             setToast({ title: "Incident deleted", message: `${selectedIncident.id} was removed from the register.` });
             window.setTimeout(() => setToast(null), 4500);
           }}
-          onClose={() => navigate("/incidents")}
+          onClose={() => navigate(profileReturnPath)}
         />
       )}
       {toast && (

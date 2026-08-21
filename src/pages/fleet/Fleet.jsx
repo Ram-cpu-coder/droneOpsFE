@@ -35,6 +35,7 @@ const Fleet = ({ searchValue, user }) => {
   const activeCount = metricDrones.filter((drone) => drone.status === "AVAILABLE").length;
   const maintenanceCount = metricDrones.filter((drone) => drone.status === "MAINTENANCE").length;
   const routeDroneId = useMemo(() => getDetailId(location.pathname, "/fleet"), [location.pathname]);
+  const profileReturnPath = location.state?.returnTo === "/dashboard" ? "/dashboard" : "/fleet";
 
   useEffect(() => {
     if (!routeDroneId) {
@@ -128,7 +129,7 @@ const Fleet = ({ searchValue, user }) => {
           canManage={canManageDrones}
           onUpdated={(updatedDrone) => {
             refresh();
-            navigate("/fleet");
+            navigate(profileReturnPath);
             showToast({
               type: "success",
               title: "Drone updated",
@@ -137,14 +138,14 @@ const Fleet = ({ searchValue, user }) => {
           }}
           onDeleted={(deletedDrone) => {
             refresh();
-            navigate("/fleet");
+            navigate(profileReturnPath);
             showToast({
               type: "success",
               title: "Drone deleted",
               message: `${deletedDrone.id} was removed from the fleet.`
             });
           }}
-          onClose={() => navigate("/fleet")}
+          onClose={() => navigate(profileReturnPath)}
         />
       )}
 

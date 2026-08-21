@@ -36,6 +36,7 @@ const Reports = ({ user, searchValue = "" }) => {
   const filteredReports = useFleetSearch(normalizedReports, searchValue);
   const metricReports = isFallback ? [] : normalizedReports;
   const routeReportId = useMemo(() => getDetailId(location.pathname, "/reports"), [location.pathname]);
+  const profileReturnPath = location.state?.returnTo === "/dashboard" ? "/dashboard" : "/reports";
   const canGenerateReports = hasClientPermission(user, "reports:manage");
   const canDeleteReports = hasClientPermission(user, "*");
   const canManageReportStatus = hasClientPermission(user, "*") || hasClientPermission(user, "reports:manage");
@@ -134,11 +135,11 @@ const Reports = ({ user, searchValue = "" }) => {
           }}
           onDeleted={() => {
             refresh();
-            navigate("/reports");
+            navigate(profileReturnPath);
             setToast({ title: "Report deleted", message: `${selectedReport.name} was removed.` });
             window.setTimeout(() => setToast(null), 4500);
           }}
-          onClose={() => navigate("/reports")}
+          onClose={() => navigate(profileReturnPath)}
         />
       )}
       {toast && (

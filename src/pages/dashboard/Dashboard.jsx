@@ -67,6 +67,10 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
     onNavigate?.("missions");
   };
 
+  const navigateFromDashboard = (path) => {
+    navigate(path, { state: { returnTo: "/dashboard" } });
+  };
+
   return (
     <>
       <section className="stats-grid" aria-label="Fleet summary">
@@ -79,7 +83,7 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
         <FleetOverviewTable
           drones={filteredDrones.slice(0, 5)}
           isLoading={isDronesLoading}
-          onDroneSelect={(drone) => navigate(`/fleet/${encodeURIComponent(drone.uuid ?? drone.id)}`)}
+          onDroneSelect={(drone) => navigateFromDashboard(`/fleet/${encodeURIComponent(drone.uuid ?? drone.id)}`)}
         />
         {showLivePanels && canRead("telemetry:read") ? (
           <Suspense fallback={<div className="panel map-panel map-loading"><LoadingLogo label="Loading telemetry map" /></div>}>
@@ -106,9 +110,10 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
           canCreate={canRead("missions:manage")}
           isLoading={isMissionsLoading}
           onCreateMission={handleNewMission}
+          onMissionSelect={(mission) => navigateFromDashboard(`/missions/${encodeURIComponent(mission.uuid ?? mission.id)}`)}
         />
-        <IncidentWatch incidents={dashboardIncidents} />
-        <ActivityFeed activity={recentActivity} isLoading={isActivityLoading} />
+        <IncidentWatch incidents={dashboardIncidents} onIncidentSelect={(incident) => navigateFromDashboard(`/incidents/${encodeURIComponent(incident.uuid ?? incident.idRaw ?? incident.id)}`)} />
+        <ActivityFeed activity={recentActivity} isLoading={isActivityLoading} onActivitySelect={(item) => item.targetPath && navigateFromDashboard(item.targetPath)} />
       </section>
     </>
   );
@@ -130,12 +135,19 @@ const normalizeDrone = (drone, telemetryRows = []) => {
     nextMaintenance: drone.nextMaintenance ?? "Not scheduled",
     location: latestTelemetry
       ? `${Number(latestTelemetry.location.latitude).toFixed(4)}, ${Number(latestTelemetry.location.longitude).toFixed(4)}`
-      : (drone.location ?? "No position recorded")
+      : normalizeDashboardLocation(drone.location)
   };
+};
+
+const normalizeDashboardLocation = (location) => {
+  const value = String(location ?? "").trim();
+  if (!value || value.toLowerCase() === "no position recorded") return "Not recorded";
+  return value;
 };
 
 const normalizeMissionCard = (mission) => ({
   id: mission.id,
+  uuid: mission.uuid ?? mission.id,
   name: mission.name ?? mission.missionCode ?? "Untitled mission",
   drone: mission.drone?.droneCode ?? mission.drone ?? "Unassigned drone",
   eta: mission.eta ?? (mission.plannedStartAt ? new Date(mission.plannedStartAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Not scheduled"),
@@ -145,6 +157,8 @@ const normalizeMissionCard = (mission) => ({
 
 const normalizeIncidentCard = (incident) => ({
   id: incident.id,
+  uuid: incident.uuid ?? incident.id,
+  idRaw: incident.idRaw,
   title: incident.title ?? incident.incidentCode ?? "Untitled incident",
   place: incident.location ?? incident.drone?.droneCode ?? "Location not recorded",
   time: incident.time ?? "Recently updated",

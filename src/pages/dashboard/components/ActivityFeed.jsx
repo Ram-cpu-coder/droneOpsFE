@@ -8,7 +8,7 @@ const icons = {
   report: BarChart3
 };
 
-const ActivityFeed = ({ activity, isLoading = false }) => {
+const ActivityFeed = ({ activity, isLoading = false, onActivitySelect }) => {
   return (
     <div className="panel activity-panel">
       <div className="panel-heading compact">
@@ -20,13 +20,19 @@ const ActivityFeed = ({ activity, isLoading = false }) => {
         {activity.map((item) => {
           const Icon = icons[item.type] ?? CheckCircle2;
           return (
-            <div className="activity-item" key={item.id ?? item.label}>
+            <button
+              className="activity-item dashboard-clickable-item"
+              key={item.id ?? item.label}
+              type="button"
+              onClick={() => onActivitySelect?.(item)}
+              disabled={!item.targetPath}
+            >
               <div className="activity-icon"><Icon size={17} /></div>
               <div>
                 <p>{item.label}</p>
                 <span>{item.time}</span>
               </div>
-            </div>
+            </button>
           );
         })}
       </div>

@@ -27,6 +27,7 @@ const UserManagement = ({ user, searchValue = "" }) => {
   const users = useMemo(() => apiUsers.map((item, index) => normalizeUser(item, index)), [apiUsers]);
   const filteredUsers = useFleetSearch(users, searchValue);
   const routeUserId = useMemo(() => getDetailId(location.pathname, "/users"), [location.pathname]);
+  const profileReturnPath = location.state?.returnTo === "/dashboard" ? "/dashboard" : "/users";
   const metricUsers = isFallback ? [] : users;
   const verifiedUsers = metricUsers.filter((user) => user.isVerified).length;
   const canManageUsers = isSystemAdministrator(user);
@@ -91,7 +92,7 @@ const UserManagement = ({ user, searchValue = "" }) => {
     try {
       await droneOpsApi.users.remove(deletingUser.id);
       setData((current) => current.filter((item) => item.id !== deletingUser.id));
-      if (selectedUser?.id === deletingUser.id) navigate("/users");
+      if (selectedUser?.id === deletingUser.id) navigate(profileReturnPath);
       showToast({ type: "success", title: "User deleted", message: `${deletingUser.name} was removed from the organisation.` });
       setDeletingUser(null);
     } catch (requestError) {
@@ -231,9 +232,9 @@ const UserManagement = ({ user, searchValue = "" }) => {
           }}
           onDeleted={(deletedUser) => {
             setData((current) => current.filter((item) => item.id !== deletedUser.id));
-            navigate("/users");
+            navigate(profileReturnPath);
           }}
-          onClose={() => navigate("/users")}
+          onClose={() => navigate(profileReturnPath)}
         />
       )}
       <div className="stats-grid three">

@@ -42,7 +42,7 @@ const FleetOverviewTable = ({ drones, isLoading = false, onDroneSelect }) => {
         </button>
       )
     },
-    { key: "status", label: "Status", filterable: true, render: (drone) => <StatusBadge>{drone.status}</StatusBadge> },
+    { key: "status", label: "Status", render: (drone) => <StatusBadge>{drone.status}</StatusBadge> },
     { key: "battery", label: "Battery", render: (drone) => <BatteryMeter value={drone.battery} /> },
     {
       key: "signal",
@@ -93,6 +93,7 @@ const FleetOverviewTable = ({ drones, isLoading = false, onDroneSelect }) => {
         columns={columns}
         rows={filteredDrones}
         getRowKey={(drone) => drone.uuid ?? drone.id}
+        onRowClick={onDroneSelect}
         emptyMessage={isLoading ? "Loading fleet records..." : activeFilter === "ALL" ? "No active drones found." : "No drones match this filter."}
       />
     </div>

@@ -4673,6 +4673,31 @@ tr:last-child td {
   border-radius: 8px;
 }
 
+.dashboard-clickable-item {
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dashboard-clickable-item:hover,
+.dashboard-clickable-item:focus-visible {
+  border-color: color-mix(in srgb, var(--blue) 38%, var(--line));
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 18%, transparent);
+}
+
+.dashboard-clickable-item:disabled {
+  cursor: default;
+}
+
+.dashboard-clickable-item:disabled:hover,
+.dashboard-clickable-item:disabled:focus-visible {
+  border-color: inherit;
+  box-shadow: none;
+}
+
 .mission-icon,
 .activity-icon {
   display: inline-flex;
@@ -4729,6 +4754,17 @@ tr:last-child td {
   align-items: center;
 }
 
+.activity-item.dashboard-clickable-item {
+  padding: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.activity-item.dashboard-clickable-item:disabled {
+  opacity: 1;
+}
+
 .activity-item span,
 .incident-card span {
   color: var(--muted);
@@ -4751,9 +4787,10 @@ tr:last-child td {
 
 .incident-card {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
+  grid-template-columns: 22px minmax(0, 1fr);
   gap: 12px;
   align-items: flex-start;
+  width: calc(100% - 48px);
   margin: 14px 24px 0;
   padding: 14px;
   color: #ff8b9b;
@@ -4762,9 +4799,23 @@ tr:last-child td {
   border-radius: 8px;
 }
 
+.incident-card > div {
+  min-width: 0;
+}
+
 .incident-card h4 {
   color: var(--text);
   font-size: 14px;
+}
+
+.incident-card h4,
+.incident-card p {
+  overflow-wrap: anywhere;
+}
+
+.incident-card > span {
+  grid-column: 2;
+  margin-top: -6px;
 }
 
 .detail-grid,

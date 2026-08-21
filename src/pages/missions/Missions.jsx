@@ -28,6 +28,7 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
   const filteredMissions = useFleetSearch(normalizedMissions, searchValue);
   const metricMissions = isFallback ? [] : normalizedMissions;
   const routeMissionId = useMemo(() => getDetailId(location.pathname, "/missions"), [location.pathname]);
+  const profileReturnPath = location.state?.returnTo === "/dashboard" ? "/dashboard" : "/missions";
   const activeMissions = metricMissions.filter((mission) => ["ACTIVE", "In Progress"].includes(mission.rawStatus ?? mission.status)).length;
   const scheduledMissions = metricMissions.filter((mission) => ["PLANNED", "APPROVED", "RISK_ASSESSMENT_COMPLETED", "Scheduled"].includes(mission.rawStatus ?? mission.status)).length;
   const averageProgress = metricMissions.length
@@ -92,14 +93,14 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
           user={user}
           onUpdated={(updatedMission, action) => {
             refresh();
-            if (action !== "riskAssessment") navigate("/missions");
+            if (action !== "riskAssessment") navigate(profileReturnPath);
             setToast({
               title: getMissionToastTitle(action),
               message: getMissionToastMessage(updatedMission ?? selectedMission, action)
             });
             window.setTimeout(() => setToast(null), 4500);
           }}
-          onClose={() => navigate("/missions")}
+          onClose={() => navigate(profileReturnPath)}
         />
       )}
       {toast && (
