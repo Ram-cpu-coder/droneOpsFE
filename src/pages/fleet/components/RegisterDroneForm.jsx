@@ -175,7 +175,7 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
   };
 
   const dialog = (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onCancel?.()}>
+    <div className="modal-backdrop" role="presentation">
       {validationToast && (
         <div className="modal-toast-region" role="status" aria-live="polite">
           <div className="toast-card error">

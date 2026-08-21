@@ -348,6 +348,7 @@ export const authService = {
     */
     async completeGoogleProfile(payload) {
         let apiRole;
+        const organisationMode = payload.organizationMode === "create" ? "create" : "join";
 
         if (apiRoleByRoleId[payload.role]) {
             apiRole = apiRoleByRoleId[payload.role];
@@ -357,7 +358,10 @@ export const authService = {
 
         const result = await apiClient.post("/auth/google/complete-profile", {
             credential: payload.credential,
-            organisationJoinCode: payload.organizationCode || undefined,
+            organisationMode,
+            organisationJoinCode: organisationMode === "create" ? undefined : payload.organizationCode || undefined,
+            organisationName: organisationMode === "create" ? payload.organizationName || undefined : undefined,
+            industry: payload.industry || undefined,
             role: apiRole,
         });
 
@@ -396,7 +400,9 @@ export const authService = {
             name: payload.name,
             email: payload.email,
             password: payload.password,
-            organisationJoinCode: payload.organizationCode || undefined,
+            organisationMode: payload.organizationMode || "join",
+            organisationJoinCode: payload.organizationMode === "create" ? undefined : payload.organizationCode || undefined,
+            organisationName: payload.organizationMode === "create" ? payload.organizationName || undefined : undefined,
             industry: payload.industry,
             profileImageUrl: profileImageUrl,
             role: apiRole,

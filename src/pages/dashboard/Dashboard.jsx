@@ -1,7 +1,8 @@
-import { useCallback, useMemo } from "react";
+import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 import { Activity, AlertTriangle, MapPin, Plane } from "lucide-react";
 import { useDispatch } from "react-redux";
 import { useNavigate } from "react-router-dom";
+import LoadingLogo from "../../components/common/LoadingLogo";
 import MetricCard from "../../components/common/MetricCard";
 import { hasClientPermission } from "../../features/auth/accessControl";
 import { routeActionRequested } from "../../features/ui/uiSlice";
@@ -15,19 +16,45 @@ import { droneOpsApi } from "../../services/droneOpsApi";
 import { buildRecentActivityFromAudit } from "../../utils/activityStream";
 
 const metricIcons = [Plane, Activity, AlertTriangle, MapPin];
+const GeospatialMap = lazy(() => import("../../components/maps/GeospatialMap"));
+const DASHBOARD_SPLIT_STORAGE_KEY = "droneops-dashboard-drones-map-width";
+const DEFAULT_DASHBOARD_SPLIT = 50;
+const MIN_DASHBOARD_SPLIT = 32;
+const MAX_DASHBOARD_SPLIT = 68;
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+const getStoredDashboardSplit = () => {
+  if (typeof window === "undefined") return DEFAULT_DASHBOARD_SPLIT;
+  const storedValue = Number(window.localStorage.getItem(DASHBOARD_SPLIT_STORAGE_KEY));
+  return Number.isFinite(storedValue)
+    ? clamp(storedValue, MIN_DASHBOARD_SPLIT, MAX_DASHBOARD_SPLIT)
+    : DEFAULT_DASHBOARD_SPLIT;
+};
 
 const Dashboard = ({ searchValue, user, onNavigate }) => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
-  const canRead = (permission) => hasClientPermission(user, permission);
+  const [showLivePanels, setShowLivePanels] = useState(false);
+  const [dashboardSplit, setDashboardSplit] = useState(getStoredDashboardSplit);
+  const canRead = useCallback((permission) => hasClientPermission(user, permission), [user]);
   const loadDrones = useCallback(() => droneOpsApi.drones.list(), []);
   const loadMissions = useCallback(() => droneOpsApi.missions.list(), []);
   const loadIncidents = useCallback(() => droneOpsApi.incidents.list(), []);
   const loadAudit = useCallback(() => droneOpsApi.audit.list({ limit: 8 }), []);
+  const loadTelemetry = useCallback(() => {
+    if (!showLivePanels || !canRead("telemetry:read")) return Promise.resolve([]);
+    return droneOpsApi.telemetry.live();
+  }, [canRead, showLivePanels]);
   const { data: apiDrones, isLoading: isDronesLoading, isFallback: isDronesFallback } = useApiResource(loadDrones, [], { enabled: canRead("drones:read") });
   const { data: apiMissions, isLoading: isMissionsLoading, isFallback: isMissionsFallback } = useApiResource(loadMissions, [], { enabled: canRead("missions:read") });
   const { data: apiIncidents, isLoading: isIncidentsLoading, isFallback: isIncidentsFallback } = useApiResource(loadIncidents, [], { enabled: canRead("incidents:read") });
   const { data: auditLogs, isLoading: isActivityLoading } = useApiResource(loadAudit, [], { enabled: canRead("audit:read") });
+  const { data: telemetryRows } = useApiResource(
+    loadTelemetry,
+    [],
+    { cacheKey: `telemetry-live:${user?.organisationId ?? "unknown"}`, staleMs: 5000, enabled: showLivePanels && canRead("telemetry:read") }
+  );
   const activeMissions = apiMissions.filter((mission) => ["In Progress", "ACTIVE"].includes(mission.status));
   const openIncidents = apiIncidents.filter((incident) => !["CLOSED", "Closed", "RESOLVED", "Resolved"].includes(incident.status));
   const maintenanceDrones = apiDrones.filter((drone) => drone.status === "MAINTENANCE");
@@ -41,7 +68,7 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
     ];
   }, [activeMissions.length, apiDrones.length, apiMissions.length, isDronesFallback, isDronesLoading, isIncidentsFallback, isIncidentsLoading, isMissionsFallback, isMissionsLoading, maintenanceDrones.length, openIncidents.length]);
 
-  const normalizedDrones = useMemo(() => apiDrones.map(normalizeDrone), [apiDrones]);
+  const normalizedDrones = useMemo(() => apiDrones.map((drone) => normalizeDrone(drone, telemetryRows)), [apiDrones, telemetryRows]);
   const filteredDrones = useFleetSearch(normalizedDrones, searchValue);
   const dashboardMissions = useMemo(
     () => apiMissions.map(normalizeMissionCard).slice(0, 3),
@@ -55,6 +82,63 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
     onNavigate?.("missions");
   };
 
+  const navigateFromDashboard = (path) => {
+    navigate(path, { state: { returnTo: "/dashboard" } });
+  };
+
+  const updateDashboardSplit = useCallback((value) => {
+    const nextValue = clamp(value, MIN_DASHBOARD_SPLIT, MAX_DASHBOARD_SPLIT);
+    setDashboardSplit(nextValue);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(DASHBOARD_SPLIT_STORAGE_KEY, String(Math.round(nextValue)));
+      window.dispatchEvent(new CustomEvent("droneops-map-layout-change"));
+    }
+  }, []);
+
+  const handleDashboardSplitPointerDown = useCallback((event) => {
+    if (event.button !== 0) return;
+    const row = event.currentTarget.closest(".dashboard-resizable-row");
+    if (!row) return;
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+
+    const updateFromClientX = (clientX) => {
+      const rect = row.getBoundingClientRect();
+      if (!rect.width) return;
+      updateDashboardSplit(((clientX - rect.left) / rect.width) * 100);
+    };
+
+    const handlePointerMove = (moveEvent) => updateFromClientX(moveEvent.clientX);
+    const handlePointerUp = () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+    updateFromClientX(event.clientX);
+  }, [updateDashboardSplit]);
+
+  const handleDashboardSplitKeyDown = useCallback((event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key === "Home") {
+      updateDashboardSplit(MIN_DASHBOARD_SPLIT);
+      return;
+    }
+    if (event.key === "End") {
+      updateDashboardSplit(MAX_DASHBOARD_SPLIT);
+      return;
+    }
+    updateDashboardSplit(dashboardSplit + (event.key === "ArrowRight" ? 4 : -4));
+  }, [dashboardSplit, updateDashboardSplit]);
+
   return (
     <>
       <section className="stats-grid" aria-label="Fleet summary">
@@ -64,16 +148,49 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
       </section>
 
       <section className="content-grid dashboard-grid">
-        <FleetOverviewTable
-          drones={filteredDrones.slice(0, 5)}
-          isLoading={isDronesLoading}
-          onDroneSelect={(drone) => navigate(`/fleet/${encodeURIComponent(drone.uuid ?? drone.id)}`)}
-        />
-        <div className="panel map-panel map-loading map-deferred">
-          <div>
-            <span className="eyebrow">Telemetry Map</span>
-            <h3>Fleet map preview</h3>
-            <p>Map preview is based on available fleet records. Live telemetry rendering is handled in mission and fleet views.</p>
+        <div className="dashboard-resizable-row" style={{ "--dashboard-drones-width": `${dashboardSplit}%` }}>
+          <div className="dashboard-resizable-pane">
+            <FleetOverviewTable
+              drones={filteredDrones.slice(0, 5)}
+              isLoading={isDronesLoading}
+              onDroneSelect={(drone) => navigateFromDashboard(`/fleet/${encodeURIComponent(drone.uuid ?? drone.id)}`)}
+            />
+          </div>
+          <button
+            className="dashboard-resize-handle"
+            type="button"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize drones and telemetry map sections"
+            aria-valuemin={MIN_DASHBOARD_SPLIT}
+            aria-valuemax={MAX_DASHBOARD_SPLIT}
+            aria-valuenow={Math.round(dashboardSplit)}
+            onPointerDown={handleDashboardSplitPointerDown}
+            onKeyDown={handleDashboardSplitKeyDown}
+          >
+            <span aria-hidden="true" />
+          </button>
+          <div className="dashboard-resizable-pane">
+            {showLivePanels && canRead("telemetry:read") ? (
+              <Suspense fallback={<div className="panel map-panel map-loading"><LoadingLogo label="Loading telemetry map" /></div>}>
+                <GeospatialMap />
+              </Suspense>
+            ) : (
+              <div className="panel map-panel map-loading map-deferred">
+                <div>
+                  <span className="eyebrow">Telemetry Map</span>
+                  <h3>Live map loads on demand</h3>
+                  <p>Open live operations view when you need current drone positions, replay tracks, and geofence overlays.</p>
+                  {canRead("telemetry:read") ? (
+                    <button className="primary-btn compact" type="button" onClick={() => setShowLivePanels(true)}>
+                      Open Live Map
+                    </button>
+                  ) : (
+                    <span>Telemetry access is not enabled for this role.</span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <MissionQueue
@@ -81,29 +198,44 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
           canCreate={canRead("missions:manage")}
           isLoading={isMissionsLoading}
           onCreateMission={handleNewMission}
+          onMissionSelect={(mission) => navigateFromDashboard(`/missions/${encodeURIComponent(mission.uuid ?? mission.id)}`)}
         />
-        <ActivityFeed activity={recentActivity} isLoading={isActivityLoading} />
-        <IncidentWatch incidents={dashboardIncidents} />
+        <IncidentWatch incidents={dashboardIncidents} onIncidentSelect={(incident) => navigateFromDashboard(`/incidents/${encodeURIComponent(incident.uuid ?? incident.idRaw ?? incident.id)}`)} />
+        <ActivityFeed activity={recentActivity} isLoading={isActivityLoading} onActivitySelect={(item) => item.targetPath && navigateFromDashboard(item.targetPath)} />
       </section>
     </>
   );
 };
 
-const normalizeDrone = (drone) => {
+const normalizeDrone = (drone, telemetryRows = []) => {
+  const latestTelemetry = telemetryRows.find((row) => row.drone?.id === drone.id || row.drone?.droneCode === drone.droneCode)?.telemetry;
+
   return {
     ...drone,
     uuid: drone.uuid ?? drone.id,
+    systemId: drone.id,
     id: drone.droneCode ?? drone.id,
-    battery: drone.battery ?? 0,
-    signal: drone.signal ?? 0,
+    serialNumber: drone.droneCode ?? drone.id,
+    battery: latestTelemetry?.battery.level ?? drone.latestTelemetry?.batteryLevel ?? drone.battery ?? 0,
+    signal: latestTelemetry?.signal.strength ?? drone.signal ?? 0,
+    latestTelemetry,
     flightHours: drone.flightHours ?? 0,
     nextMaintenance: drone.nextMaintenance ?? "Not scheduled",
-    location: drone.location ?? "No position recorded"
+    location: latestTelemetry
+      ? `${Number(latestTelemetry.location.latitude).toFixed(4)}, ${Number(latestTelemetry.location.longitude).toFixed(4)}`
+      : normalizeDashboardLocation(drone.location)
   };
+};
+
+const normalizeDashboardLocation = (location) => {
+  const value = String(location ?? "").trim();
+  if (!value || value.toLowerCase() === "no position recorded") return "Not recorded";
+  return value;
 };
 
 const normalizeMissionCard = (mission) => ({
   id: mission.id,
+  uuid: mission.uuid ?? mission.id,
   name: mission.name ?? mission.missionCode ?? "Untitled mission",
   drone: mission.drone?.droneCode ?? mission.drone ?? "Unassigned drone",
   eta: mission.eta ?? (mission.plannedStartAt ? new Date(mission.plannedStartAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Not scheduled"),
@@ -113,6 +245,8 @@ const normalizeMissionCard = (mission) => ({
 
 const normalizeIncidentCard = (incident) => ({
   id: incident.id,
+  uuid: incident.uuid ?? incident.id,
+  idRaw: incident.idRaw,
   title: incident.title ?? incident.incidentCode ?? "Untitled incident",
   place: incident.location ?? incident.drone?.droneCode ?? "Location not recorded",
   time: incident.time ?? "Recently updated",

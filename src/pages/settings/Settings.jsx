@@ -1,7 +1,8 @@
-import { AlertTriangle, Bell, CheckCircle2, ChevronLeft, ChevronRight, Copy, Database, ImagePlus, Mail, Pencil, Plus, RefreshCw, Save, Search, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
+import { AlertTriangle, Bell, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Database, ImagePlus, Mail, Pencil, Plus, RefreshCw, Save, Search, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch } from "react-redux";
 import ActionButton from "../../components/common/ActionButton";
+import CopyableId from "../../components/common/CopyableId";
 import MetricCard from "../../components/common/MetricCard";
 import SectionHeader from "../../components/common/SectionHeader";
 import StatusBadge from "../../components/common/StatusBadge";
@@ -35,6 +36,10 @@ const Settings = ({ user }) => {
   const [catalogRows, setCatalogRows] = useState([]);
   const [catalogDraft, setCatalogDraft] = useState(defaultCatalogDraft);
   const [catalogSearch, setCatalogSearch] = useState("");
+  const [catalogManufacturerFilter, setCatalogManufacturerFilter] = useState("");
+  const [catalogTelemetryFilter, setCatalogTelemetryFilter] = useState("");
+  const [catalogStatusFilter, setCatalogStatusFilter] = useState("");
+  const [catalogSort, setCatalogSort] = useState({ key: "manufacturer", direction: "asc" });
   const [catalogPage, setCatalogPage] = useState(1);
   const [isCatalogFormOpen, setIsCatalogFormOpen] = useState(false);
   const [editingCatalogId, setEditingCatalogId] = useState("");
@@ -49,10 +54,11 @@ const Settings = ({ user }) => {
   );
   const filteredCatalogRows = useMemo(() => {
     const query = catalogSearch.trim().toLowerCase();
-    if (!query) return catalogRows;
 
-    return catalogRows.filter((row) => (
-      [
+    return catalogRows.filter((row) => {
+      const matchesSearch = !query || [
+        row.systemId,
+        row.serialNumber,
         row.manufacturer,
         row.model,
         row.batteryType,
@@ -62,14 +68,39 @@ const Settings = ({ user }) => {
         row.isActive ? "active" : "inactive"
       ]
         .filter(Boolean)
-        .some((value) => value.toString().toLowerCase().includes(query))
-    ));
-  }, [catalogRows, catalogSearch]);
-  const catalogTotalPages = Math.max(1, Math.ceil(filteredCatalogRows.length / CATALOG_PAGE_SIZE));
-  const catalogPageStart = (catalogPage - 1) * CATALOG_PAGE_SIZE;
-  const paginatedCatalogRows = filteredCatalogRows.slice(catalogPageStart, catalogPageStart + CATALOG_PAGE_SIZE);
-  const catalogShowingStart = filteredCatalogRows.length ? catalogPageStart + 1 : 0;
-  const catalogShowingEnd = Math.min(catalogPageStart + CATALOG_PAGE_SIZE, filteredCatalogRows.length);
+        .some((value) => value.toString().toLowerCase().includes(query));
+      const matchesManufacturer = !catalogManufacturerFilter || row.manufacturer === catalogManufacturerFilter;
+      const matchesTelemetry = !catalogTelemetryFilter || row.telemetryProvider === catalogTelemetryFilter;
+      const matchesStatus = !catalogStatusFilter || (row.isActive ? "Active" : "Inactive") === catalogStatusFilter;
+      return matchesSearch && matchesManufacturer && matchesTelemetry && matchesStatus;
+    });
+  }, [catalogManufacturerFilter, catalogRows, catalogSearch, catalogStatusFilter, catalogTelemetryFilter]);
+  const catalogManufacturerOptions = useMemo(() => getUniqueCatalogOptions(catalogRows, (row) => row.manufacturer), [catalogRows]);
+  const catalogTelemetryOptions = useMemo(() => getUniqueCatalogOptions(catalogRows, (row) => row.telemetryProvider), [catalogRows]);
+  const sortedCatalogRows = useMemo(() => {
+    return [...filteredCatalogRows].sort((left, right) => {
+      const result = compareCatalogValues(getCatalogSortValue(left, catalogSort.key), getCatalogSortValue(right, catalogSort.key));
+      return catalogSort.direction === "asc" ? result : -result;
+    });
+  }, [catalogSort, filteredCatalogRows]);
+  const catalogTotalPages = Math.max(1, Math.ceil(sortedCatalogRows.length / CATALOG_PAGE_SIZE));
+  const safeCatalogPage = Math.min(catalogPage, catalogTotalPages);
+  const catalogPageStart = (safeCatalogPage - 1) * CATALOG_PAGE_SIZE;
+  const paginatedCatalogRows = sortedCatalogRows.slice(catalogPageStart, catalogPageStart + CATALOG_PAGE_SIZE);
+  const catalogShowingStart = sortedCatalogRows.length ? catalogPageStart + 1 : 0;
+  const catalogShowingEnd = Math.min(catalogPageStart + CATALOG_PAGE_SIZE, sortedCatalogRows.length);
+
+  const handleCatalogSort = (sortKey) => {
+    setCatalogSort((current) => {
+      if (current.key !== sortKey) return { key: sortKey, direction: "asc" };
+      return { key: sortKey, direction: current.direction === "asc" ? "desc" : "asc" };
+    });
+    setCatalogPage(1);
+  };
+
+  useEffect(() => {
+    setCatalogPage((current) => Math.min(current, catalogTotalPages));
+  }, [catalogTotalPages]);
 
   useEffect(() => {
     setForm(toUserForm(user));
@@ -626,13 +657,62 @@ const Settings = ({ user }) => {
                 <Search size={17} />
                 <input
                   value={catalogSearch}
-                  onChange={(event) => setCatalogSearch(event.target.value)}
+                  onChange={(event) => {
+                    setCatalogSearch(event.target.value);
+                    setCatalogPage(1);
+                  }}
                   placeholder="Search catalog models"
                   aria-label="Search drone catalog models"
                 />
               </label>
+              <div className="catalog-filter-group" aria-label="Drone catalog filters">
+                <label className={`catalog-filter-field ${catalogManufacturerFilter ? "is-active" : ""}`}>
+                  <span>Manufacturer</span>
+                  <select
+                    value={catalogManufacturerFilter}
+                    onChange={(event) => {
+                      setCatalogManufacturerFilter(event.target.value);
+                      setCatalogPage(1);
+                    }}
+                  >
+                    <option value="">All</option>
+                    {catalogManufacturerOptions.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className={`catalog-filter-field ${catalogTelemetryFilter ? "is-active" : ""}`}>
+                  <span>Telemetry</span>
+                  <select
+                    value={catalogTelemetryFilter}
+                    onChange={(event) => {
+                      setCatalogTelemetryFilter(event.target.value);
+                      setCatalogPage(1);
+                    }}
+                  >
+                    <option value="">All</option>
+                    {catalogTelemetryOptions.map((option) => (
+                      <option key={option} value={option}>{formatOptionLabel(option)}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className={`catalog-filter-field ${catalogStatusFilter ? "is-active" : ""}`}>
+                  <span>Status</span>
+                  <select
+                    value={catalogStatusFilter}
+                    onChange={(event) => {
+                      setCatalogStatusFilter(event.target.value);
+                      setCatalogPage(1);
+                    }}
+                  >
+                    <option value="">All</option>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                  </select>
+                </label>
+              </div>
               <span>
-                Showing {catalogShowingStart}-{catalogShowingEnd} of {filteredCatalogRows.length}
+                Showing {catalogShowingStart}-{catalogShowingEnd} of {sortedCatalogRows.length}
               </span>
             </div>
 
@@ -640,17 +720,21 @@ const Settings = ({ user }) => {
               <table className="data-table catalog-table">
                 <thead>
                   <tr>
-                    <th>Manufacturer</th>
-                    <th>Model</th>
-                    <th>Battery Type</th>
-                    <th>Telemetry</th>
-                    <th>Status</th>
+                    <th><CatalogSortButton label="ID" sortKey="systemId" sort={catalogSort} onSort={handleCatalogSort} /></th>
+                    <th><CatalogSortButton label="Serial Number" sortKey="serialNumber" sort={catalogSort} onSort={handleCatalogSort} /></th>
+                    <th><CatalogSortButton label="Manufacturer" sortKey="manufacturer" sort={catalogSort} onSort={handleCatalogSort} /></th>
+                    <th><CatalogSortButton label="Model" sortKey="model" sort={catalogSort} onSort={handleCatalogSort} /></th>
+                    <th><CatalogSortButton label="Battery Type" sortKey="batteryType" sort={catalogSort} onSort={handleCatalogSort} /></th>
+                    <th><CatalogSortButton label="Telemetry" sortKey="telemetryProvider" sort={catalogSort} onSort={handleCatalogSort} /></th>
+                    <th><CatalogSortButton label="Status" sortKey="isActive" sort={catalogSort} onSort={handleCatalogSort} /></th>
                     <th aria-label="Actions" />
                   </tr>
                 </thead>
                 <tbody>
                   {paginatedCatalogRows.map((row) => (
                     <tr key={row.id} className={editingCatalogId === row.id ? "is-selected" : ""}>
+                      <td data-label="ID"><CopyableId value={row.systemId} /></td>
+                      <td data-label="Serial Number">{row.serialNumber}</td>
                       <td data-label="Manufacturer">{row.manufacturer}</td>
                       <td data-label="Model"><strong>{row.model}</strong></td>
                       <td data-label="Battery Type">{row.batteryType}</td>
@@ -670,9 +754,9 @@ const Settings = ({ user }) => {
                       </td>
                     </tr>
                   ))}
-                  {!filteredCatalogRows.length && (
+                  {!sortedCatalogRows.length && (
                     <tr>
-                      <td colSpan="6">
+                      <td colSpan="8">
                         <div className="empty-table-state">
                           <Database size={22} />
                           <span>{catalogRows.length ? "No catalog models match this search." : "No drone catalog models found."}</span>
@@ -683,26 +767,26 @@ const Settings = ({ user }) => {
                 </tbody>
               </table>
             </div>
-            {filteredCatalogRows.length > CATALOG_PAGE_SIZE && (
+            {sortedCatalogRows.length > CATALOG_PAGE_SIZE && (
               <div className="catalog-pagination">
                 <button
                   className="icon-button"
                   type="button"
                   onClick={() => setCatalogPage((current) => Math.max(1, current - 1))}
-                  disabled={catalogPage === 1}
+                  disabled={safeCatalogPage === 1}
                   aria-label="Previous catalog page"
                   title="Previous page"
                 >
                   <ChevronLeft size={17} />
                 </button>
                 <span>
-                  Page {catalogPage} of {catalogTotalPages}
+                  Page {safeCatalogPage} of {catalogTotalPages}
                 </span>
                 <button
                   className="icon-button"
                   type="button"
                   onClick={() => setCatalogPage((current) => Math.min(catalogTotalPages, current + 1))}
-                  disabled={catalogPage === catalogTotalPages}
+                  disabled={safeCatalogPage === catalogTotalPages}
                   aria-label="Next catalog page"
                   title="Next page"
                 >
@@ -766,7 +850,11 @@ const toCatalogRows = (catalog = []) => (
       manufacturer: manufacturerGroup.manufacturer,
       telemetryProvider: model.telemetryProvider ?? manufacturerGroup.telemetryProvider ?? "NONE"
     }))
-  ))
+  )).map((row, index) => ({
+    ...row,
+    systemId: row.id,
+    serialNumber: row.catalogCode ?? row.modelCode ?? `CAT-${String(index + 1).padStart(4, "0")}`
+  }))
 );
 
 const toDateInputValue = (value) => {
@@ -777,6 +865,44 @@ const toDateInputValue = (value) => {
 
 const formatOptionLabel = (value = "") => (
   value.toString().toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
+);
+
+const CatalogSortButton = ({ label, sortKey, sort, onSort }) => {
+  const isSorted = sort.key === sortKey;
+  const Icon = isSorted && sort.direction === "desc" ? ChevronDown : ChevronUp;
+
+  return (
+    <button
+      className={`table-sort-button ${isSorted ? "is-sorted" : ""}`}
+      type="button"
+      onClick={() => onSort(sortKey)}
+    >
+      <span>{label}</span>
+      <Icon size={14} />
+    </button>
+  );
+};
+
+const getCatalogSortValue = (row, key) => {
+  if (key === "isActive") return row.isActive ? 1 : 0;
+  return row[key];
+};
+
+const compareCatalogValues = (left, right) => {
+  if (left == null && right == null) return 0;
+  if (left == null) return -1;
+  if (right == null) return 1;
+
+  const leftNumber = Number(left);
+  const rightNumber = Number(right);
+  if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) return leftNumber - rightNumber;
+
+  return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
+};
+
+const getUniqueCatalogOptions = (rows, selector) => (
+  [...new Set(rows.map(selector).filter(Boolean))]
+    .sort((left, right) => String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" }))
 );
 
 const copyTextToClipboard = async (value) => {

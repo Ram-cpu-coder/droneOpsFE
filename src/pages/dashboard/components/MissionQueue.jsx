@@ -4,7 +4,7 @@ import ProgressBar from "../../../components/common/ProgressBar";
 import SectionHeader from "../../../components/common/SectionHeader";
 import StatusBadge from "../../../components/common/StatusBadge";
 
-const MissionQueue = ({ canCreate = false, isLoading = false, missions = [], onCreateMission }) => {
+const MissionQueue = ({ canCreate = false, isLoading = false, missions = [], onCreateMission, onMissionSelect }) => {
   return (
     <div className="panel missions-panel">
       <SectionHeader
@@ -20,7 +20,7 @@ const MissionQueue = ({ canCreate = false, isLoading = false, missions = [], onC
         {isLoading && <p className="empty-state">Loading mission queue...</p>}
         {!isLoading && missions.length === 0 && <p className="empty-state">No active or planned missions yet.</p>}
         {!isLoading && missions.map((mission) => (
-          <article className="mission-row" key={mission.id}>
+          <button className="mission-row dashboard-clickable-item" key={mission.id} type="button" onClick={() => onMissionSelect?.(mission)}>
             <div className="mission-icon"><Route size={19} /></div>
             <div className="mission-main">
               <div className="mission-title">
@@ -31,7 +31,7 @@ const MissionQueue = ({ canCreate = false, isLoading = false, missions = [], onC
               <ProgressBar value={mission.progress} />
             </div>
             <strong>{mission.progress}%</strong>
-          </article>
+          </button>
         ))}
       </div>
     </div>

@@ -44,7 +44,10 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
     name: "",
     email: "",
     password: "",
+    organizationMode: "join",
     organizationCode: "",
+    organizationName: "",
+    industry: "",
     role: "operations_manager",
     profileImageUrl: "",
   });
@@ -53,6 +56,7 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [resolvedOrganization, setResolvedOrganization] = useState(null);
   const [organizationLookup, setOrganizationLookup] = useState({ isLoading: false, error: "" });
+  const submitLabel = form.organizationMode === "create" ? "Create Organisation" : "Join Organisation";
 
   // Profile image upload state.
   const [imageUpload, setImageUpload] = useState({
@@ -71,6 +75,12 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
   const isPasswordValid = passwordStatus.every((rule) => rule.isValid);
 
   useEffect(() => {
+    if (form.organizationMode === "create") {
+      setResolvedOrganization(null);
+      setOrganizationLookup({ isLoading: false, error: "" });
+      return;
+    }
+
     const code = form.organizationCode.trim();
     setResolvedOrganization(null);
 
@@ -99,7 +109,7 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
       isMounted = false;
       window.clearTimeout(lookupTimer);
     };
-  }, [form.organizationCode]);
+  }, [form.organizationCode, form.organizationMode]);
 
   // Submit signup form.
   const handleSubmit = (event) => {
@@ -107,7 +117,8 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
 
     if (isLoading) return;
     if (!isPasswordValid) return;
-    if (!resolvedOrganization) return;
+    if (form.organizationMode === "join" && !resolvedOrganization) return;
+    if (form.organizationMode === "create" && !form.organizationName.trim()) return;
 
     onSignup(form);
   };
@@ -157,7 +168,7 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
       <div>
         <h2>Create account</h2>
         <p>
-          Enter your organization code to join the correct DroneOps workspace.
+          Join an existing DroneOps workspace or create a new organisation.
         </p>
       </div>
 
@@ -229,52 +240,104 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
           ))}
         </div>
 
-        <label className="field wide-field">
-          <span>Organization Code</span>
-          <input
-            value={form.organizationCode}
-            onChange={(event) =>
-              setForm({ ...form, organizationCode: event.target.value })
-            }
-            placeholder="Organization code"
-            required
-          />
-          {organizationLookup.isLoading && (
-            <div className="organisation-code-status checking">
-              <small>Checking organisation code...</small>
-            </div>
-          )}
-          {!organizationLookup.isLoading && resolvedOrganization && (
-            <div className="organisation-code-status verified">
+        <div className="auth-choice-row wide-field" role="tablist" aria-label="Organisation access option">
+          <button
+            type="button"
+            className={form.organizationMode === "join" ? "active" : ""}
+            onClick={() => setForm({ ...form, organizationMode: "join" })}
+          >
+            Join organisation
+          </button>
+          <button
+            type="button"
+            className={form.organizationMode === "create" ? "active" : ""}
+            onClick={() => setForm({ ...form, organizationMode: "create" })}
+          >
+            Create organisation
+          </button>
+        </div>
+
+        {form.organizationMode === "join" ? (
+          <label className="field wide-field">
+            <span>Organization Code</span>
+            <input
+              value={form.organizationCode}
+              onChange={(event) =>
+                setForm({ ...form, organizationCode: event.target.value })
+              }
+              placeholder="Organization code"
+              required
+            />
+            {organizationLookup.isLoading && (
+              <div className="organisation-code-status checking">
+                <small>Checking organisation code...</small>
+              </div>
+            )}
+            {!organizationLookup.isLoading && resolvedOrganization && (
+              <div className="organisation-code-status verified">
+                <Check size={14} strokeWidth={3} />
+                <div className="organisation-code-result">
+                  <strong>{resolvedOrganization.name}</strong>
+                  <small>Verified organisation</small>
+                </div>
+              </div>
+            )}
+            {!organizationLookup.isLoading && organizationLookup.error && (
+              <div className="organisation-code-status error">
+                <small>{organizationLookup.error}</small>
+              </div>
+            )}
+          </label>
+        ) : (
+          <>
+            <label className="field wide-field">
+              <span>Organisation Name</span>
+              <input
+                value={form.organizationName}
+                onChange={(event) =>
+                  setForm({ ...form, organizationName: event.target.value })
+                }
+                placeholder="Your organisation name"
+                required
+              />
+            </label>
+            <label className="field wide-field">
+              <span>Industry</span>
+              <input
+                value={form.industry}
+                onChange={(event) =>
+                  setForm({ ...form, industry: event.target.value })
+                }
+                placeholder="Drone operations"
+              />
+            </label>
+            <div className="organisation-code-status verified wide-field">
               <Check size={14} strokeWidth={3} />
               <div className="organisation-code-result">
-                <strong>{resolvedOrganization.name}</strong>
-                <small>Verified organisation</small>
+                <strong>You will become System Administrator</strong>
+                <small>Secure joining code will be created after signup.</small>
               </div>
             </div>
-          )}
-          {!organizationLookup.isLoading && organizationLookup.error && (
-            <div className="organisation-code-status error">
-              <small>{organizationLookup.error}</small>
-            </div>
-          )}
-        </label>
+          </>
+        )}
 
         {/* Role selection */}
-        <label className="field">
-          <span>Role</span>
-          <select
-            value={form.role}
-            onChange={(event) => setForm({ ...form, role: event.target.value })}
-            aria-label="Select role"
-          >
-            {publicSignupRoles.map((role) => (
-              <option key={role.id} value={role.id}>
-                {role.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        {form.organizationMode === "join" && (
+          <label className="field">
+            <span>Role</span>
+            <select
+              value={form.role}
+              onChange={(event) => setForm({ ...form, role: event.target.value })}
+              aria-label="Select role"
+            >
+              {publicSignupRoles.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         {/* Profile image upload */}
         <label className="upload-field wide-field">
@@ -314,10 +377,10 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
         icon={UserPlus}
         variant="primary"
         type="submit"
-        disabled={isLoading || imageUpload.isUploading || !isPasswordValid || !resolvedOrganization}
+        disabled={isLoading || imageUpload.isUploading || !isPasswordValid || (form.organizationMode === "join" ? !resolvedOrganization : !form.organizationName.trim())}
         isLoading={isLoading}
       >
-        {isLoading ? "Creating account..." : "Create account"}
+        {isLoading ? (form.organizationMode === "create" ? "Creating organisation..." : "Joining organisation...") : submitLabel}
       </ActionButton>
 
       {/* Back to login */}

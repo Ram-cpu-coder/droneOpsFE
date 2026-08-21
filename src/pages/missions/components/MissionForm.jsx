@@ -7,14 +7,16 @@ import { droneOpsApi } from "../../../services/droneOpsApi";
 import RoutePointMapPicker from "./RoutePointMapPicker";
 
 const missionTypes = ["Mapping", "Inspection", "Security", "Delivery", "Training", "Emergency Response"];
-const missionStatuses = ["PLANNED", "APPROVED", "ACTIVE", "COMPLETED", "ABORTED", "CANCELLED"];
+const missionStatuses = ["PLANNED", "APPROVED", "RISK_ASSESSMENT_COMPLETED", "ACTIVE", "COMPLETED", "ABORTED", "CANCELLED"];
 
 const initialForm = {
   missionCode: "",
   name: "",
   type: "",
   droneId: "",
+  droneIds: [],
   pilotId: "",
+  pilotIds: [],
   launchSite: "",
   operatingArea: "",
   locationPlan: {
@@ -57,15 +59,15 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
 
   const droneOptions = useMemo(
     () => drones
-      .filter((drone) => drone.status === "AVAILABLE" || drone.id === form.droneId)
+      .filter((drone) => drone.status === "AVAILABLE" || form.droneIds.includes(drone.id))
       .map((drone) => ({
         value: drone.id,
         label: drone.droneCode ?? drone.id,
         title: [drone.manufacturer, drone.model].filter(Boolean).join(" ") || "Drone",
-        meta: [formatReadableValue(drone.status), drone.batteryType].filter(Boolean).join(" | "),
+        meta: formatReadableValue(drone.status),
         searchText: `${drone.droneCode ?? drone.id} ${drone.model ?? ""} ${drone.manufacturer ?? ""} ${drone.serialNumber ?? ""}`.toLowerCase()
       })),
-    [drones, form.droneId]
+    [drones, form.droneIds]
   );
 
   const pilotOptions = useMemo(
@@ -81,14 +83,14 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
     [users]
   );
 
-  const selectedDrone = useMemo(
-    () => drones.find((drone) => drone.id === form.droneId) ?? null,
-    [drones, form.droneId]
+  const selectedDrones = useMemo(
+    () => form.droneIds.map((droneId) => drones.find((drone) => drone.id === droneId)).filter(Boolean),
+    [drones, form.droneIds]
   );
 
-  const selectedPilot = useMemo(
-    () => users.find((user) => user.id === form.pilotId) ?? null,
-    [users, form.pilotId]
+  const selectedPilots = useMemo(
+    () => form.pilotIds.map((pilotId) => users.find((user) => user.id === pilotId)).filter(Boolean),
+    [users, form.pilotIds]
   );
 
   const scheduleError = getScheduleError(form);
@@ -103,8 +105,8 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
     { label: "Mission name", complete: Boolean(form.name.trim()), detail: form.name.trim() || "Required" },
     { label: "Mission type", complete: Boolean(form.type), detail: form.type || "Required" },
     { label: "Schedule", complete: Boolean(form.plannedDate && form.startTime && form.endTime && !scheduleError), detail: scheduleError || "Date and time ready" },
-    { label: "Drone", complete: Boolean(form.droneId), detail: selectedDrone ? `${selectedDrone.droneCode ?? selectedDrone.id} - ${selectedDrone.model ?? "Selected"}` : "Required" },
-    { label: "Remote pilot", complete: Boolean(form.pilotId), detail: selectedPilot?.name ?? "Required" },
+    { label: "Drone", complete: form.droneIds.length > 0, detail: selectedDrones.length ? `${selectedDrones.length} drone(s) selected` : "Required" },
+    { label: "Remote pilot", complete: form.pilotIds.length > 0, detail: selectedPilots.length ? `${selectedPilots.length} pilot(s) selected` : "Required" },
     { label: "Launch site", complete: hasLaunchSite, detail: hasLaunchSite ? "Selected on map" : "Required" },
     { label: "Operating area", complete: hasOperatingArea && !operatingAreaError, detail: operatingAreaError || (hasOperatingArea ? "Covers route start and end" : "Required") },
     { label: "Route path", complete: hasRouteStart && hasRouteEnd, detail: hasRouteStart && hasRouteEnd ? `${form.waypoints.filter(hasCoordinates).length} point(s) selected` : "Start and end required" }
@@ -187,8 +189,10 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
         ...(mode === "edit" && form.missionCode ? { missionCode: form.missionCode } : {}),
         name: form.name,
         type: form.type,
-        droneId: form.droneId || undefined,
-        pilotId: form.pilotId || undefined,
+        droneId: form.droneIds[0] || undefined,
+        droneIds: form.droneIds,
+        pilotId: form.pilotIds[0] || undefined,
+        pilotIds: form.pilotIds,
         launchSite: formatLocationLabel(form.locationPlan.launchSite),
         operatingArea: formatLocationLabel(form.locationPlan.operatingArea),
         plannedStartAt: buildDateTime(form.plannedDate, form.startTime),
@@ -221,7 +225,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
   };
 
   const dialog = (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onCancel?.()}>
+    <div className="modal-backdrop" role="presentation">
       <form className="modal-dialog registration-dialog" role="dialog" aria-modal="true" aria-labelledby="create-mission-title" onSubmit={handleSubmit}>
         <div className="modal-header">
           <div>
@@ -243,23 +247,43 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
               <SelectField label="Mission Type" value={form.type} onChange={(value) => updateField("type", value)} options={missionTypes} required />
             </FormSection>
 
-            <FormSection icon={UserRound} title="Assignment">
-              <SearchableSelectField
-                label={`Assigned Drone (${droneOptions.length})`}
-                value={form.droneId}
-                onChange={(value) => updateField("droneId", value)}
-                options={droneOptions}
-                placeholder="Search drone ID, model, manufacturer"
-              />
-              <AssignmentSummaryCard type="drone" item={selectedDrone} />
-              <SearchableSelectField
-                label={`Remote Pilot (${pilotOptions.length})`}
-                value={form.pilotId}
-                onChange={(value) => updateField("pilotId", value)}
-                options={pilotOptions}
-                placeholder="Search pilot name, email, role"
-              />
-              <AssignmentSummaryCard type="pilot" item={selectedPilot} />
+            <FormSection icon={UserRound} title="Assignment" className="mission-assignment-section">
+              <div className="assignment-picker-row">
+                <div className="assignment-picker-copy">
+                  <span>Assigned Drones</span>
+                  <strong>{selectedDrones.length ? `${selectedDrones.length} selected` : `${droneOptions.length} available`}</strong>
+                </div>
+                <MultiSearchableSelectField
+                  label=""
+                  className="assignment-picker-search"
+                  value={form.droneIds}
+                  onChange={(value) => setForm((current) => ({ ...current, droneIds: value, droneId: value[0] ?? "" }))}
+                  options={droneOptions}
+                  placeholder="Search drones"
+                />
+              </div>
+              <SelectedAssignmentList type="drone" items={selectedDrones} onRemove={(id) => setForm((current) => {
+                const nextIds = current.droneIds.filter((droneId) => droneId !== id);
+                return { ...current, droneIds: nextIds, droneId: nextIds[0] ?? "" };
+              })} />
+              <div className="assignment-picker-row">
+                <div className="assignment-picker-copy">
+                  <span>Remote Pilots</span>
+                  <strong>{selectedPilots.length ? `${selectedPilots.length} selected` : `${pilotOptions.length} available`}</strong>
+                </div>
+                <MultiSearchableSelectField
+                  label=""
+                  className="assignment-picker-search"
+                  value={form.pilotIds}
+                  onChange={(value) => setForm((current) => ({ ...current, pilotIds: value, pilotId: value[0] ?? "" }))}
+                  options={pilotOptions}
+                  placeholder="Search pilots"
+                />
+              </div>
+              <SelectedAssignmentList type="pilot" items={selectedPilots} onRemove={(id) => setForm((current) => {
+                const nextIds = current.pilotIds.filter((pilotId) => pilotId !== id);
+                return { ...current, pilotIds: nextIds, pilotId: nextIds[0] ?? "" };
+              })} />
             </FormSection>
 
             <FormSection icon={CalendarClock} title="Schedule">
@@ -352,21 +376,18 @@ const SelectField = ({ label, options, value, onChange, required = false }) => (
   </label>
 );
 
-const SearchableSelectField = ({
+const MultiSearchableSelectField = ({
   label,
   options,
-  value,
+  value = [],
   onChange,
-  placeholder = "Search"
+  placeholder = "Search",
+  className = ""
 }) => {
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const wrapperRef = useRef(null);
-
-  const selectedOption = useMemo(
-    () => options.find((option) => (typeof option === "string" ? option : option.value) === value) ?? null,
-    [options, value]
-  );
+  const selectedValues = Array.isArray(value) ? value : [];
 
   const filteredOptions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -391,63 +412,64 @@ const SearchableSelectField = ({
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, []);
 
-  const inputValue = isOpen ? query : (selectedOption ? (typeof selectedOption === "string" ? selectedOption : `${selectedOption.label}${selectedOption.title ? ` - ${selectedOption.title}` : ""}`) : "");
+  const toggleValue = (optionValue) => {
+    const nextValues = selectedValues.includes(optionValue)
+      ? selectedValues.filter((selectedValue) => selectedValue !== optionValue)
+      : [...selectedValues, optionValue];
+    onChange?.(nextValues);
+  };
 
   return (
-    <div className="field searchable-select-field" ref={wrapperRef}>
-      <span>{label}</span>
+    <div className={`field searchable-select-field ${className}`} ref={wrapperRef}>
+      {label && <span>{label}</span>}
       <div className={`field-search-input combo-input ${isOpen ? "open" : ""}`}>
         <Search size={16} />
         <input
           type="text"
-          value={inputValue}
+          value={isOpen ? query : (selectedValues.length ? `${selectedValues.length} selected` : "")}
           onFocus={() => setIsOpen(true)}
           onChange={(event) => {
             setQuery(event.target.value);
             setIsOpen(true);
           }}
-          placeholder={selectedOption ? "" : placeholder}
+          placeholder={selectedValues.length ? "" : placeholder}
         />
         <button type="button" className="combo-toggle" onClick={() => setIsOpen((current) => !current)} aria-label={`Toggle ${label.toLowerCase()} options`}>
           <ChevronDown size={16} />
         </button>
       </div>
-      <input type="hidden" value={value ?? ""} readOnly />
       {isOpen && (
-        <div className="combo-options" role="listbox" aria-label={label}>
+        <div className="combo-options multi-combo-options" role="listbox" aria-label={label} aria-multiselectable="true">
           {filteredOptions.length ? (
             filteredOptions.map((option) => {
               const optionValue = typeof option === "string" ? option : option.value;
               const optionLabel = typeof option === "string" ? option : option.label;
               const optionTitle = typeof option === "string" ? option : option.title;
               const optionMeta = typeof option === "string" ? "" : option.meta;
-              const optionBadge = typeof option === "string" ? "" : option.badge;
-              const isSelected = optionValue === value;
+              const isSelected = selectedValues.includes(optionValue);
 
               return (
                 <button
                   key={optionValue}
                   type="button"
-                  className={`combo-option ${isSelected ? "selected" : ""}`}
+                  className={`combo-option multi-combo-option ${isSelected ? "selected" : ""}`}
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    onChange?.(optionValue);
-                    setQuery("");
-                    setIsOpen(false);
-                  }}
+                  onClick={() => toggleValue(optionValue)}
                 >
+                  <span className={`combo-checkbox ${isSelected ? "checked" : ""}`} aria-hidden="true">
+                    {isSelected && <CheckCircle2 size={14} />}
+                  </span>
                   <span className="combo-option-main">
                     <span className="combo-option-copy">
                       <strong>{optionTitle || optionLabel}</strong>
                       <small>{optionMeta || optionLabel}</small>
                     </span>
-                    {optionBadge && <span className="combo-option-badge">{optionBadge}</span>}
                   </span>
                 </button>
               );
             })
           ) : (
-            <div className="combo-empty">No drones matched your search.</div>
+            <div className="combo-empty">No records matched your search.</div>
           )}
         </div>
       )}
@@ -469,31 +491,39 @@ const InlineFormAlert = ({ message }) => (
   </div>
 );
 
-const AssignmentSummaryCard = ({ type, item }) => {
-  if (!item) {
+const SelectedAssignmentList = ({ type, items = [], onRemove }) => {
+  if (!items.length) {
     return (
-      <div className="assignment-summary-card empty">
+      <div className="selected-assignment-list empty">
         <span>{type === "drone" ? "No drone selected" : "No pilot selected"}</span>
-        <strong>{type === "drone" ? "Select an available drone" : "Select a remote pilot"}</strong>
-      </div>
-    );
-  }
-
-  if (type === "drone") {
-    return (
-      <div className="assignment-summary-card">
-        <span>{item.droneCode ?? item.id}</span>
-        <strong>{[item.manufacturer, item.model].filter(Boolean).join(" ") || "Drone selected"}</strong>
-        <small>Status: {formatReadableValue(item.status)}{item.batteryType ? ` | Battery: ${item.batteryType}` : ""}</small>
+        <strong>{type === "drone" ? "Choose one or more drones from the picker." : "Choose one or more pilots from the picker."}</strong>
       </div>
     );
   }
 
   return (
-    <div className="assignment-summary-card">
-      <span>{formatReadableValue(item.role)}</span>
-      <strong>{item.name}</strong>
-      <small>{item.email ?? "Pilot selected"}</small>
+    <div className="selected-assignment-list">
+      <div className="selected-assignment-heading">
+        <span>{type === "drone" ? "Selected drones" : "Selected pilots"}</span>
+        <strong>{items.length}</strong>
+      </div>
+      <div className="selected-assignment-chips">
+        {items.map((item) => (
+          <div className="selected-assignment-chip" key={item.id}>
+            <div>
+              <strong>{type === "drone" ? (item.droneCode || [item.manufacturer, item.model].filter(Boolean).join(" ") || "Drone") : item.name}</strong>
+              <small>
+                {type === "drone"
+                  ? [item.manufacturer, item.model].filter(Boolean).join(" ")
+                  : [formatReadableValue(item.role), item.email].filter(Boolean).join(" | ")}
+              </small>
+            </div>
+            <button type="button" onClick={() => onRemove?.(item.id)} aria-label={`Remove ${type === "drone" ? item.droneCode ?? "drone" : item.name}`}>
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
@@ -529,7 +559,9 @@ const toFormState = (mission) => {
     name: mission.name ?? "",
     type: mission.type ?? "",
     droneId: mission.drone?.id ?? mission.droneId ?? "",
+    droneIds: getMissionDroneIds(mission),
     pilotId: mission.pilot?.id ?? mission.pilotId ?? "",
+    pilotIds: getMissionPilotIds(mission),
     launchSite: mission.launchSite ?? "",
     operatingArea: mission.operatingArea ?? "",
     locationPlan: {
@@ -544,6 +576,16 @@ const toFormState = (mission) => {
     routeTrackingEnabled: toWaypointRows(mission.plannedRoute?.waypoints ?? mission.plannedRoute?.coordinates ?? mission.routeWaypoints).length >= 2,
     waypoints: toWaypointRows(mission.plannedRoute?.waypoints ?? mission.plannedRoute?.coordinates ?? mission.routeWaypoints)
   };
+};
+
+const getMissionDroneIds = (mission) => {
+  const assignmentIds = mission.droneAssignments?.map((assignment) => assignment.drone?.id ?? assignment.droneId).filter(Boolean) ?? [];
+  return [...new Set([mission.drone?.id ?? mission.droneId, ...assignmentIds].filter(Boolean))];
+};
+
+const getMissionPilotIds = (mission) => {
+  const assignmentIds = mission.pilotAssignments?.map((assignment) => assignment.pilot?.id ?? assignment.pilotId).filter(Boolean) ?? [];
+  return [...new Set([mission.pilot?.id ?? mission.pilotId, ...assignmentIds].filter(Boolean))];
 };
 
 const formatLocationLabel = (location) => {
@@ -573,7 +615,7 @@ const getMissionSubmitErrorMessage = (message = "") => {
   const normalizedMessage = message.toLowerCase().trim();
 
   if (normalizedMessage.includes("body: required") || normalizedMessage === "required") {
-    return "Mission could not be submitted because the backend received an empty request body. Refresh the page and try again. If it still happens, restart the backend server because it is still running the old validator.";
+    return "Mission could not be submitted right now. Please refresh and try again.";
   }
 
   if (normalizedMessage.includes("jwt expired") || normalizedMessage.includes("invalid token")) {

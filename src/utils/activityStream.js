@@ -55,7 +55,8 @@ const toAuditEvent = (log) => {
     id: `audit-${log.id}`,
     label: descriptor.label,
     timestamp: log.createdAt,
-    type: descriptor.type
+    type: descriptor.type,
+    targetPath: getNotificationTargetPath(log)
   };
 };
 
