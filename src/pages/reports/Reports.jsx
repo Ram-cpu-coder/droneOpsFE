@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, CheckCircle2, Download, FileSpreadsheet, FileText, X } from "lucide-react";
+import { BarChart3, CalendarDays, CheckCircle2, Download, FileSpreadsheet, FileText, ListFilter, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import ActionButton from "../../components/common/ActionButton";
@@ -29,6 +29,12 @@ const Reports = ({ user, searchValue = "" }) => {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [generateDraft, setGenerateDraft] = useState({
+    type: "FLIGHT_ACTIVITY",
+    dateFrom: "",
+    dateTo: "",
+    limit: 50
+  });
   const [toast, setToast] = useState(null);
   const loadReports = useCallback(() => droneOpsApi.reports.list(), []);
   const { data: reportRecords, error, isLoading, isFallback, refresh, setData: setReportRecords } = useApiResource(loadReports, []);
@@ -50,6 +56,7 @@ const Reports = ({ user, searchValue = "" }) => {
     { value: "COMPLIANCE", label: "Compliance" },
     { value: "UTILIZATION", label: "Utilization" }
   ];
+  const selectedGenerateOption = generateOptions.find((option) => option.value === generateDraft.type) ?? generateOptions[0];
 
   const exportReadyReports = async (format) => {
     if (!exportableReports.length) {
@@ -64,6 +71,49 @@ const Reports = ({ user, searchValue = "" }) => {
 
     await exportReportCollection(exportableReports, format);
     setIsExportOpen(false);
+  };
+
+  const handleGenerateReport = async (event) => {
+    event.preventDefault();
+
+    if (generateDraft.dateFrom && generateDraft.dateTo && generateDraft.dateFrom > generateDraft.dateTo) {
+      setToast({
+        title: "Invalid report scope",
+        message: "Start date cannot be after end date."
+      });
+      window.setTimeout(() => setToast(null), 5000);
+      return;
+    }
+
+    setIsGeneratingReport(true);
+    try {
+      const payload = {
+        type: generateDraft.type,
+        limit: Number(generateDraft.limit) || 50
+      };
+      if (generateDraft.dateFrom) payload.dateFrom = generateDraft.dateFrom;
+      if (generateDraft.dateTo) payload.dateTo = generateDraft.dateTo;
+
+      const report = await droneOpsApi.reports.generate(payload);
+      window.dispatchEvent(new Event("droneops:activity-changed"));
+      setReportRecords((current) => [report, ...current.filter((item) => item.id !== report.id)]);
+      await refresh();
+      navigate(`/reports/${encodeURIComponent(report.id)}`);
+      setIsGenerateOpen(false);
+      setToast({
+        title: "Report generated",
+        message: `${selectedGenerateOption.label} report was created with the selected export scope.`
+      });
+      window.setTimeout(() => setToast(null), 4500);
+    } catch (requestError) {
+      setToast({
+        title: "Report generation failed",
+        message: requestError.message || "The scoped report could not be saved to the backend."
+      });
+      window.setTimeout(() => setToast(null), 5000);
+    } finally {
+      setIsGeneratingReport(false);
+    }
   };
 
   useEffect(() => {
@@ -110,7 +160,7 @@ const Reports = ({ user, searchValue = "" }) => {
     { key: "value", label: "Current Value" },
     { key: "change", label: "Change" },
     { key: "status", label: "Status", filterable: true, render: (report) => <StatusBadge>{report.status}</StatusBadge> },
-    { key: "owner", label: "Category", filterable: true }
+    { key: "category", label: "Category", filterable: true }
   ];
 
   return (
@@ -174,56 +224,11 @@ const Reports = ({ user, searchValue = "" }) => {
                     icon={BarChart3}
                     onClick={() => {
                       setIsExportOpen(false);
-                      setIsGenerateOpen((current) => !current);
+                      setIsGenerateOpen(true);
                     }}
                   >
                     Generate Report
                   </ActionButton>
-                  {isGenerateOpen && createPortal(
-                    <div
-                      className="dashboard-filter-menu export-menu report-generate-menu floating-report-menu"
-                      ref={generateMenuRef}
-                      role="menu"
-                      aria-label="Generate reports"
-                      style={getFloatingMenuStyle(generateAnchorRef.current)}
-                    >
-                      {generateOptions.map((option) => (
-                        <button
-                          key={option.value}
-                          type="button"
-                          disabled={isGeneratingReport}
-                          onClick={async () => {
-                            setIsGeneratingReport(true);
-                            try {
-                              const report = await droneOpsApi.reports.generate({ type: option.value });
-                              window.dispatchEvent(new Event("droneops:activity-changed"));
-                              setReportRecords((current) => [report, ...current.filter((item) => item.id !== report.id)]);
-                              await refresh();
-                              navigate(`/reports/${encodeURIComponent(report.id)}`);
-                              setIsGenerateOpen(false);
-                              setToast({
-                                title: "Report generated",
-                                message: `${option.label} report was created successfully.`
-                              });
-                              window.setTimeout(() => setToast(null), 4500);
-                            } catch {
-                              setToast({
-                                title: "Report generation failed",
-                                message: "The report could not be saved to the backend, so no notification was created."
-                              });
-                              window.setTimeout(() => setToast(null), 5000);
-                            } finally {
-                              setIsGeneratingReport(false);
-                            }
-                          }}
-                        >
-                          <span>{option.label}</span>
-                          <BarChart3 size={15} />
-                        </button>
-                      ))}
-                    </div>,
-                    document.body
-                  )}
                 </div>
               )}
               <div className="dashboard-filter-wrap report-menu-wrap" ref={exportAnchorRef}>
@@ -304,6 +309,90 @@ const Reports = ({ user, searchValue = "" }) => {
           emptyMessage={isLoading ? "Loading reports..." : "No reports generated yet."}
         />
       </div>
+      {isGenerateOpen && createPortal(
+        <div className="modal-backdrop report-scope-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setIsGenerateOpen(false)}>
+          <form className="modal-dialog report-scope-dialog" ref={generateMenuRef} role="dialog" aria-modal="true" aria-labelledby="report-scope-title" onSubmit={handleGenerateReport}>
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Report Builder</p>
+                <h2 id="report-scope-title">Generate Scoped Report</h2>
+                <p>Select the category and exact data range to include in this report export.</p>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setIsGenerateOpen(false)} aria-label="Close report builder">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body report-scope-body">
+              <section className="profile-section report-scope-section">
+                <div className="profile-section-title">
+                  <ListFilter size={18} />
+                  <h3>Report Category</h3>
+                </div>
+                <div className="report-type-grid" role="radiogroup" aria-label="Report category">
+                  {generateOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      className={`report-type-card ${generateDraft.type === option.value ? "selected" : ""}`}
+                      type="button"
+                      onClick={() => setGenerateDraft((current) => ({ ...current, type: option.value }))}
+                    >
+                      <strong>{option.label}</strong>
+                      <span>{getReportTypeHelp(option.value)}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="profile-section report-scope-section">
+                <div className="profile-section-title">
+                  <CalendarDays size={18} />
+                  <h3>Data Scope</h3>
+                </div>
+                <div className="form-grid report-scope-grid">
+                  <label className="field">
+                    <span>From date</span>
+                    <input
+                      type="date"
+                      value={generateDraft.dateFrom}
+                      onChange={(event) => setGenerateDraft((current) => ({ ...current, dateFrom: event.target.value }))}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>To date</span>
+                    <input
+                      type="date"
+                      value={generateDraft.dateTo}
+                      onChange={(event) => setGenerateDraft((current) => ({ ...current, dateTo: event.target.value }))}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Maximum records</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="250"
+                      value={generateDraft.limit}
+                      onChange={(event) => setGenerateDraft((current) => ({ ...current, limit: event.target.value }))}
+                    />
+                  </label>
+                  <div className="report-scope-preview" aria-live="polite">
+                    <span>Export scope</span>
+                    <strong>{selectedGenerateOption.label}</strong>
+                    <p>{buildScopePreview(generateDraft)}</p>
+                  </div>
+                </div>
+              </section>
+            </div>
+            <div className="modal-footer">
+              <ActionButton type="button" onClick={() => setIsGenerateOpen(false)}>Cancel</ActionButton>
+              <ActionButton icon={BarChart3} variant="primary" type="submit" disabled={isGeneratingReport}>
+                {isGeneratingReport ? "Generating..." : "Generate Report"}
+              </ActionButton>
+            </div>
+          </form>
+        </div>,
+        document.body
+      )}
     </section>
   );
 };
@@ -321,7 +410,9 @@ const normalizeReport = (report, index = 0) => {
     value: report.value ?? report.dataSnapshot?.summary?.value ?? report.type ?? "Snapshot",
     change: report.change ?? report.dataSnapshot?.summary?.change ?? "Stored audit snapshot",
     status: report.status ?? report.dataSnapshot?.summary?.status ?? "REVIEW",
-    owner: report.owner ?? report.generatedBy?.name ?? report.dataSnapshot?.summary?.owner ?? "DroneOps"
+    owner: report.owner ?? report.generatedBy?.name ?? report.dataSnapshot?.summary?.owner ?? "DroneOps",
+    category: formatReportType(report.type),
+    scope: report.dataSnapshot?.scope
   };
 };
 
@@ -339,6 +430,32 @@ const isReportExportable = (report) => exportableStatuses.has(String(report.stat
 const getReportIdentity = (report) => report.id ?? report.uuid ?? toReportRouteId(report.title ?? report.name);
 
 const formatReportStatus = (status = "") => status.toString().toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const formatReportType = (type = "Snapshot") => type.toString().toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const getReportTypeHelp = (type) => {
+  const help = {
+    FLIGHT_ACTIVITY: "Missions by planned date",
+    INCIDENT: "Incidents by reported date",
+    MAINTENANCE: "Maintenance by due date",
+    COMPLIANCE: "Compliance records in scope",
+    UTILIZATION: "Fleet and mission utilization"
+  };
+  return help[type] ?? "Operational records";
+};
+
+const buildScopePreview = ({ dateFrom, dateTo, limit }) => {
+  const dates = dateFrom && dateTo
+    ? `${formatDateLabel(dateFrom)} to ${formatDateLabel(dateTo)}`
+    : dateFrom
+      ? `From ${formatDateLabel(dateFrom)}`
+      : dateTo
+        ? `Up to ${formatDateLabel(dateTo)}`
+        : "All available dates";
+  return `${dates}. Export will include up to ${Number(limit) || 50} matching records.`;
+};
+
+const formatDateLabel = (value) => new Date(`${value}T00:00:00`).toLocaleDateString("en-AU");
 
 const getFloatingMenuStyle = (anchor) => {
   if (!anchor) return undefined;

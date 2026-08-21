@@ -58,8 +58,8 @@ const FleetOverviewTable = ({ drones, isLoading = false, onDroneSelect }) => {
   return (
     <div className="panel fleet-panel">
       <SectionHeader
-        title="Active Drones"
-        description="Live telemetry from operational and docked aircraft."
+        title="Drones"
+        description="Fleet records across available, in-mission, maintenance, and offline states."
         action={(
           <div className="dashboard-filter-wrap">
             <ActionButton
@@ -94,7 +94,7 @@ const FleetOverviewTable = ({ drones, isLoading = false, onDroneSelect }) => {
         rows={filteredDrones}
         getRowKey={(drone) => drone.uuid ?? drone.id}
         onRowClick={onDroneSelect}
-        emptyMessage={isLoading ? "Loading fleet records..." : activeFilter === "ALL" ? "No active drones found." : "No drones match this filter."}
+        emptyMessage={isLoading ? "Loading fleet records..." : activeFilter === "ALL" ? "No drones found." : "No drones match this filter."}
       />
     </div>
   );

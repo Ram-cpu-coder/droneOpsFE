@@ -42,6 +42,8 @@ const toRows = (report) => {
     { field: "Type", value: report.type ?? "Snapshot" },
     { field: "Status", value: report.status ?? "Ready" },
     { field: "Category", value: report.owner ?? "DroneOps" },
+    { field: "Date Scope", value: formatSnapshotScope(snapshot.scope) },
+    { field: "Record Limit", value: snapshot.scope?.limit ?? "No limit stored" },
     { field: "Value", value: report.value ?? "Snapshot" },
     { field: "Change", value: report.change ?? "Stored audit snapshot" },
     ...flattenObject(snapshot, "snapshot")
@@ -249,6 +251,7 @@ const toJsonReport = (report) => ({
   category: report.owner ?? "DroneOps",
   value: report.value ?? "Snapshot",
   change: report.change ?? "Stored audit snapshot",
+  exportScope: normalizeSnapshot(report).scope ?? null,
   createdAt: report.createdAt ?? null,
   updatedAt: report.updatedAt ?? null,
   fileUrl: report.fileUrl ?? null,
@@ -268,4 +271,14 @@ const toShareableJsonReport = (report) => ({
 const saveJson = (payload, fileName) => {
   const json = JSON.stringify(payload, null, 2);
   saveAs(new Blob([json], { type: "application/json;charset=utf-8" }), fileName);
+};
+
+const formatSnapshotScope = (scope) => {
+  if (!scope) return "All available dates";
+  const from = scope.dateFrom ? new Date(scope.dateFrom).toLocaleDateString("en-AU") : null;
+  const to = scope.dateTo ? new Date(scope.dateTo).toLocaleDateString("en-AU") : null;
+  if (from && to) return `${from} to ${to}`;
+  if (from) return `From ${from}`;
+  if (to) return `Up to ${to}`;
+  return "All available dates";
 };

@@ -18,38 +18,6 @@ const mapPresets = [
   { id: "dusk", label: "Dusk", icon: SunMedium, lightPreset: "dusk", theme: "faded" },
   { id: "night", label: "Night", icon: MoonStar, lightPreset: "night", theme: "monochrome" }
 ];
-const DRONE_ICON_URL = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
-<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
-  <defs>
-    <linearGradient id="droneBody" x1="18" y1="18" x2="78" y2="78" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#7dc4ff"/>
-      <stop offset="1" stop-color="#1d6fea"/>
-    </linearGradient>
-    <linearGradient id="droneArm" x1="24" y1="24" x2="72" y2="72" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#d9ecff"/>
-      <stop offset="1" stop-color="#84b8ff"/>
-    </linearGradient>
-  </defs>
-  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M40 42 25 28" stroke="url(#droneArm)" stroke-width="6"/>
-    <path d="M56 42 71 28" stroke="url(#droneArm)" stroke-width="6"/>
-    <path d="M42 54 29 69" stroke="url(#droneArm)" stroke-width="6"/>
-    <path d="M54 54 67 69" stroke="url(#droneArm)" stroke-width="6"/>
-
-    <circle cx="22" cy="25" r="9" fill="#081220" stroke="#9ec7ff" stroke-width="3"/>
-    <circle cx="74" cy="25" r="9" fill="#081220" stroke="#9ec7ff" stroke-width="3"/>
-    <circle cx="26" cy="72" r="9" fill="#081220" stroke="#9ec7ff" stroke-width="3"/>
-    <circle cx="70" cy="72" r="9" fill="#081220" stroke="#9ec7ff" stroke-width="3"/>
-
-    <path d="M36 41c0-5.5 4.5-10 10-10h4c5.5 0 10 4.5 10 10v10c0 4.2-2.6 8-6.6 9.5l-4.6 1.8-4.8-1.8A10.2 10.2 0 0 1 36 51V41Z" fill="url(#droneBody)" stroke="#ffffff" stroke-width="3"/>
-    <path d="M42 64c2.5 2.5 9.5 2.5 12 0" stroke="#bfe0ff" stroke-width="4"/>
-    <rect x="42" y="40" width="12" height="8" rx="4" fill="#081220" stroke="#d8ecff" stroke-width="2.5"/>
-    <rect x="41" y="49" width="14" height="10" rx="4" fill="#081220" stroke="#d8ecff" stroke-width="2.5"/>
-    <circle cx="48" cy="54" r="2.2" fill="#7dc4ff"/>
-  </g>
-</svg>
-`)}`;
-
 const GeospatialMap = () => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -74,6 +42,10 @@ const GeospatialMap = () => {
   const selectedDrone = useMemo(
     () => liveDrones.find((drone) => drone.id === selectedDroneId) ?? null,
     [liveDrones, selectedDroneId]
+  );
+  const telemetryStatus = useMemo(
+    () => getTelemetryFeedStatus({ mapReady, mapError, liveDrones }),
+    [liveDrones, mapError, mapReady]
   );
 
   useEffect(() => {
@@ -352,6 +324,32 @@ const GeospatialMap = () => {
   }, [deckLayers]);
 
   useEffect(() => {
+    if (!mapReady || !mapRef.current || !mapContainerRef.current) return;
+
+    let resizeFrame = 0;
+    const resizeMap = () => {
+      window.cancelAnimationFrame(resizeFrame);
+      resizeFrame = window.requestAnimationFrame(() => {
+        mapRef.current?.resize();
+      });
+    };
+
+    const resizeObserver = typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(resizeMap)
+      : null;
+
+    resizeObserver?.observe(mapContainerRef.current);
+    window.addEventListener("droneops-map-layout-change", resizeMap);
+    resizeMap();
+
+    return () => {
+      window.cancelAnimationFrame(resizeFrame);
+      resizeObserver?.disconnect();
+      window.removeEventListener("droneops-map-layout-change", resizeMap);
+    };
+  }, [mapReady]);
+
+  useEffect(() => {
     if (!mapReady || !mapRef.current) return;
     const preset = mapPresets.find((item) => item.id === mapPresetId);
     if (!preset) return;
@@ -374,16 +372,18 @@ const GeospatialMap = () => {
 
     liveDrones.forEach((drone) => {
       const existingMarker = droneMarkersRef.current.get(drone.id);
-      const popup = new mapboxgl.Popup({ closeButton: false, offset: 28 }).setHTML(buildDronePopupHtml(drone));
+      const popup = new mapboxgl.Popup(getDronePopupOptions(drone, mapRef.current)).setHTML(buildDronePopupHtml(drone));
 
       if (existingMarker) {
         existingMarker.setLngLat(drone.coordinates);
         existingMarker.setPopup(popup);
         updateDroneMarkerElement(existingMarker.getElement(), drone, drone.id === selectedDroneId);
+        placeDroneMarkerLabel(existingMarker.getElement(), drone, mapRef.current);
         return;
       }
 
       const markerElement = buildDroneMarkerElement(drone, drone.id === selectedDroneId, setSelectedDroneId);
+      placeDroneMarkerLabel(markerElement, drone, mapRef.current);
       const marker = new mapboxgl.Marker({ element: markerElement, anchor: "center" })
         .setLngLat(drone.coordinates)
         .setPopup(popup)
@@ -392,6 +392,31 @@ const GeospatialMap = () => {
       droneMarkersRef.current.set(drone.id, marker);
     });
   }, [liveDrones, mapReady, selectedDroneId]);
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+
+    const map = mapRef.current;
+    const updateLabelPositions = () => {
+      liveDrones.forEach((drone) => {
+        const marker = droneMarkersRef.current.get(drone.id);
+        if (marker) placeDroneMarkerLabel(marker.getElement(), drone, map);
+      });
+    };
+
+    map.on("move", updateLabelPositions);
+    map.on("zoom", updateLabelPositions);
+    map.on("resize", updateLabelPositions);
+    window.addEventListener("droneops-map-layout-change", updateLabelPositions);
+    updateLabelPositions();
+
+    return () => {
+      map.off("move", updateLabelPositions);
+      map.off("zoom", updateLabelPositions);
+      map.off("resize", updateLabelPositions);
+      window.removeEventListener("droneops-map-layout-change", updateLabelPositions);
+    };
+  }, [liveDrones, mapReady]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !liveDrones.length || hasAutoFramedRef.current) return;
@@ -416,7 +441,10 @@ const GeospatialMap = () => {
     <div className="panel map-panel geospatial-panel">
       <div className="panel-heading compact map-panel-heading">
         <div>
-          <h3>Telemetry Map</h3>
+          <div className="map-title-row">
+            <h3>Telemetry Map</h3>
+            <span className={`map-status ${telemetryStatus.tone}`}>{telemetryStatus.label}</span>
+          </div>
           <p>{mapError || telemetrySyncMessage || geofenceMessage || "Live fleet positions, selected-drone replay, and geofence overlays."}</p>
         </div>
         <div className="map-toolbar">
@@ -438,17 +466,18 @@ const GeospatialMap = () => {
               );
             })}
           </div>
-          <span className={`map-status ${mapReady ? "online" : ""}`}>{mapReady ? "Online" : "Loading"}</span>
-          <button className="icon-button" type="button" aria-label="Center map on active data" onClick={() => fitMapToData(mapRef.current, liveDrones, liveGeofences, selectedDroneTrack)}>
-            <Crosshair size={17} />
-          </button>
-          <button className="icon-button" type="button" aria-label="Reset map to default view" onClick={() => resetMapView(mapRef.current)}>
-            <Home size={17} />
-          </button>
-          <button className="icon-button" type="button" aria-label="Refresh telemetry" onClick={() => refreshTelemetryNow(telemetryTimerRef, setIsRefreshing, setMapError)}>
-            {isRefreshing ? <LoadingLogo label="Refreshing telemetry" size="xs" compact /> : <RefreshCw size={17} />}
-          </button>
+          <div className="map-view-controls" aria-label="Map view controls">
+            <button className="icon-button" type="button" aria-label="Center map on active data" onClick={() => fitMapToData(mapRef.current, liveDrones, liveGeofences, selectedDroneTrack)}>
+              <Crosshair size={17} />
+            </button>
+            <button className="icon-button" type="button" aria-label="Reset map to default view" onClick={() => resetMapView(mapRef.current)}>
+              <Home size={17} />
+            </button>
+          </div>
         </div>
+        <button className="icon-button map-refresh-button" type="button" aria-label="Refresh telemetry" onClick={() => refreshTelemetryNow(telemetryTimerRef, setIsRefreshing, setMapError)}>
+          {isRefreshing ? <LoadingLogo label="Refreshing telemetry" size="xs" compact /> : <RefreshCw size={17} />}
+        </button>
       </div>
       <div className="mapbox-canvas" ref={mapContainerRef} />
       <MapOverlayCard selectedDrone={selectedDrone} selectedDroneTrackLength={selectedDroneTrack.length} />
@@ -457,8 +486,9 @@ const GeospatialMap = () => {
         lastUpdatedAt={lastUpdatedAt}
         selectedDroneId={selectedDroneId}
         onSelectDrone={setSelectedDroneId}
+        replayStatus={getReplayStatus(selectedDrone, isHistoryLoading, selectedDroneTrack.length)}
       />
-      <MapLegend selectedDrone={selectedDrone} isHistoryLoading={isHistoryLoading} selectedDroneTrackLength={selectedDroneTrack.length} />
+      <MapLegend />
     </div>
   );
 };
@@ -512,12 +542,13 @@ const MapOverlayCard = ({ selectedDrone, selectedDroneTrackLength }) => {
   );
 };
 
-const LiveDroneList = ({ drones, lastUpdatedAt, selectedDroneId, onSelectDrone }) => {
+const LiveDroneList = ({ drones, lastUpdatedAt, selectedDroneId, onSelectDrone, replayStatus }) => {
   return (
-    <div className="live-drone-list" aria-label="Live drone locations">
+    <section className="live-drone-list" aria-label="Live drone locations">
       <div className="live-drone-list-header">
         <strong>Active Airspace</strong>
         <span>{lastUpdatedAt ? `Updated ${lastUpdatedAt}` : "Waiting for telemetry"}</span>
+        {replayStatus && <span className="live-drone-replay-status">{replayStatus}</span>}
       </div>
       {drones.length === 0 && <p className="empty-state">No live drone coordinates are available yet.</p>}
       {drones.map((drone) => (
@@ -541,7 +572,7 @@ const LiveDroneList = ({ drones, lastUpdatedAt, selectedDroneId, onSelectDrone }
           </div>
         </button>
       ))}
-    </div>
+    </section>
   );
 };
 
@@ -560,10 +591,46 @@ const updateDroneMarkerElement = (element, drone, isSelected) => {
   element.innerHTML = `
     <span class="drone-marker-pulse"></span>
     <span class="drone-marker-body">
-      <img src="${DRONE_ICON_URL}" alt="" />
+      <span class="drone-marker-glyph" aria-hidden="true"></span>
     </span>
     <span class="drone-marker-label">${drone.id} | ${drone.battery ?? "--"}%</span>
   `;
+};
+
+const placeDroneMarkerLabel = (element, drone, map) => {
+  if (!map) return;
+
+  const canvas = map.getCanvas();
+  const point = map.project(drone.coordinates);
+  const labelWidth = Math.max(86, String(drone.id ?? "").length * 8 + 44);
+  const sideBuffer = labelWidth / 2 + 12;
+  const topBuffer = 42;
+  const bottomBuffer = 58;
+  const classNames = ["label-top", "label-bottom", "label-left", "label-right"];
+
+  element.classList.remove(...classNames);
+
+  if (point.x < sideBuffer) {
+    element.classList.add("label-right");
+    return;
+  }
+
+  if (point.x > canvas.clientWidth - sideBuffer) {
+    element.classList.add("label-left");
+    return;
+  }
+
+  if (point.y < topBuffer) {
+    element.classList.add("label-bottom");
+    return;
+  }
+
+  if (point.y > canvas.clientHeight - bottomBuffer) {
+    element.classList.add("label-top");
+    return;
+  }
+
+  element.classList.add("label-top");
 };
 
 const buildDronePopupHtml = (drone) => {
@@ -580,6 +647,43 @@ const buildDronePopupHtml = (drone) => {
       <span>Seen: ${formatTimestamp(drone.timestamp)}</span>
     </div>
   `;
+};
+
+const getDronePopupOptions = (drone, map) => {
+  const point = map?.project(drone.coordinates);
+  const canvas = map?.getCanvas();
+  const options = {
+    closeButton: false,
+    closeOnMove: false,
+    maxWidth: "260px",
+    offset: {
+      top: [0, 30],
+      bottom: [0, -30],
+      left: [-30, 0],
+      right: [30, 0],
+      "top-left": [22, 30],
+      "top-right": [-22, 30],
+      "bottom-left": [22, -30],
+      "bottom-right": [-22, -30]
+    }
+  };
+
+  if (!point || !canvas) return options;
+
+  const nearLeft = point.x < 180;
+  const nearRight = point.x > canvas.clientWidth - 180;
+  const nearTop = point.y < 145;
+  const nearBottom = point.y > canvas.clientHeight - 185;
+
+  if (nearBottom && nearLeft) return { ...options, anchor: "bottom-left" };
+  if (nearBottom && nearRight) return { ...options, anchor: "bottom-right" };
+  if (nearTop && nearLeft) return { ...options, anchor: "top-left" };
+  if (nearTop && nearRight) return { ...options, anchor: "top-right" };
+  if (nearBottom) return { ...options, anchor: "bottom" };
+  if (nearTop) return { ...options, anchor: "top" };
+  if (nearLeft) return { ...options, anchor: "left" };
+  if (nearRight) return { ...options, anchor: "right" };
+  return options;
 };
 
 const FallbackOperationalMap = () => {
@@ -604,31 +708,43 @@ const FallbackOperationalMap = () => {
         <MapPin className="map-pin pin-c" size={30} />
         <div className="map-label">Telemetry map surface ready</div>
       </div>
-      <MapLegend selectedDrone={null} isHistoryLoading={false} selectedDroneTrackLength={0} />
+      <MapLegend />
     </div>
   );
 };
 
-const MapLegend = ({ selectedDrone, isHistoryLoading, selectedDroneTrackLength }) => {
+const MapLegend = () => {
   return (
-    <div className="map-legend">
-        <span><i className="dot green" /> Live drone</span>
-        <span><i className="dot gray" /> Offline / stale</span>
-        <span><i className="dot blue" /> Selected replay path</span>
-        <span><i className="dot white" /> Current breadcrumb</span>
+    <div className="map-legend-panel">
+      <div className="map-legend-heading">
+        <strong>Legend</strong>
+      </div>
+      <div className="map-legend">
+        <span><i className="dot blue" /> Operational</span>
+        <span><i className="dot green" /> In mission</span>
+        <span><i className="dot gray" /> Offline</span>
+        <span><i className="legend-line blue" /> Replay</span>
+        <span><i className="dot white" /> Current point</span>
         <span><i className="dot red" /> Restricted</span>
-      <span><i className="dot amber" /> Warning</span>
-      <span className="map-legend-detail">
-        {selectedDrone
-          ? isHistoryLoading
-            ? `Loading ${selectedDrone.id} history...`
-            : selectedDroneTrackLength > 1
-              ? `${selectedDrone.id} replay loaded`
-              : `${selectedDrone.id} has no replay track yet`
-          : "Select a drone to inspect its replay track"}
-      </span>
+        <span><i className="dot amber" /> Warning</span>
+      </div>
     </div>
   );
+};
+
+const getReplayStatus = (selectedDrone, isHistoryLoading, selectedDroneTrackLength) => {
+  if (!selectedDrone) return "Select a drone to inspect replay";
+  if (isHistoryLoading) return `Loading ${selectedDrone.id} history`;
+  if (selectedDroneTrackLength > 1) return `${selectedDrone.id} replay loaded`;
+  return `${selectedDrone.id} has no replay track yet`;
+};
+
+const getTelemetryFeedStatus = ({ mapReady, mapError, liveDrones }) => {
+  if (mapError) return { label: "Feed Error", tone: "error" };
+  if (!mapReady) return { label: "Map Loading", tone: "loading" };
+  if (liveDrones.some((drone) => !drone.isOffline)) return { label: "Live Feed", tone: "online" };
+  if (liveDrones.length > 0) return { label: "Last Positions", tone: "stale" };
+  return { label: "No Live Feed", tone: "offline" };
 };
 
 const refreshTelemetryNow = async (telemetryTimerRef, setIsRefreshing, setMapError) => {

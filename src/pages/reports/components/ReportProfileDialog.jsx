@@ -123,7 +123,8 @@ const ReportProfileDialog = ({ report, canDelete = false, canManageStatus = fals
             <ProfileSection icon={Download} title="Export Readiness">
               <ProfileRow label="Availability" value={report.status} />
               <ProfileRow label="Audit Snapshot" value={report.dataSnapshot ? "Stored" : "Not stored"} />
-              <ProfileRow label="Source" value="Backend report record" />
+              <ProfileRow label="Source" value={formatScopeSource(report.dataSnapshot?.scope)} />
+              <ProfileRow label="Date Range" value={formatScopeRange(report.dataSnapshot?.scope)} />
               <ProfileRow label="Export Rule" value={isExportable ? "Ready for export" : "Export locked until Ready"} />
             </ProfileSection>
           </div>
@@ -341,11 +342,13 @@ const buildBriefItems = (report) => {
   const summary = snapshot.summary ?? {};
   const utilization = snapshot.utilization ?? {};
   const compliance = snapshot.compliance ?? {};
+  const scope = snapshot.scope ?? {};
 
   const items = [
     { label: "Current Value", value: report.value ?? summary.value ?? "Snapshot ready" },
     { label: "Change", value: report.change ?? summary.change ?? "No comparison available" },
-    { label: "Category", value: report.owner ?? summary.owner ?? "DroneOps" }
+    { label: "Category", value: report.owner ?? summary.owner ?? "DroneOps" },
+    { label: "Export Scope", value: formatScopeRange(scope), note: scope.limit ? `Maximum ${scope.limit} records included.` : null }
   ];
 
   if (utilization.totalDrones !== undefined) {
@@ -389,10 +392,25 @@ const buildReviewChecklist = (report, isExportable) => {
 
 const buildOperatorNarrative = (report) => {
   const summary = report.dataSnapshot?.summary ?? {};
+  const scopeText = formatScopeRange(report.dataSnapshot?.scope);
   const headline = report.value ?? summary.value ?? "This report is ready.";
   const change = report.change ?? summary.change ?? "No previous comparison was stored.";
-  return `${report.name} captures a stored operational snapshot for ${report.type?.toString().toLowerCase().replaceAll("_", " ") ?? "current operations"}. The main outcome is ${headline}. Compared with the previous reporting window: ${change}. Operators can use this record for routine review, supervisor handover, and audit evidence.`;
+  return `${report.name} captures a stored operational snapshot for ${report.type?.toString().toLowerCase().replaceAll("_", " ") ?? "current operations"} using ${scopeText.toLowerCase()}. The main outcome is ${headline}. Compared with the previous reporting window: ${change}. Operators can use this record for routine review, supervisor handover, and audit evidence.`;
 };
+
+const formatScopeSource = (scope) => scope?.dateField ? `Backend report record | ${scope.dateField}` : "Backend report record";
+
+const formatScopeRange = (scope) => {
+  if (!scope) return "All available dates";
+  const from = scope.dateFrom ? formatDate(scope.dateFrom) : null;
+  const to = scope.dateTo ? formatDate(scope.dateTo) : null;
+  if (from && to) return `${from} to ${to}`;
+  if (from) return `From ${from}`;
+  if (to) return `Up to ${to}`;
+  return "All available dates";
+};
+
+const formatDate = (value) => new Date(value).toLocaleDateString("en-AU");
 
 const getFloatingMenuStyle = (anchor, placement = "bottom") => {
   if (!anchor) return undefined;

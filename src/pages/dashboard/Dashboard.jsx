@@ -17,11 +17,26 @@ import { buildRecentActivityFromAudit } from "../../utils/activityStream";
 
 const metricIcons = [Plane, Activity, AlertTriangle, MapPin];
 const GeospatialMap = lazy(() => import("../../components/maps/GeospatialMap"));
+const DASHBOARD_SPLIT_STORAGE_KEY = "droneops-dashboard-drones-map-width";
+const DEFAULT_DASHBOARD_SPLIT = 50;
+const MIN_DASHBOARD_SPLIT = 32;
+const MAX_DASHBOARD_SPLIT = 68;
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+const getStoredDashboardSplit = () => {
+  if (typeof window === "undefined") return DEFAULT_DASHBOARD_SPLIT;
+  const storedValue = Number(window.localStorage.getItem(DASHBOARD_SPLIT_STORAGE_KEY));
+  return Number.isFinite(storedValue)
+    ? clamp(storedValue, MIN_DASHBOARD_SPLIT, MAX_DASHBOARD_SPLIT)
+    : DEFAULT_DASHBOARD_SPLIT;
+};
 
 const Dashboard = ({ searchValue, user, onNavigate }) => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const [showLivePanels, setShowLivePanels] = useState(false);
+  const [dashboardSplit, setDashboardSplit] = useState(getStoredDashboardSplit);
   const canRead = useCallback((permission) => hasClientPermission(user, permission), [user]);
   const loadDrones = useCallback(() => droneOpsApi.drones.list(), []);
   const loadMissions = useCallback(() => droneOpsApi.missions.list(), []);
@@ -71,6 +86,59 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
     navigate(path, { state: { returnTo: "/dashboard" } });
   };
 
+  const updateDashboardSplit = useCallback((value) => {
+    const nextValue = clamp(value, MIN_DASHBOARD_SPLIT, MAX_DASHBOARD_SPLIT);
+    setDashboardSplit(nextValue);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(DASHBOARD_SPLIT_STORAGE_KEY, String(Math.round(nextValue)));
+      window.dispatchEvent(new CustomEvent("droneops-map-layout-change"));
+    }
+  }, []);
+
+  const handleDashboardSplitPointerDown = useCallback((event) => {
+    if (event.button !== 0) return;
+    const row = event.currentTarget.closest(".dashboard-resizable-row");
+    if (!row) return;
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+
+    const updateFromClientX = (clientX) => {
+      const rect = row.getBoundingClientRect();
+      if (!rect.width) return;
+      updateDashboardSplit(((clientX - rect.left) / rect.width) * 100);
+    };
+
+    const handlePointerMove = (moveEvent) => updateFromClientX(moveEvent.clientX);
+    const handlePointerUp = () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+    updateFromClientX(event.clientX);
+  }, [updateDashboardSplit]);
+
+  const handleDashboardSplitKeyDown = useCallback((event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key === "Home") {
+      updateDashboardSplit(MIN_DASHBOARD_SPLIT);
+      return;
+    }
+    if (event.key === "End") {
+      updateDashboardSplit(MAX_DASHBOARD_SPLIT);
+      return;
+    }
+    updateDashboardSplit(dashboardSplit + (event.key === "ArrowRight" ? 4 : -4));
+  }, [dashboardSplit, updateDashboardSplit]);
+
   return (
     <>
       <section className="stats-grid" aria-label="Fleet summary">
@@ -80,31 +148,51 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
       </section>
 
       <section className="content-grid dashboard-grid">
-        <FleetOverviewTable
-          drones={filteredDrones.slice(0, 5)}
-          isLoading={isDronesLoading}
-          onDroneSelect={(drone) => navigateFromDashboard(`/fleet/${encodeURIComponent(drone.uuid ?? drone.id)}`)}
-        />
-        {showLivePanels && canRead("telemetry:read") ? (
-          <Suspense fallback={<div className="panel map-panel map-loading"><LoadingLogo label="Loading telemetry map" /></div>}>
-            <GeospatialMap />
-          </Suspense>
-        ) : (
-          <div className="panel map-panel map-loading map-deferred">
-            <div>
-              <span className="eyebrow">Telemetry Map</span>
-              <h3>Live map loads on demand</h3>
-              <p>Open live operations view when you need current drone positions, replay tracks, and geofence overlays.</p>
-              {canRead("telemetry:read") ? (
-                <button className="primary-btn compact" type="button" onClick={() => setShowLivePanels(true)}>
-                  Open Live Map
-                </button>
-              ) : (
-                <span>Telemetry access is not enabled for this role.</span>
-              )}
-            </div>
+        <div className="dashboard-resizable-row" style={{ "--dashboard-drones-width": `${dashboardSplit}%` }}>
+          <div className="dashboard-resizable-pane">
+            <FleetOverviewTable
+              drones={filteredDrones.slice(0, 5)}
+              isLoading={isDronesLoading}
+              onDroneSelect={(drone) => navigateFromDashboard(`/fleet/${encodeURIComponent(drone.uuid ?? drone.id)}`)}
+            />
           </div>
-        )}
+          <button
+            className="dashboard-resize-handle"
+            type="button"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize drones and telemetry map sections"
+            aria-valuemin={MIN_DASHBOARD_SPLIT}
+            aria-valuemax={MAX_DASHBOARD_SPLIT}
+            aria-valuenow={Math.round(dashboardSplit)}
+            onPointerDown={handleDashboardSplitPointerDown}
+            onKeyDown={handleDashboardSplitKeyDown}
+          >
+            <span aria-hidden="true" />
+          </button>
+          <div className="dashboard-resizable-pane">
+            {showLivePanels && canRead("telemetry:read") ? (
+              <Suspense fallback={<div className="panel map-panel map-loading"><LoadingLogo label="Loading telemetry map" /></div>}>
+                <GeospatialMap />
+              </Suspense>
+            ) : (
+              <div className="panel map-panel map-loading map-deferred">
+                <div>
+                  <span className="eyebrow">Telemetry Map</span>
+                  <h3>Live map loads on demand</h3>
+                  <p>Open live operations view when you need current drone positions, replay tracks, and geofence overlays.</p>
+                  {canRead("telemetry:read") ? (
+                    <button className="primary-btn compact" type="button" onClick={() => setShowLivePanels(true)}>
+                      Open Live Map
+                    </button>
+                  ) : (
+                    <span>Telemetry access is not enabled for this role.</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
         <MissionQueue
           missions={dashboardMissions}
           canCreate={canRead("missions:manage")}
