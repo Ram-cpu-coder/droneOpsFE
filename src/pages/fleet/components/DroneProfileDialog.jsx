@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
 import BatteryMeter from "../../../components/common/BatteryMeter";
+import CopyableId from "../../../components/common/CopyableId";
 import StatusBadge from "../../../components/common/StatusBadge";
 import { droneOpsApi } from "../../../services/droneOpsApi";
 
@@ -142,40 +143,35 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
         <div className="modal-header">
           <div>
             <p className="eyebrow">Drone Profile</p>
-            <h2 id="drone-profile-title">{previewDrone.id}</h2>
+            <div className="profile-title-row">
+              <h2 id="drone-profile-title">{previewDrone.id}</h2>
+            </div>
             <p>{previewDrone.model} {previewDrone.manufacturer ? `by ${previewDrone.manufacturer}` : ""}</p>
+            <ProfileIdentity id={droneUuid} />
           </div>
           <div className="profile-header-actions">
-            {canManage && (
-              <ActionButton icon={Pencil} onClick={() => setIsEditing((current) => !current)}>
-                {isEditing ? "View" : "Edit"}
-              </ActionButton>
-            )}
-            <button className="icon-button" type="button" onClick={onClose} aria-label="Close drone profile">
-              <X size={18} />
-            </button>
+            <div className="profile-header-buttons">
+              {canManage && (
+                <ActionButton icon={Pencil} onClick={() => setIsEditing((current) => !current)}>
+                  {isEditing ? "View" : "Edit"}
+                </ActionButton>
+              )}
+              <button className="icon-button" type="button" onClick={onClose} aria-label="Close drone profile">
+                <X size={18} />
+              </button>
+            </div>
+            <StatusBadge>{previewDrone.status}</StatusBadge>
           </div>
         </div>
 
         <div className="modal-body">
           {error && <div className="auth-alert">{error}</div>}
 
-          <div className="profile-hero">
-            <div className="profile-aircraft-icon">
-              <Plane size={42} />
-            </div>
-            <div>
-              <h3>{previewDrone.id}</h3>
-              <p>{previewDrone.serialNumber}</p>
-            </div>
-            <StatusBadge>{previewDrone.status}</StatusBadge>
-          </div>
-
           <div className="profile-metrics">
             <ProfileMetric icon={BatteryCharging} label="Battery" value={`${drone.battery ?? 0}%`}>
               <BatteryMeter value={drone.battery ?? 0} />
             </ProfileMetric>
-            <ProfileMetric icon={RadioTower} label="Signal" value={`${drone.signal ?? 0}%`} />
+            <ProfileMetric icon={RadioTower} label="Signal" value={locationState.isOffline ? "Offline" : `${drone.signal ?? 0}%`} />
             <ProfileMetric icon={Plane} label="Flight Hours" value={previewDrone.flightHours} />
           </div>
 
@@ -308,6 +304,12 @@ const ProfileSection = ({ icon: Icon, title, children }) => (
   </section>
 );
 
+const ProfileIdentity = ({ id }) => (
+  <div className="profile-identity-list" aria-label="Record identity">
+    <span><strong>ID</strong><CopyableId value={id} /></span>
+  </div>
+);
+
 const ProfileLocationMap = ({ drone, locationState }) => {
   const mapPreviewUrl = locationState.hasLocation ? buildStaticMapPreview(locationState.location) : "";
 
@@ -426,7 +428,9 @@ const getDroneLocationState = (drone) => {
   const location = normalizeLocation(telemetryLocation) ?? normalizeLocation(fallbackLocation);
   const isDisconnected = ["DISCONNECTED", "GROUNDED"].includes(drone.status) || drone.connectorStatus === "OFFLINE";
   const isStale = latestTimestamp ? Date.now() - new Date(latestTimestamp).getTime() > 30000 : true;
-  const isOffline = Boolean(location) && (!telemetryLocation || isDisconnected || isStale);
+  const telemetryComplete = drone.latestTelemetry?.status === "MISSION_COMPLETE";
+  const telemetryLinkOffline = ["LOST", "OFFLINE"].includes(drone.latestTelemetry?.signal?.linkQuality?.toUpperCase?.());
+  const isOffline = Boolean(location) && (!telemetryLocation || isDisconnected || isStale || telemetryComplete || telemetryLinkOffline || drone.telemetryOffline);
 
   return {
     hasLocation: Boolean(location),

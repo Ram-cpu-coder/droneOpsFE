@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, ChevronDown, MapPinned, RadioTower, Save, Search, UserRoundCheck, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, FileText, FileUp, Image as ImageIcon, MapPinned, RadioTower, Save, Search, UserRoundCheck, Video, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
@@ -17,12 +17,29 @@ const incidentTypes = [
   { value: "EQUIPMENT_FAILURE", label: "Equipment issue" },
   { value: "WEATHER_EVENT", label: "Weather event" }
 ];
+const MAX_EVIDENCE_FILE_BYTES = 20 * 1024 * 1024;
+const allowedEvidenceMimeTypes = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "video/mp4",
+  "video/quicktime",
+  "video/webm",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain"
+]);
+const allowedEvidenceExtensions = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".mp4", ".mov", ".webm", ".pdf", ".doc", ".docx", ".txt"];
 const initialForm = {
   incidentCode: "",
   title: "",
   type: "",
   severity: "LOW",
   droneId: "",
+  droneIds: [],
   missionId: "",
   assignedToId: "",
   source: "Manual Report",
@@ -36,6 +53,8 @@ const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, 
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const [isSaving, setIsSaving] = useState(false);
+  const [evidenceFiles, setEvidenceFiles] = useState([]);
+  const [evidenceError, setEvidenceError] = useState("");
   const errorRef = useRef(null);
   const formBodyRef = useRef(null);
   const loadDrones = useCallback(() => droneOpsApi.drones.list(), []);
@@ -54,7 +73,7 @@ const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, 
       value: drone.uuid ?? drone.id,
       label: drone.droneCode ?? drone.id,
       title: [drone.manufacturer, drone.model].filter(Boolean).join(" ") || "Drone",
-      meta: [formatReadableValue(drone.status), drone.batteryType].filter(Boolean).join(" | "),
+      meta: formatReadableValue(drone.status),
       searchText: `${drone.droneCode ?? drone.id} ${drone.model ?? ""} ${drone.manufacturer ?? ""} ${drone.serialNumber ?? ""}`.toLowerCase()
     })),
     [drones]
@@ -79,14 +98,17 @@ const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, 
     })),
     [ownerOptions]
   );
-  const selectedDrone = useMemo(() => drones.find((drone) => (drone.uuid ?? drone.id) === form.droneId) ?? null, [drones, form.droneId]);
+  const selectedDrones = useMemo(
+    () => form.droneIds.map((droneId) => drones.find((drone) => (drone.uuid ?? drone.id) === droneId)).filter(Boolean),
+    [drones, form.droneIds]
+  );
   const selectedMission = useMemo(() => missions.find((mission) => (mission.uuid ?? mission.id) === form.missionId) ?? null, [missions, form.missionId]);
   const selectedOwner = useMemo(() => ownerOptions.find((owner) => owner.id === form.assignedToId) ?? null, [ownerOptions, form.assignedToId]);
   const readinessItems = [
     { label: "Title", complete: Boolean(form.title.trim()), detail: form.title.trim() || "Required" },
     { label: "Incident type", complete: Boolean(form.type), detail: getIncidentTypeLabel(form.type) || "Required" },
     { label: "Severity", complete: Boolean(form.severity), detail: formatReadableValue(form.severity) },
-    { label: "Drone", complete: Boolean(form.droneId), detail: selectedDrone ? `${selectedDrone.droneCode ?? selectedDrone.id} linked` : "Required" },
+    { label: "Drone", complete: form.droneIds.length > 0, detail: selectedDrones.length ? `${selectedDrones.length} drone(s) linked` : "Required" },
     { label: "Source", complete: Boolean(form.source), detail: form.source || "Required" },
     { label: "Location", complete: Boolean(form.locationPoint), detail: form.locationPoint ? "Selected on map" : "Required" }
   ];
@@ -94,6 +116,8 @@ const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, 
 
   useEffect(() => {
     setForm(toFormState(incident));
+    setEvidenceFiles([]);
+    setEvidenceError("");
   }, [incident]);
 
   useEffect(() => {
@@ -142,6 +166,10 @@ const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, 
         setError("Review the highlighted incident fields before submitting.");
         return;
       }
+      if (evidenceError) {
+        setError(evidenceError);
+        return;
+      }
 
       const locationLabel = form.locationPoint ? formatLocationLabel(form.locationPoint) : undefined;
       const payload = {
@@ -149,7 +177,8 @@ const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, 
         title: form.title,
         type: form.type,
         severity: form.severity,
-        droneId: form.droneId,
+        droneId: form.droneIds[0] || undefined,
+        droneIds: form.droneIds,
         missionId: form.missionId || undefined,
         assignedToId: form.assignedToId || undefined,
         source: form.source || undefined,
@@ -161,12 +190,26 @@ const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, 
       const savedIncident = mode === "edit"
         ? await droneOpsApi.incidents.update(incident?.uuid ?? incident?.idRaw ?? incident?.id, payload)
         : await droneOpsApi.incidents.create(payload);
+      const savedIncidentId = savedIncident?.id ?? incident?.uuid ?? incident?.idRaw ?? incident?.id;
+      const evidenceUploadFailures = [];
+
+      for (const file of evidenceFiles) {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("title", file.name);
+        try {
+          await droneOpsApi.incidents.uploadEvidence(savedIncidentId, formData);
+        } catch (uploadError) {
+          evidenceUploadFailures.push(`${file.name}: ${uploadError.message}`);
+        }
+      }
 
       setForm(initialForm);
+      setEvidenceFiles([]);
       if (mode === "edit") {
-        onUpdated?.(savedIncident);
+        onUpdated?.({ ...savedIncident, evidenceUploadFailures });
       } else {
-        onCreated?.(savedIncident);
+        onCreated?.({ ...savedIncident, evidenceUploadFailures });
       }
     } catch (requestError) {
       const submitError = getIncidentSubmitErrorMessage(requestError.message);
@@ -178,7 +221,7 @@ const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, 
   };
 
   const dialog = (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onCancel?.()}>
+    <div className="modal-backdrop" role="presentation">
       <form className="modal-dialog registration-dialog" role="dialog" aria-modal="true" aria-labelledby="log-incident-title" onSubmit={handleSubmit}>
         <div className="modal-header">
           <div>
@@ -202,39 +245,84 @@ const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, 
             </FormSection>
 
             <FormSection icon={RadioTower} title="Linked Records" className="incident-linked-section">
-              <SearchableSelectField
-                label="Drone"
-                value={form.droneId}
-                onChange={(value) => updateField("droneId", value)}
-                options={droneOptions}
-                placeholder="Search drone ID, model, serial"
-                error={fieldErrors.droneId}
-              />
-              <IncidentSummaryCard type="drone" item={selectedDrone} />
-              <SearchableSelectField
-                label="Mission"
-                value={form.missionId}
-                onChange={(value) => updateField("missionId", value)}
-                options={missionOptions}
-                placeholder="Search mission ID or name"
-              />
+              <div className="assignment-picker-row">
+                <div className="assignment-picker-copy">
+                  <span>Affected Drones</span>
+                  <strong>{selectedDrones.length ? `${selectedDrones.length} linked` : `${droneOptions.length} available`}</strong>
+                </div>
+                <MultiSearchableSelectField
+                  label=""
+                  className="assignment-picker-search"
+                  value={form.droneIds}
+                  onChange={(value) => {
+                    setForm((current) => ({ ...current, droneIds: value, droneId: value[0] ?? "" }));
+                    setFieldErrors((current) => {
+                      if (!current.droneId) return current;
+                      const nextErrors = { ...current };
+                      delete nextErrors.droneId;
+                      return nextErrors;
+                    });
+                  }}
+                  options={droneOptions}
+                  placeholder="Search drones"
+                  error={fieldErrors.droneId}
+                />
+              </div>
+              <IncidentSummaryCard type="drone" items={selectedDrones} />
+              <div className="assignment-picker-row">
+                <div className="assignment-picker-copy">
+                  <span>Related Mission</span>
+                  <strong>{selectedMission ? "Linked" : "Optional"}</strong>
+                </div>
+                <SearchableSelectField
+                  label=""
+                  className="assignment-picker-search"
+                  value={form.missionId}
+                  onChange={(value) => updateField("missionId", value)}
+                  options={missionOptions}
+                  placeholder="Search missions"
+                />
+              </div>
               <IncidentSummaryCard type="mission" item={selectedMission} />
               <SelectField label="Source" value={form.source} onChange={(value) => updateField("source", value)} options={incidentSources} error={fieldErrors.source} />
             </FormSection>
 
             <FormSection icon={UserRoundCheck} title="Follow Up" className="incident-followup-section">
-              <SearchableSelectField
-                label="Assigned Owner"
-                value={form.assignedToId}
-                onChange={(value) => updateField("assignedToId", value)}
-                options={assigneeOptions}
-                placeholder="Search owner name or email"
-              />
+              <div className="assignment-picker-row">
+                <div className="assignment-picker-copy">
+                  <span>Assigned Owner</span>
+                  <strong>{selectedOwner ? "Assigned" : `${assigneeOptions.length} available`}</strong>
+                </div>
+                <SearchableSelectField
+                  label=""
+                  className="assignment-picker-search"
+                  value={form.assignedToId}
+                  onChange={(value) => updateField("assignedToId", value)}
+                  options={assigneeOptions}
+                  placeholder="Search owner"
+                />
+              </div>
               <IncidentSummaryCard type="owner" item={selectedOwner} />
             </FormSection>
 
             <FormSection icon={MapPinned} title="Incident Location" className="wide-form-section">
               <IncidentLocationPicker value={form.locationPoint} onChange={(value) => updateField("locationPoint", value)} error={fieldErrors.locationPoint} />
+            </FormSection>
+
+            <FormSection icon={FileUp} title="Incident Evidence Capture" className="wide-form-section">
+              <EvidenceCaptureField
+                files={evidenceFiles}
+                error={evidenceError}
+                onChange={(files) => {
+                  const validationError = validateEvidenceFiles(files);
+                  setEvidenceError(validationError);
+                  if (!validationError) setEvidenceFiles(files);
+                }}
+                onRemove={(nextFiles) => {
+                  setEvidenceFiles(nextFiles);
+                  setEvidenceError(validateEvidenceFiles(nextFiles));
+                }}
+              />
             </FormSection>
 
             <FormSection icon={MapPinned} title="Notes" className="wide-form-section">
@@ -303,7 +391,8 @@ const SearchableSelectField = ({
   value,
   onChange,
   placeholder = "Search",
-  error = ""
+  error = "",
+  className = ""
 }) => {
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
@@ -340,8 +429,8 @@ const SearchableSelectField = ({
   const inputValue = isOpen ? query : (selectedOption ? (typeof selectedOption === "string" ? selectedOption : `${selectedOption.label}${selectedOption.title ? ` - ${selectedOption.title}` : ""}`) : "");
 
   return (
-    <div className={`field searchable-select-field ${error ? "has-error" : ""}`} ref={wrapperRef}>
-      <span>{label}</span>
+    <div className={`field searchable-select-field ${className} ${error ? "has-error" : ""}`} ref={wrapperRef}>
+      {label && <span>{label}</span>}
       <div className={`field-search-input combo-input ${isOpen ? "open" : ""}`}>
         <Search size={16} />
         <input
@@ -354,7 +443,7 @@ const SearchableSelectField = ({
           }}
           placeholder={selectedOption ? "" : placeholder}
         />
-        <button type="button" className="combo-toggle" onClick={() => setIsOpen((current) => !current)} aria-label={`Toggle ${label.toLowerCase()} options`}>
+        <button type="button" className="combo-toggle" onClick={() => setIsOpen((current) => !current)} aria-label={`Toggle ${(label || placeholder).toLowerCase()} options`}>
           <ChevronDown size={16} />
         </button>
       </div>
@@ -400,6 +489,109 @@ const SearchableSelectField = ({
   );
 };
 
+const MultiSearchableSelectField = ({
+  label,
+  options,
+  value = [],
+  onChange,
+  placeholder = "Search",
+  error = "",
+  className = ""
+}) => {
+  const [query, setQuery] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const wrapperRef = useRef(null);
+  const selectedValues = Array.isArray(value) ? value : [];
+
+  const filteredOptions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return options;
+    return options.filter((option) => {
+      const searchText = typeof option === "string"
+        ? option.toLowerCase()
+        : (option.searchText ?? option.label ?? "").toLowerCase();
+      return searchText.includes(normalizedQuery);
+    });
+  }, [options, query]);
+
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      if (!wrapperRef.current?.contains(event.target)) {
+        setIsOpen(false);
+        setQuery("");
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, []);
+
+  const toggleValue = (optionValue) => {
+    const nextValues = selectedValues.includes(optionValue)
+      ? selectedValues.filter((selectedValue) => selectedValue !== optionValue)
+      : [...selectedValues, optionValue];
+    onChange?.(nextValues);
+  };
+
+  return (
+    <div className={`field searchable-select-field ${className} ${error ? "has-error" : ""}`} ref={wrapperRef}>
+      {label && <span>{label}</span>}
+      <div className={`field-search-input combo-input ${isOpen ? "open" : ""}`}>
+        <Search size={16} />
+        <input
+          type="text"
+          value={isOpen ? query : (selectedValues.length ? `${selectedValues.length} selected` : "")}
+          onFocus={() => setIsOpen(true)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setIsOpen(true);
+          }}
+          placeholder={selectedValues.length ? "" : placeholder}
+        />
+        <button type="button" className="combo-toggle" onClick={() => setIsOpen((current) => !current)} aria-label={`Toggle ${(label || placeholder).toLowerCase()} options`}>
+          <ChevronDown size={16} />
+        </button>
+      </div>
+      {error && <small className="field-error">{error}</small>}
+      {isOpen && (
+        <div className="combo-options multi-combo-options" role="listbox" aria-label={label} aria-multiselectable="true">
+          {filteredOptions.length ? (
+            filteredOptions.map((option) => {
+              const optionValue = typeof option === "string" ? option : option.value;
+              const optionLabel = typeof option === "string" ? option : option.label;
+              const optionTitle = typeof option === "string" ? option : option.title;
+              const optionMeta = typeof option === "string" ? "" : option.meta;
+              const isSelected = selectedValues.includes(optionValue);
+
+              return (
+                <button
+                  key={optionValue}
+                  type="button"
+                  className={`combo-option multi-combo-option ${isSelected ? "selected" : ""}`}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => toggleValue(optionValue)}
+                >
+                  <span className={`combo-checkbox ${isSelected ? "checked" : ""}`} aria-hidden="true">
+                    {isSelected && <CheckCircle2 size={14} />}
+                  </span>
+                  <span className="combo-option-main">
+                    <span className="combo-option-copy">
+                      <strong>{optionTitle || optionLabel}</strong>
+                      <small>{optionMeta || optionLabel}</small>
+                    </span>
+                  </span>
+                </button>
+              );
+            })
+          ) : (
+            <div className="combo-empty">No records matched your search.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const TextareaField = ({ label, placeholder = "", value, onChange }) => (
   <label className="field wide-field">
     <span>{label}</span>
@@ -407,8 +599,112 @@ const TextareaField = ({ label, placeholder = "", value, onChange }) => (
   </label>
 );
 
-const IncidentSummaryCard = ({ type, item }) => {
-  if (!item) {
+const EvidenceCaptureField = ({ files, error = "", onChange, onRemove }) => {
+  const [showAllFiles, setShowAllFiles] = useState(false);
+  const previewLimit = 4;
+  const visibleFiles = showAllFiles ? files : files.slice(0, previewLimit);
+  const hiddenFileCount = Math.max(files.length - previewLimit, 0);
+
+  const removeFile = (fileName, index) => {
+    onRemove?.(files.filter((file, fileIndex) => file.name !== fileName || fileIndex !== index));
+  };
+
+  const handleFileSelection = (event) => {
+    const selectedFiles = Array.from(event.target.files ?? []);
+    const mergedFiles = mergeEvidenceFiles(files, selectedFiles);
+    onChange(mergedFiles);
+    setShowAllFiles(false);
+    event.target.value = "";
+  };
+
+  return (
+    <div className="incident-evidence-upload">
+      <label className="incident-evidence-dropzone">
+        <FileUp size={22} />
+        <div>
+          <strong>Attach evidence files</strong>
+          <span>User-captured evidence is stored with the incident. DroneOps also attaches the recent telemetry black box automatically.</span>
+        </div>
+        <input
+          type="file"
+          accept={allowedEvidenceExtensions.join(",")}
+          multiple
+          onChange={handleFileSelection}
+        />
+      </label>
+      <div className={`incident-evidence-policy ${error ? "has-error" : ""}`}>
+        <span>{error || "Accepted: photos, videos, PDF, Word, or text documents. Maximum 20 MB per file."}</span>
+      </div>
+      {files.length > 0 && (
+        <div className="incident-evidence-selection">
+          <div className="incident-evidence-selection-header">
+            <div>
+              <strong>{files.length} attachment{files.length === 1 ? "" : "s"} selected</strong>
+              <span>{formatFileSize(files.reduce((total, file) => total + file.size, 0))} total</span>
+            </div>
+            {hiddenFileCount > 0 && (
+              <button className="incident-evidence-toggle" type="button" onClick={() => setShowAllFiles((current) => !current)}>
+                {showAllFiles ? "Show less" : `See ${hiddenFileCount} more`}
+                <ChevronDown size={14} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+          <div className="incident-evidence-file-list">
+            {visibleFiles.map((file, index) => {
+              const fileKind = getEvidenceFileKind(file);
+              const fileIndex = files.indexOf(file);
+
+              return (
+                <div className={`incident-evidence-file ${fileKind.value}`} key={`${file.name}-${file.lastModified}-${index}`}>
+                  <button className="incident-evidence-remove" type="button" onClick={() => removeFile(file.name, fileIndex)} aria-label={`Remove ${file.name}`}>
+                    <X size={15} />
+                  </button>
+                  <div className="incident-evidence-preview" aria-hidden="true">
+                    <EvidenceFilePreview file={file} fileKind={fileKind} />
+                  </div>
+                  <div className="incident-evidence-file-copy">
+                    <span>{fileKind.label}</span>
+                    <strong title={file.name}>{file.name}</strong>
+                    <small>{formatFileSize(file.size)}</small>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const EvidenceFilePreview = ({ file, fileKind }) => {
+  const [previewUrl, setPreviewUrl] = useState("");
+  const Icon = fileKind.icon;
+
+  useEffect(() => {
+    if (!["photo", "video"].includes(fileKind.value)) return undefined;
+    const objectUrl = URL.createObjectURL(file);
+    setPreviewUrl(objectUrl);
+
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file, fileKind.value]);
+
+  if (fileKind.value === "photo" && previewUrl) {
+    return <img src={previewUrl} alt="" />;
+  }
+
+  if (fileKind.value === "video" && previewUrl) {
+    return <video src={previewUrl} muted playsInline preload="metadata" />;
+  }
+
+  return <Icon size={22} />;
+};
+
+const IncidentSummaryCard = ({ type, item, items }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const selectedItems = Array.isArray(items) ? items : (item ? [item] : []);
+
+  if (!selectedItems.length) {
     const emptyCopy = {
       drone: ["No drone linked", "Select the affected drone"],
       mission: ["No mission linked", "Optional, link the related mission"],
@@ -423,12 +719,49 @@ const IncidentSummaryCard = ({ type, item }) => {
     );
   }
 
+  if (items) {
+    const visibleItems = isExpanded ? selectedItems : selectedItems.slice(0, 3);
+    const hiddenCount = selectedItems.length - visibleItems.length;
+
+    return (
+      <div className="assignment-summary-card assignment-summary-list">
+        <span>{type === "drone" ? `${selectedItems.length} drone(s) linked` : `${selectedItems.length} owner(s) assigned`}</span>
+        {visibleItems.map((selectedItem) => (
+          <div className="assignment-summary-row" key={selectedItem.id}>
+            <strong>
+              {type === "drone"
+                ? ([selectedItem.manufacturer, selectedItem.model].filter(Boolean).join(" ") || selectedItem.droneCode || "Drone linked")
+                : selectedItem.name}
+            </strong>
+            <small>
+              {type === "drone"
+                ? [selectedItem.droneCode, formatReadableValue(selectedItem.status)].filter(Boolean).join(" | ")
+                : [formatReadableValue(selectedItem.role), selectedItem.email].filter(Boolean).join(" | ")}
+            </small>
+          </div>
+        ))}
+        {hiddenCount > 0 && (
+          <button className="assignment-expand-button" type="button" onClick={() => setIsExpanded(true)}>
+            +{hiddenCount} more selected
+          </button>
+        )}
+        {isExpanded && selectedItems.length > 3 && (
+          <button className="assignment-expand-button" type="button" onClick={() => setIsExpanded(false)}>
+            Show fewer
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const selectedItem = selectedItems[0];
+
   if (type === "drone") {
     return (
       <div className="assignment-summary-card">
-        <span>{item.droneCode ?? item.id}</span>
-        <strong>{[item.manufacturer, item.model].filter(Boolean).join(" ") || "Drone linked"}</strong>
-        <small>{[formatReadableValue(item.status), item.batteryType].filter(Boolean).join(" | ") || "Aircraft selected"}</small>
+        <span>{selectedItem.droneCode ?? selectedItem.id}</span>
+        <strong>{[selectedItem.manufacturer, selectedItem.model].filter(Boolean).join(" ") || "Drone linked"}</strong>
+        <small>{formatReadableValue(selectedItem.status) || "Aircraft selected"}</small>
       </div>
     );
   }
@@ -436,18 +769,18 @@ const IncidentSummaryCard = ({ type, item }) => {
   if (type === "mission") {
     return (
       <div className="assignment-summary-card">
-        <span>{item.missionCode ?? item.id}</span>
-        <strong>{item.name ?? "Mission linked"}</strong>
-        <small>{[item.type, formatReadableValue(item.status)].filter(Boolean).join(" | ") || "Related mission selected"}</small>
+        <span>{selectedItem.missionCode ?? selectedItem.id}</span>
+        <strong>{selectedItem.name ?? "Mission linked"}</strong>
+        <small>{[selectedItem.type, formatReadableValue(selectedItem.status)].filter(Boolean).join(" | ") || "Related mission selected"}</small>
       </div>
     );
   }
 
   return (
     <div className="assignment-summary-card">
-      <span>{formatReadableValue(item.role)}</span>
-      <strong>{item.name}</strong>
-      <small>{item.email ?? "Owner selected"}</small>
+      <span>{formatReadableValue(selectedItem.role)}</span>
+      <strong>{selectedItem.name}</strong>
+      <small>{selectedItem.email ?? "Owner selected"}</small>
     </div>
   );
 };
@@ -468,7 +801,7 @@ const getIncidentFieldErrors = (form) => {
   if (!form.title.trim()) errors.title = "Title is required.";
   if (!form.type) errors.type = "Incident type is required.";
   if (!form.severity) errors.severity = "Severity is required.";
-  if (!form.droneId) errors.droneId = "Affected drone is required.";
+  if (!form.droneIds.length) errors.droneId = "At least one affected drone is required.";
   if (!form.source) errors.source = "Source is required.";
   if (!form.locationPoint) errors.locationPoint = "Select the incident location on the map.";
 
@@ -497,6 +830,20 @@ const getIncidentSubmitErrorMessage = (message = "") => {
   };
 };
 
+const validateEvidenceFiles = (files = []) => {
+  const invalidFile = files.find((file) => !allowedEvidenceMimeTypes.has(file.type));
+  if (invalidFile) {
+    return `${invalidFile.name} is not supported. Upload only photos, videos, PDF, Word, or text documents.`;
+  }
+
+  const oversizedFile = files.find((file) => file.size > MAX_EVIDENCE_FILE_BYTES);
+  if (oversizedFile) {
+    return `${oversizedFile.name} is too large. Each attachment must be 20 MB or smaller.`;
+  }
+
+  return "";
+};
+
 const toFormState = (incident) => {
   if (!incident) return initialForm;
   const location = incident.location ?? incident.place ?? "";
@@ -506,6 +853,7 @@ const toFormState = (incident) => {
     type: incident.type ?? "",
     severity: incident.severity ?? "LOW",
     droneId: incident.drone?.id ?? incident.droneId ?? "",
+    droneIds: getIncidentDroneIds(incident),
     missionId: incident.mission?.id ?? incident.missionId ?? "",
     assignedToId: incident.assignedTo?.id ?? incident.assignedToId ?? "",
     source: incident.source ?? "Manual Report",
@@ -513,6 +861,11 @@ const toFormState = (incident) => {
     locationPoint: toSavedLocation(location),
     details: incident.details ?? ""
   };
+};
+
+const getIncidentDroneIds = (incident) => {
+  const linkIds = incident.droneLinks?.map((link) => link.drone?.id ?? link.droneId).filter(Boolean) ?? [];
+  return [...new Set([incident.drone?.id ?? incident.droneId, ...linkIds].filter(Boolean))];
 };
 
 const toSavedLocation = (value) => {
@@ -536,5 +889,33 @@ const getIncidentTypeLabel = (value) => incidentTypes.find((type) => type.value 
 const formatReadableValue = (value = "") => (
   value.toString().toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
 );
+
+const getEvidenceFileKind = (file) => {
+  if (file.type.startsWith("image/")) return { value: "photo", label: "Photo", icon: ImageIcon };
+  if (file.type.startsWith("video/")) return { value: "video", label: "Video", icon: Video };
+  return { value: "document", label: "Document", icon: FileText };
+};
+
+const mergeEvidenceFiles = (currentFiles, selectedFiles) => {
+  const fileKey = (file) => `${file.name}:${file.size}:${file.lastModified}`;
+  const existingKeys = new Set(currentFiles.map(fileKey));
+  const nextFiles = [...currentFiles];
+
+  selectedFiles.forEach((file) => {
+    if (existingKeys.has(fileKey(file))) return;
+    existingKeys.add(fileKey(file));
+    nextFiles.push(file);
+  });
+
+  return nextFiles;
+};
+
+const formatFileSize = (bytes = 0) => {
+  if (!bytes) return "0 KB";
+  const units = ["B", "KB", "MB", "GB"];
+  const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / (1024 ** unitIndex);
+  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+};
 
 export default IncidentForm;

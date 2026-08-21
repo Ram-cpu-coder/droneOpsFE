@@ -32,12 +32,15 @@ export const droneOpsApi = {
   telemetry: {
     live: () => apiClient.get("/telemetry/live"),
     byDrone: (droneId) => apiClient.get(`/telemetry/${droneId}`),
-    ingest: (payload) => apiClient.post("/telemetry", payload)
+    ingest: (payload) => apiClient.post("/telemetry", payload),
+    syncSynctegral: () => apiClient.post("/telemetry/synctegral/sync", {})
   },
   incidents: {
     list: () => apiClient.get("/incidents"),
     create: (payload) => apiClient.post("/incidents", payload),
     update: (id, payload) => apiClient.put(`/incidents/${id}`, payload),
+    evidence: (id) => apiClient.get(`/incidents/${id}/evidence`),
+    uploadEvidence: (id, formData) => apiClient.upload(`/incidents/${id}/evidence`, formData),
     remove: (id) => apiClient.delete(`/incidents/${id}`)
   },
   maintenance: {

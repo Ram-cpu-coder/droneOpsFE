@@ -1,7 +1,8 @@
-import { useCallback, useMemo } from "react";
+import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 import { Activity, AlertTriangle, MapPin, Plane } from "lucide-react";
 import { useDispatch } from "react-redux";
 import { useNavigate } from "react-router-dom";
+import LoadingLogo from "../../components/common/LoadingLogo";
 import MetricCard from "../../components/common/MetricCard";
 import { hasClientPermission } from "../../features/auth/accessControl";
 import { routeActionRequested } from "../../features/ui/uiSlice";
@@ -15,19 +16,30 @@ import { droneOpsApi } from "../../services/droneOpsApi";
 import { buildRecentActivityFromAudit } from "../../utils/activityStream";
 
 const metricIcons = [Plane, Activity, AlertTriangle, MapPin];
+const GeospatialMap = lazy(() => import("../../components/maps/GeospatialMap"));
 
 const Dashboard = ({ searchValue, user, onNavigate }) => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
-  const canRead = (permission) => hasClientPermission(user, permission);
+  const [showLivePanels, setShowLivePanels] = useState(false);
+  const canRead = useCallback((permission) => hasClientPermission(user, permission), [user]);
   const loadDrones = useCallback(() => droneOpsApi.drones.list(), []);
   const loadMissions = useCallback(() => droneOpsApi.missions.list(), []);
   const loadIncidents = useCallback(() => droneOpsApi.incidents.list(), []);
   const loadAudit = useCallback(() => droneOpsApi.audit.list({ limit: 8 }), []);
+  const loadTelemetry = useCallback(() => {
+    if (!showLivePanels || !canRead("telemetry:read")) return Promise.resolve([]);
+    return droneOpsApi.telemetry.live();
+  }, [canRead, showLivePanels]);
   const { data: apiDrones, isLoading: isDronesLoading, isFallback: isDronesFallback } = useApiResource(loadDrones, [], { enabled: canRead("drones:read") });
   const { data: apiMissions, isLoading: isMissionsLoading, isFallback: isMissionsFallback } = useApiResource(loadMissions, [], { enabled: canRead("missions:read") });
   const { data: apiIncidents, isLoading: isIncidentsLoading, isFallback: isIncidentsFallback } = useApiResource(loadIncidents, [], { enabled: canRead("incidents:read") });
   const { data: auditLogs, isLoading: isActivityLoading } = useApiResource(loadAudit, [], { enabled: canRead("audit:read") });
+  const { data: telemetryRows } = useApiResource(
+    loadTelemetry,
+    [],
+    { cacheKey: `telemetry-live:${user?.organisationId ?? "unknown"}`, staleMs: 5000, enabled: showLivePanels && canRead("telemetry:read") }
+  );
   const activeMissions = apiMissions.filter((mission) => ["In Progress", "ACTIVE"].includes(mission.status));
   const openIncidents = apiIncidents.filter((incident) => !["CLOSED", "Closed", "RESOLVED", "Resolved"].includes(incident.status));
   const maintenanceDrones = apiDrones.filter((drone) => drone.status === "MAINTENANCE");
@@ -41,7 +53,7 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
     ];
   }, [activeMissions.length, apiDrones.length, apiMissions.length, isDronesFallback, isDronesLoading, isIncidentsFallback, isIncidentsLoading, isMissionsFallback, isMissionsLoading, maintenanceDrones.length, openIncidents.length]);
 
-  const normalizedDrones = useMemo(() => apiDrones.map(normalizeDrone), [apiDrones]);
+  const normalizedDrones = useMemo(() => apiDrones.map((drone) => normalizeDrone(drone, telemetryRows)), [apiDrones, telemetryRows]);
   const filteredDrones = useFleetSearch(normalizedDrones, searchValue);
   const dashboardMissions = useMemo(
     () => apiMissions.map(normalizeMissionCard).slice(0, 3),
@@ -69,36 +81,56 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
           isLoading={isDronesLoading}
           onDroneSelect={(drone) => navigate(`/fleet/${encodeURIComponent(drone.uuid ?? drone.id)}`)}
         />
-        <div className="panel map-panel map-loading map-deferred">
-          <div>
-            <span className="eyebrow">Telemetry Map</span>
-            <h3>Fleet map preview</h3>
-            <p>Map preview is based on available fleet records. Live telemetry rendering is handled in mission and fleet views.</p>
+        {showLivePanels && canRead("telemetry:read") ? (
+          <Suspense fallback={<div className="panel map-panel map-loading"><LoadingLogo label="Loading telemetry map" /></div>}>
+            <GeospatialMap />
+          </Suspense>
+        ) : (
+          <div className="panel map-panel map-loading map-deferred">
+            <div>
+              <span className="eyebrow">Telemetry Map</span>
+              <h3>Live map loads on demand</h3>
+              <p>Open live operations view when you need current drone positions, replay tracks, and geofence overlays.</p>
+              {canRead("telemetry:read") ? (
+                <button className="primary-btn compact" type="button" onClick={() => setShowLivePanels(true)}>
+                  Open Live Map
+                </button>
+              ) : (
+                <span>Telemetry access is not enabled for this role.</span>
+              )}
+            </div>
           </div>
-        </div>
+        )}
         <MissionQueue
           missions={dashboardMissions}
           canCreate={canRead("missions:manage")}
           isLoading={isMissionsLoading}
           onCreateMission={handleNewMission}
         />
-        <ActivityFeed activity={recentActivity} isLoading={isActivityLoading} />
         <IncidentWatch incidents={dashboardIncidents} />
+        <ActivityFeed activity={recentActivity} isLoading={isActivityLoading} />
       </section>
     </>
   );
 };
 
-const normalizeDrone = (drone) => {
+const normalizeDrone = (drone, telemetryRows = []) => {
+  const latestTelemetry = telemetryRows.find((row) => row.drone?.id === drone.id || row.drone?.droneCode === drone.droneCode)?.telemetry;
+
   return {
     ...drone,
     uuid: drone.uuid ?? drone.id,
+    systemId: drone.id,
     id: drone.droneCode ?? drone.id,
-    battery: drone.battery ?? 0,
-    signal: drone.signal ?? 0,
+    serialNumber: drone.droneCode ?? drone.id,
+    battery: latestTelemetry?.battery.level ?? drone.latestTelemetry?.batteryLevel ?? drone.battery ?? 0,
+    signal: latestTelemetry?.signal.strength ?? drone.signal ?? 0,
+    latestTelemetry,
     flightHours: drone.flightHours ?? 0,
     nextMaintenance: drone.nextMaintenance ?? "Not scheduled",
-    location: drone.location ?? "No position recorded"
+    location: latestTelemetry
+      ? `${Number(latestTelemetry.location.latitude).toFixed(4)}, ${Number(latestTelemetry.location.longitude).toFixed(4)}`
+      : (drone.location ?? "No position recorded")
   };
 };
 

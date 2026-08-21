@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, ShieldCheck, UserRoundCheck, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ActionButton from "../../components/common/ActionButton";
+import CopyableId from "../../components/common/CopyableId";
 import DataTable from "../../components/common/DataTable";
 import MetricCard from "../../components/common/MetricCard";
 import SectionHeader from "../../components/common/SectionHeader";
@@ -47,19 +48,24 @@ const Incidents = ({ searchValue, user }) => {
 
   const columns = [
     {
-      key: "id",
-      label: "Incident",
+      key: "systemId",
+      label: "ID",
+      render: (incident) => <CopyableId value={incident.systemId} />
+    },
+    {
+      key: "serialNumber",
+      label: "Serial Number",
       render: (incident) => (
         <button className="link-button strong-link" type="button" onClick={() => navigate(`/incidents/${encodeURIComponent(incident.uuid ?? incident.idRaw ?? incident.id)}`)}>
-          <span>{incident.id}</span>
+          <span>{incident.serialNumber}</span>
         </button>
       )
     },
     { key: "title", label: "Issue" },
-    { key: "severity", label: "Severity", render: (incident) => <StatusBadge type="risk">{incident.severity}</StatusBadge> },
-    { key: "status", label: "Status", render: (incident) => <StatusBadge>{incident.status}</StatusBadge> },
+    { key: "severity", label: "Severity", filterable: true, render: (incident) => <StatusBadge type="risk">{incident.severity}</StatusBadge> },
+    { key: "status", label: "Status", filterable: true, render: (incident) => <StatusBadge>{incident.status}</StatusBadge> },
     { key: "owner", label: "Owner" },
-    { key: "source", label: "Source" },
+    { key: "source", label: "Source", filterable: true },
     { key: "time", label: "Reported" }
   ];
 
@@ -130,7 +136,8 @@ const Incidents = ({ searchValue, user }) => {
         <DataTable
           columns={columns}
           rows={filteredIncidents}
-          getRowKey={(incident) => incident.id}
+          getRowKey={(incident) => incident.uuid ?? incident.idRaw ?? incident.id}
+          onRowClick={(incident) => navigate(`/incidents/${encodeURIComponent(incident.uuid ?? incident.idRaw ?? incident.id)}`)}
           emptyMessage={isLoading ? "Loading incidents..." : "No incidents logged yet."}
         />
       </div>
@@ -139,9 +146,12 @@ const Incidents = ({ searchValue, user }) => {
           onCreated={(incident) => {
             refresh();
             setShowIncidentForm(false);
+            const evidenceUploadFailures = incident.evidenceUploadFailures?.length ?? 0;
             setToast({
-              title: "Incident logged",
-              message: `${incident.incidentCode} is now in the incident register.`
+              title: evidenceUploadFailures ? "Incident logged with evidence warning" : "Incident logged",
+              message: evidenceUploadFailures
+                ? `${incident.incidentCode} was logged, but ${evidenceUploadFailures} evidence file${evidenceUploadFailures === 1 ? "" : "s"} could not be uploaded.`
+                : `${incident.incidentCode} is now in the incident register with evidence capture ready.`
             });
             window.setTimeout(() => setToast(null), 4500);
           }}
@@ -155,8 +165,10 @@ const Incidents = ({ searchValue, user }) => {
 const normalizeIncident = (incident) => ({
   ...incident,
   uuid: incident.id,
+  systemId: incident.id,
   idRaw: incident.id,
   id: incident.incidentCode ?? incident.id,
+  serialNumber: incident.incidentCode ?? incident.id,
   owner: incident.assignedTo?.name ?? incident.reportedBy?.name ?? incident.owner ?? "Unassigned",
   place: incident.location ?? incident.place ?? "No location",
   time: incident.createdAt ? new Date(incident.createdAt).toLocaleString() : incident.time,

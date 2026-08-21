@@ -1,7 +1,8 @@
 import { ImagePlus, Mail, Pencil, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
+import CopyableId from "../../../components/common/CopyableId";
 import StatusBadge from "../../../components/common/StatusBadge";
 import { userRoles } from "../../../data/authData";
 import { authService } from "../../../features/auth/authService";
@@ -25,7 +26,6 @@ const UserProfileDialog = ({ user, currentUser, canManage = false, onUpdated, on
   const [form, setForm] = useState(() => toFormState(user));
   const roleLabel = userRoles.find((role) => role.id === user.role)?.label ?? user.role;
   const canDelete = canManage && user.id !== currentUser?.id;
-  const initials = useMemo(() => getInitials(user.name), [user.name]);
 
   useEffect(() => {
     setForm(toFormState(user));
@@ -111,24 +111,25 @@ const UserProfileDialog = ({ user, currentUser, canManage = false, onUpdated, on
         <div className="modal-header">
           <div>
             <p className="eyebrow">User Profile</p>
-            <h2 id="user-profile-title">{user.name}</h2>
-            <p>{roleLabel} access inside {user.organization}</p>
+            <h2 id="user-profile-title">{user.serialNumber ?? user.name}</h2>
+            <p>{user.name} | {roleLabel} access inside {user.organization}</p>
+            <ProfileIdentity id={user.systemId ?? user.id} />
           </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close user profile">
-            <X size={18} />
-          </button>
+          <div className="profile-header-actions">
+            <div className="profile-header-buttons">
+              {canManage && !isEditing && (
+                <ActionButton icon={Pencil} type="button" onClick={() => setIsEditing(true)}>Edit</ActionButton>
+              )}
+              <button className="icon-button" type="button" onClick={onClose} aria-label="Close user profile">
+                <X size={18} />
+              </button>
+            </div>
+            <StatusBadge>{user.isVerified ? "Verified" : "Awaiting Approval"}</StatusBadge>
+          </div>
         </div>
 
         <div className="modal-body">
           {error && <div className="auth-alert">{error}</div>}
-          <div className="profile-hero user-profile-hero">
-            <UserAvatar user={user} initials={initials} />
-            <div>
-              <h3>{user.name}</h3>
-              <p>{user.email}</p>
-            </div>
-            <StatusBadge>{user.isVerified ? "Verified" : "Awaiting Approval"}</StatusBadge>
-          </div>
 
           <div className="profile-metrics">
             <ProfileMetric icon={ShieldCheck} label="Role" value={roleLabel} />
@@ -204,7 +205,6 @@ const UserProfileDialog = ({ user, currentUser, canManage = false, onUpdated, on
                 </>
               ) : (
                 <>
-                  <ActionButton icon={Pencil} type="button" onClick={() => setIsEditing(true)}>Edit</ActionButton>
                   <ActionButton
                     icon={Trash2}
                     variant="danger"
@@ -253,9 +253,9 @@ const UserProfileDialog = ({ user, currentUser, canManage = false, onUpdated, on
   return createPortal(dialog, document.body);
 };
 
-const UserAvatar = ({ user, initials }) => (
-  <div className="user-profile-avatar">
-    {user.profileImageUrl ? <img src={user.profileImageUrl} alt="" /> : <span>{initials}</span>}
+const ProfileIdentity = ({ id }) => (
+  <div className="profile-identity-list" aria-label="Record identity">
+    <span><strong>ID</strong><CopyableId value={id} /></span>
   </div>
 );
 
@@ -308,11 +308,6 @@ const toFormState = (user) => ({
   profileImageUrl: user.profileImageUrl ?? "",
   isVerified: Boolean(user.isVerified)
 });
-
-const getInitials = (name = "") => {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "U";
-};
 
 const formatDateTime = (value, fallback = "Not provided") => {
   if (!value) return fallback;

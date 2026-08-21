@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarClock, CheckCircle2, Plus, Route, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ActionButton from "../../components/common/ActionButton";
+import CopyableId from "../../components/common/CopyableId";
 import DataTable from "../../components/common/DataTable";
 import MetricCard from "../../components/common/MetricCard";
 import ProgressBar from "../../components/common/ProgressBar";
@@ -28,7 +29,7 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
   const metricMissions = isFallback ? [] : normalizedMissions;
   const routeMissionId = useMemo(() => getDetailId(location.pathname, "/missions"), [location.pathname]);
   const activeMissions = metricMissions.filter((mission) => ["ACTIVE", "In Progress"].includes(mission.rawStatus ?? mission.status)).length;
-  const scheduledMissions = metricMissions.filter((mission) => ["PLANNED", "APPROVED", "Scheduled"].includes(mission.rawStatus ?? mission.status)).length;
+  const scheduledMissions = metricMissions.filter((mission) => ["PLANNED", "APPROVED", "RISK_ASSESSMENT_COMPLETED", "Scheduled"].includes(mission.rawStatus ?? mission.status)).length;
   const averageProgress = metricMissions.length
     ? Math.round(metricMissions.reduce((total, mission) => total + Number(mission.progress ?? 0), 0) / metricMissions.length)
     : 0;
@@ -51,20 +52,25 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
 
   const columns = [
     {
-      key: "id",
-      label: "Mission ID",
+      key: "systemId",
+      label: "ID",
+      render: (mission) => <CopyableId value={mission.systemId} />
+    },
+    {
+      key: "serialNumber",
+      label: "Serial Number",
       render: (mission) => (
         <button className="link-button strong-link" type="button" onClick={() => navigate(`/missions/${encodeURIComponent(mission.uuid ?? mission.id)}`)}>
-          <span>{mission.id}</span>
+          <span>{mission.serialNumber}</span>
         </button>
       )
     },
     { key: "name", label: "Mission" },
-    { key: "type", label: "Type" },
+    { key: "type", label: "Type", filterable: true },
     { key: "drone", label: "Drone" },
     { key: "pilot", label: "Pilot" },
-    { key: "status", label: "Status", render: (mission) => <StatusBadge>{mission.status}</StatusBadge> },
-    { key: "risk", label: "Risk", render: (mission) => <StatusBadge type="risk">{mission.risk}</StatusBadge> },
+    { key: "status", label: "Status", filterable: true, render: (mission) => <StatusBadge>{mission.status}</StatusBadge> },
+    { key: "risk", label: "Risk", filterable: true, render: (mission) => <StatusBadge type="risk">{mission.risk}</StatusBadge> },
     { key: "progress", label: "Progress", render: (mission) => <ProgressBar value={mission.progress} /> },
     { key: "eta", label: "Mission Planned On" }
   ];
@@ -134,7 +140,8 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
         <DataTable
           columns={columns}
           rows={filteredMissions}
-          getRowKey={(mission) => mission.id}
+          getRowKey={(mission) => mission.uuid ?? mission.id}
+          onRowClick={(mission) => navigate(`/missions/${encodeURIComponent(mission.uuid ?? mission.id)}`)}
           emptyMessage={isLoading ? "Loading mission records..." : "No missions created yet."}
         />
       </div>
@@ -161,11 +168,13 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
 const normalizeMission = (mission) => ({
   ...mission,
   uuid: mission.id,
+  systemId: mission.id,
   rawStatus: mission.status,
   id: mission.missionCode ?? mission.id,
+  serialNumber: mission.missionCode ?? mission.id,
   drone: mission.drone?.droneCode ?? mission.drone ?? "Unassigned",
   pilot: mission.pilot?.name ?? mission.pilot ?? "Unassigned",
-  status: mission.status === "PLANNED" ? "Awaiting Approval" : mission.status,
+  status: getMissionStatusLabel(mission.status),
   risk: mission.riskAssessment?.level ?? mission.risk ?? "Pending",
   eta: mission.eta ?? formatMissionPlannedOn(mission.plannedStartAt),
   launchSite: mission.launchSite,
@@ -183,8 +192,8 @@ const getMissionToastTitle = (action) => {
 
 const getMissionToastMessage = (mission, action) => {
   const label = mission?.missionCode ?? mission?.id ?? "Mission";
-  if (action === "approve") return `${label} is approved and ready to be started.`;
-  if (action === "riskAssessment") return `${label} passed pre-flight risk assessment checks.`;
+  if (action === "approve") return `${label} is approved and ready for risk assessment.`;
+  if (action === "riskAssessment") return `${label} passed pre-flight risk assessment checks and is ready to start.`;
   if (action === "start") return `${label} is now active.`;
   if (action === "complete") return `${label} is now completed.`;
   return `${label} was updated successfully.`;
@@ -193,6 +202,12 @@ const getMissionToastMessage = (mission, action) => {
 const getDetailId = (pathname, basePath) => {
   if (pathname === basePath || !pathname.startsWith(`${basePath}/`)) return null;
   return decodeURIComponent(pathname.slice(basePath.length + 1).split("/")[0] ?? "");
+};
+
+const getMissionStatusLabel = (status) => {
+  if (status === "PLANNED") return "Awaiting Approval";
+  if (status === "RISK_ASSESSMENT_COMPLETED") return "Risk Assessment Completed";
+  return status;
 };
 
 const formatMissionPlannedOn = (value) => {

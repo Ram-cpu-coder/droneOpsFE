@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Plane, Plus, Wrench, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ActionButton from "../../components/common/ActionButton";
-import BatteryMeter from "../../components/common/BatteryMeter";
+import CopyableId from "../../components/common/CopyableId";
 import DataTable from "../../components/common/DataTable";
 import MetricCard from "../../components/common/MetricCard";
 import SectionHeader from "../../components/common/SectionHeader";
@@ -48,21 +48,26 @@ const Fleet = ({ searchValue, user }) => {
 
   const columns = [
     {
-      key: "id",
-      label: "Drone",
+      key: "systemId",
+      label: "ID",
+      render: (drone) => <CopyableId value={drone.systemId} />
+    },
+    {
+      key: "serialNumber",
+      label: "Serial Number",
       render: (drone) => (
         <button className="link-button strong-link" type="button" onClick={() => navigate(`/fleet/${encodeURIComponent(drone.uuid ?? drone.id)}`)}>
-          <span>{drone.id}</span>
+          <span>{drone.serialNumber}</span>
         </button>
       )
     },
-    { key: "serialNumber", label: "Serial Number" },
+    { key: "manufacturerSerialNumber", label: "Manufacturer Serial" },
     { key: "model", label: "Model" },
-    { key: "manufacturer", label: "Manufacturer" },
-    { key: "status", label: "Status", render: (drone) => <StatusBadge>{drone.status}</StatusBadge> },
-    { key: "battery", label: "Battery", render: (drone) => <BatteryMeter value={drone.battery} /> },
+    { key: "manufacturer", label: "Manufacturer", filterable: true },
+    { key: "status", label: "Status", filterable: true, render: (drone) => <StatusBadge>{drone.status}</StatusBadge> },
+    { key: "battery", label: "Battery", render: (drone) => <BatteryReading drone={drone} /> },
     { key: "flightHours", label: "Flight Hours" },
-    { key: "certificationStatus", label: "Certification", render: (drone) => <StatusBadge>{drone.certificationStatus}</StatusBadge> },
+    { key: "certificationStatus", label: "Certification", filterable: true, render: (drone) => <StatusBadge>{drone.certificationStatus}</StatusBadge> },
     { key: "nextMaintenance", label: "Next Service" }
   ];
 
@@ -160,7 +165,8 @@ const Fleet = ({ searchValue, user }) => {
         <DataTable
           columns={columns}
           rows={filteredDrones}
-          getRowKey={(drone) => drone.id}
+          getRowKey={(drone) => drone.uuid ?? drone.id}
+          onRowClick={(drone) => navigate(`/fleet/${encodeURIComponent(drone.uuid ?? drone.id)}`)}
           emptyMessage={isLoading ? "Loading fleet records..." : "No drones registered yet."}
         />
       </div>
@@ -168,21 +174,46 @@ const Fleet = ({ searchValue, user }) => {
   );
 };
 
+const BatteryReading = ({ drone }) => {
+  const value = Number(drone.battery ?? 0);
+
+  return (
+    <span className="battery-reading">
+      <strong>{value}%</strong>
+    </span>
+  );
+};
+
 const normalizeDrone = (drone, telemetryRows = []) => {
   const latestTelemetry = telemetryRows.find((row) => row.drone?.id === drone.id || row.drone?.droneCode === drone.droneCode)?.telemetry;
+  const telemetryOffline = isTelemetryOffline(drone, latestTelemetry);
 
   return {
     ...drone,
     uuid: drone.id,
+    systemId: drone.id,
     id: drone.droneCode ?? drone.id,
+    serialNumber: drone.droneCode ?? drone.id,
+    manufacturerSerialNumber: drone.serialNumber ?? "Not recorded",
     battery: latestTelemetry?.battery.level ?? drone.latestTelemetry?.batteryLevel ?? drone.battery ?? 0,
-    signal: latestTelemetry?.signal.strength ?? drone.signal ?? 0,
+    signal: telemetryOffline ? 0 : latestTelemetry?.signal.strength ?? drone.signal ?? 0,
+    telemetryOffline,
     latestTelemetry,
     health: drone.health ?? 100,
     mission: drone.mission ?? "Standby",
     pilot: drone.pilot ?? "Unassigned",
     nextMaintenance: drone.nextMaintenanceDate ? new Date(drone.nextMaintenanceDate).toLocaleDateString() : (drone.nextMaintenance ?? "Not scheduled")
   };
+};
+
+const isTelemetryOffline = (drone, telemetry) => {
+  const timestamp = telemetry?.timestamp ?? drone.lastTelemetryAt;
+  const isStale = timestamp ? Date.now() - new Date(timestamp).getTime() > 30000 : true;
+  return isStale
+    || telemetry?.status === "MISSION_COMPLETE"
+    || ["LOST", "OFFLINE"].includes(telemetry?.signal?.linkQuality?.toUpperCase?.())
+    || ["DISCONNECTED", "GROUNDED"].includes(drone.status)
+    || drone.connectorStatus === "OFFLINE";
 };
 
 const getDetailId = (pathname, basePath) => {

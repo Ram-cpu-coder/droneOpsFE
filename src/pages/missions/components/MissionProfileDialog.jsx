@@ -2,6 +2,7 @@ import { AlertTriangle, CalendarClock, CheckCircle2, MapPinned, Pencil, Play, Ro
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
+import CopyableId from "../../../components/common/CopyableId";
 import ProgressBar from "../../../components/common/ProgressBar";
 import StatusBadge from "../../../components/common/StatusBadge";
 import { droneOpsApi } from "../../../services/droneOpsApi";
@@ -60,26 +61,25 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
         <div className="modal-header">
           <div>
             <p className="eyebrow">Mission Profile</p>
-            <h2 id="mission-profile-title">{mission.name}</h2>
-            <p className="mission-profile-id">Mission ID: {mission.id}</p>
+            <h2 id="mission-profile-title">{mission.serialNumber ?? mission.id}</h2>
+            <p>{mission.name}</p>
+            <ProfileIdentity id={mission.uuid ?? mission.systemId} />
           </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close mission profile">
-            <X size={18} />
-          </button>
+          <div className="profile-header-actions">
+            <div className="profile-header-buttons">
+              {canManage && (
+                <ActionButton icon={Pencil} onClick={() => setIsEditing(true)}>Edit</ActionButton>
+              )}
+              <button className="icon-button" type="button" onClick={onClose} aria-label="Close mission profile">
+                <X size={18} />
+              </button>
+            </div>
+            <StatusBadge>{mission.status}</StatusBadge>
+          </div>
         </div>
 
         <div className="modal-body">
           {error && <div className="auth-alert">{error}</div>}
-          <div className="profile-hero">
-            <div className="profile-aircraft-icon">
-              <Route size={42} />
-            </div>
-            <div>
-              <h3>{mission.name}</h3>
-              <p>{mission.type} mission</p>
-            </div>
-            <StatusBadge>{mission.status}</StatusBadge>
-          </div>
 
           <div className="profile-metrics">
             <ProfileMetric icon={UserRound} label="Pilot" value={mission.pilot} />
@@ -98,8 +98,8 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
             <ProfileSection icon={UserRound} title="Assignments">
               <ProfileRow label="Assigned Pilot" value={mission.pilot} />
               <ProfileRow label="Assigned Drone" value={mission.drone} />
-              <ProfileRow label="Launch Site" value={mission.launchSite ?? "Not set"} />
-              <ProfileRow label="Operating Area" value={mission.operatingArea ?? "Not set"} />
+              <ProfileRow label="Launch Site" value={formatLocationReadout(launchLocation, mission.launchSite)} />
+              <ProfileRow label="Operating Area" value={formatLocationReadout(operatingLocation, mission.operatingArea)} />
               <ProfileRow label="Start Point" value={routeEndpoints.start} />
               <ProfileRow label="End Point" value={routeEndpoints.end} />
             </ProfileSection>
@@ -165,7 +165,7 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
                 </div>
               )}
 
-              {canCompleteRisk && workflowStatus === "APPROVED" && (
+              {canCompleteRisk && ["APPROVED", "RISK_ASSESSMENT_COMPLETED"].includes(workflowStatus) && (
                 <form className="risk-assessment-form" onSubmit={handleRiskAssessmentSubmit}>
                   <label className="field">
                     <span>Risk Level</span>
@@ -207,7 +207,7 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
             <dl>
               <div>
                 <dt>Current step</dt>
-                <dd>{getWorkflowDescription(workflowStatus, isSystemAdministrator, hasRiskAssessment)}</dd>
+                <dd>{getWorkflowDescription(workflowStatus, isSystemAdministrator)}</dd>
               </div>
             </dl>
           </section>
@@ -216,7 +216,6 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
         <div className="modal-footer profile-footer">
           {canManage && (
             <div className="form-actions">
-              <ActionButton icon={Pencil} onClick={() => setIsEditing(true)}>Edit</ActionButton>
               {isSystemAdministrator && workflowStatus === "PLANNED" && (
                 <ActionButton
                   icon={CheckCircle2}
@@ -227,14 +226,14 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
                   {isActionLoading ? "Approving" : "Approve Mission"}
                 </ActionButton>
               )}
-              {workflowStatus === "APPROVED" && (
+              {workflowStatus === "RISK_ASSESSMENT_COMPLETED" && (
                 <ActionButton
                   icon={Play}
                   variant="primary"
                   onClick={() => handleMissionAction("start")}
-                  disabled={isActionLoading || !hasRiskAssessment}
+                  disabled={isActionLoading}
                 >
-                  {isActionLoading ? "Starting" : hasRiskAssessment ? "Start Mission" : "Complete Assessment First"}
+                  {isActionLoading ? "Starting" : "Start Mission"}
                 </ActionButton>
               )}
               {workflowStatus === "ACTIVE" && (
@@ -292,7 +291,7 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
         mitigations: parseRiskLines(riskForm.mitigationsText, "hazard", "action")
       });
 
-      onUpdated?.({ ...mission, riskAssessment: assessment }, "riskAssessment");
+      onUpdated?.({ ...mission, status: "RISK_ASSESSMENT_COMPLETED", rawStatus: "RISK_ASSESSMENT_COMPLETED", riskAssessment: assessment }, "riskAssessment");
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -310,6 +309,12 @@ const ProfileMetric = ({ icon: Icon, label, value }) => (
     <Icon size={18} />
     <span>{label}</span>
     <strong>{value}</strong>
+  </div>
+);
+
+const ProfileIdentity = ({ id }) => (
+  <div className="profile-identity-list" aria-label="Record identity">
+    <span><strong>ID</strong><CopyableId value={id} /></span>
   </div>
 );
 
@@ -361,6 +366,7 @@ const formatDistance = (value) => {
 };
 
 const hasWaypointCoordinates = (waypoint) => {
+  if (!waypoint) return false;
   const latitude = Number(waypoint.latitude);
   const longitude = Number(waypoint.longitude);
   return Number.isFinite(latitude) && Number.isFinite(longitude);
@@ -370,8 +376,13 @@ const formatLocationReadout = (location, fallback) => {
   if (location && hasWaypointCoordinates(location)) {
     const label = location.label || "Selected location";
     const radius = Number(location.radiusMeters);
-    const radiusText = Number.isFinite(radius) ? `, radius ${formatRadius(radius)}` : "";
-    return `${label} (${Number(location.latitude).toFixed(5)}, ${Number(location.longitude).toFixed(5)}${radiusText})`;
+    const radiusText = Number.isFinite(radius) ? ` | Radius ${formatRadius(radius)}` : "";
+    return (
+      <span className="location-readout">
+        <span>{label}</span>
+        <small>{Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)}{radiusText}</small>
+      </span>
+    );
   }
 
   return fallback ?? "Not selected";
@@ -403,10 +414,17 @@ const getRouteEndpoints = (waypoints) => {
   const end = waypoints[waypoints.length - 1];
 
   return {
-    start: start && hasWaypointCoordinates(start) ? getWaypointDisplayLabel(start, 0, waypoints.length) : "Not selected",
-    end: end && hasWaypointCoordinates(end) ? getWaypointDisplayLabel(end, waypoints.length - 1, waypoints.length) : "Not selected"
+    start: start && hasWaypointCoordinates(start) ? formatWaypointReadout(start, 0, waypoints.length) : "Not selected",
+    end: end && hasWaypointCoordinates(end) ? formatWaypointReadout(end, waypoints.length - 1, waypoints.length) : "Not selected"
   };
 };
+
+const formatWaypointReadout = (waypoint, index, total) => (
+  <span className="location-readout">
+    <span>{getWaypointDisplayLabel(waypoint, index, total)}</span>
+    <small>{Number(waypoint.latitude).toFixed(5)}, {Number(waypoint.longitude).toFixed(5)}</small>
+  </span>
+);
 
 const getRouteSummary = (waypoints) => {
   const selectedPoints = waypoints.filter(hasWaypointCoordinates).length;
@@ -440,6 +458,7 @@ const toWaypointRows = (waypoints) => {
 
 const getStatusLabel = (status) => {
   if (status === "PLANNED") return "Awaiting Approval";
+  if (status === "RISK_ASSESSMENT_COMPLETED") return "Risk Assessment Completed";
   return status;
 };
 
@@ -481,7 +500,7 @@ const parseRiskLines = (text, primaryKey, secondaryKey) => {
     });
 };
 
-const getWorkflowDescription = (status, isSystemAdministrator, hasRiskAssessment) => {
+const getWorkflowDescription = (status, isSystemAdministrator) => {
   if (status === "PLANNED") {
     return isSystemAdministrator
       ? "This mission is waiting for approval. Approve it before the team can move it forward."
@@ -489,8 +508,11 @@ const getWorkflowDescription = (status, isSystemAdministrator, hasRiskAssessment
   }
 
   if (status === "APPROVED") {
-    if (!hasRiskAssessment) return "Complete the pre-flight risk assessment before starting this mission.";
-    return "The mission is approved and ready to be started.";
+    return "Complete the pre-flight risk assessment before starting this mission.";
+  }
+
+  if (status === "RISK_ASSESSMENT_COMPLETED") {
+    return "Risk assessment is complete. This mission is ready to start.";
   }
 
   if (status === "ACTIVE") {

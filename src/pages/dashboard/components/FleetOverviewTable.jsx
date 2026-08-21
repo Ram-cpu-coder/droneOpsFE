@@ -2,6 +2,7 @@ import { RadioTower, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState } from "react";
 import ActionButton from "../../../components/common/ActionButton";
 import BatteryMeter from "../../../components/common/BatteryMeter";
+import CopyableId from "../../../components/common/CopyableId";
 import DataTable from "../../../components/common/DataTable";
 import SectionHeader from "../../../components/common/SectionHeader";
 import StatusBadge from "../../../components/common/StatusBadge";
@@ -28,15 +29,20 @@ const FleetOverviewTable = ({ drones, isLoading = false, onDroneSelect }) => {
 
   const columns = [
     {
-      key: "id",
-      label: "Drone ID",
+      key: "systemId",
+      label: "ID",
+      render: (drone) => <CopyableId value={drone.systemId} />
+    },
+    {
+      key: "serialNumber",
+      label: "Serial Number",
       render: (drone) => (
         <button className="link-button strong-link" type="button" onClick={() => onDroneSelect?.(drone)}>
-          <span>{drone.id}</span>
+          <span>{drone.serialNumber ?? drone.id}</span>
         </button>
       )
     },
-    { key: "status", label: "Status", render: (drone) => <StatusBadge>{drone.status}</StatusBadge> },
+    { key: "status", label: "Status", filterable: true, render: (drone) => <StatusBadge>{drone.status}</StatusBadge> },
     { key: "battery", label: "Battery", render: (drone) => <BatteryMeter value={drone.battery} /> },
     {
       key: "signal",
@@ -86,7 +92,7 @@ const FleetOverviewTable = ({ drones, isLoading = false, onDroneSelect }) => {
       <DataTable
         columns={columns}
         rows={filteredDrones}
-        getRowKey={(drone) => drone.id}
+        getRowKey={(drone) => drone.uuid ?? drone.id}
         emptyMessage={isLoading ? "Loading fleet records..." : activeFilter === "ALL" ? "No active drones found." : "No drones match this filter."}
       />
     </div>

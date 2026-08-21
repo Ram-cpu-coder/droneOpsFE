@@ -1,7 +1,8 @@
 import { BarChart3, Download, FileSpreadsheet, FileText, Trash2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
+import CopyableId from "../../../components/common/CopyableId";
 import StatusBadge from "../../../components/common/StatusBadge";
 import { droneOpsApi } from "../../../services/droneOpsApi";
 import { exportSingleReport } from "../../../utils/reportExport";
@@ -14,6 +15,8 @@ const ReportProfileDialog = ({ report, canDelete = false, canManageStatus = fals
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [exportError, setExportError] = useState("");
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const exportAnchorRef = useRef(null);
+  const exportMenuRef = useRef(null);
   const isExportable = exportableStatuses.has(String(report.status ?? "").toUpperCase());
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -33,6 +36,19 @@ const ReportProfileDialog = ({ report, canDelete = false, canManageStatus = fals
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [onClose, showDeleteConfirm]);
+
+  useEffect(() => {
+    if (!isExportOpen) return undefined;
+
+    const handlePointerDown = (event) => {
+      const isInsideAnchor = exportAnchorRef.current?.contains(event.target);
+      const isInsideMenu = exportMenuRef.current?.contains(event.target);
+      if (!isInsideAnchor && !isInsideMenu) setIsExportOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [isExportOpen]);
 
   const handleDelete = async () => {
     try {
@@ -66,26 +82,22 @@ const ReportProfileDialog = ({ report, canDelete = false, canManageStatus = fals
         <div className="modal-header">
           <div>
             <p className="eyebrow">Report Profile</p>
-            <h2 id="report-profile-title">{report.name}</h2>
-            <p>{report.type ?? "Operational snapshot"}</p>
+            <h2 id="report-profile-title">{report.serialNumber ?? report.name}</h2>
+            <p>{report.owner} | {report.name} | {report.type ?? "Operational snapshot"}</p>
+            <ProfileIdentity id={report.uuid ?? report.systemId ?? report.id} />
           </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close report profile">
-            <X size={18} />
-          </button>
+          <div className="profile-header-actions">
+            <div className="profile-header-buttons">
+              <button className="icon-button" type="button" onClick={onClose} aria-label="Close report profile">
+                <X size={18} />
+              </button>
+            </div>
+            <StatusBadge>{report.status}</StatusBadge>
+          </div>
         </div>
 
         <div className="modal-body">
           {exportError && <div className="auth-alert">{exportError}</div>}
-          <div className="profile-hero">
-            <div className="profile-aircraft-icon">
-              <BarChart3 size={42} />
-            </div>
-            <div>
-              <h3>{report.name}</h3>
-              <p>{report.owner}</p>
-            </div>
-            <StatusBadge>{report.status}</StatusBadge>
-          </div>
 
           <div className="profile-metrics">
             <ProfileMetric icon={FileText} label="Value" value={report.value} />
@@ -187,7 +199,7 @@ const ReportProfileDialog = ({ report, canDelete = false, canManageStatus = fals
               <ActionButton icon={Trash2} variant="danger" onClick={() => setShowDeleteConfirm(true)}>Delete Report</ActionButton>
             </div>
           )}
-          <div className="dashboard-filter-wrap">
+          <div className="dashboard-filter-wrap" ref={exportAnchorRef}>
             <ActionButton
               icon={Download}
               variant="primary"
@@ -202,8 +214,14 @@ const ReportProfileDialog = ({ report, canDelete = false, canManageStatus = fals
             >
               Export Report
             </ActionButton>
-            {isExportOpen && (
-              <div className="dashboard-filter-menu export-menu report-dialog-export-menu" role="menu" aria-label="Export report">
+            {isExportOpen && createPortal(
+              <div
+                className="dashboard-filter-menu export-menu report-dialog-export-menu floating-report-menu"
+                ref={exportMenuRef}
+                role="menu"
+                aria-label="Export report"
+                style={getFloatingMenuStyle(exportAnchorRef.current, "top")}
+              >
                 <button type="button" onClick={async () => {
                   try {
                     await handleExport("excel");
@@ -234,7 +252,18 @@ const ReportProfileDialog = ({ report, canDelete = false, canManageStatus = fals
                   <span>Word</span>
                   <Download size={15} />
                 </button>
-              </div>
+                <button type="button" onClick={async () => {
+                  try {
+                    await handleExport("json");
+                  } catch (requestError) {
+                    setExportError(requestError.message);
+                  }
+                }}>
+                  <span>JSON</span>
+                  <FileText size={15} />
+                </button>
+              </div>,
+              document.body
             )}
           </div>
           <div className="form-actions">
@@ -276,6 +305,12 @@ const ProfileMetric = ({ icon: Icon, label, value }) => (
     <Icon size={18} />
     <span>{label}</span>
     <strong>{value}</strong>
+  </div>
+);
+
+const ProfileIdentity = ({ id }) => (
+  <div className="profile-identity-list" aria-label="Record identity">
+    <span><strong>ID</strong><CopyableId value={id} /></span>
   </div>
 );
 
@@ -357,6 +392,31 @@ const buildOperatorNarrative = (report) => {
   const headline = report.value ?? summary.value ?? "This report is ready.";
   const change = report.change ?? summary.change ?? "No previous comparison was stored.";
   return `${report.name} captures a stored operational snapshot for ${report.type?.toString().toLowerCase().replaceAll("_", " ") ?? "current operations"}. The main outcome is ${headline}. Compared with the previous reporting window: ${change}. Operators can use this record for routine review, supervisor handover, and audit evidence.`;
+};
+
+const getFloatingMenuStyle = (anchor, placement = "bottom") => {
+  if (!anchor) return undefined;
+
+  const rect = anchor.getBoundingClientRect();
+  const menuWidth = 220;
+  const estimatedHeight = 224;
+  const viewportPadding = 12;
+  const left = Math.min(
+    Math.max(viewportPadding, rect.right - menuWidth),
+    window.innerWidth - menuWidth - viewportPadding
+  );
+  const top = placement === "top"
+    ? Math.max(viewportPadding, rect.top - estimatedHeight - 8)
+    : rect.bottom + 8;
+
+  return {
+    position: "fixed",
+    top: `${top}px`,
+    left: `${left}px`,
+    right: "auto",
+    width: `${menuWidth}px`,
+    zIndex: 10080
+  };
 };
 
 export default ReportProfileDialog;

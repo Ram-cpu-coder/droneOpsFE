@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, CheckCircle2, Download, FileSpreadsheet, FileText, X } from "lucide-react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import ActionButton from "../../components/common/ActionButton";
+import CopyableId from "../../components/common/CopyableId";
 import DataTable from "../../components/common/DataTable";
 import MetricCard from "../../components/common/MetricCard";
 import SectionHeader from "../../components/common/SectionHeader";
@@ -19,6 +21,10 @@ const Reports = ({ user, searchValue = "" }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const actionsRef = useRef(null);
+  const generateAnchorRef = useRef(null);
+  const exportAnchorRef = useRef(null);
+  const generateMenuRef = useRef(null);
+  const exportMenuRef = useRef(null);
   const [selectedReport, setSelectedReport] = useState(null);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
@@ -26,7 +32,7 @@ const Reports = ({ user, searchValue = "" }) => {
   const [toast, setToast] = useState(null);
   const loadReports = useCallback(() => droneOpsApi.reports.list(), []);
   const { data: reportRecords, error, isLoading, isFallback, refresh, setData: setReportRecords } = useApiResource(loadReports, []);
-  const normalizedReports = useMemo(() => reportRecords.map(normalizeReport), [reportRecords]);
+  const normalizedReports = useMemo(() => reportRecords.map((report, index) => normalizeReport(report, index)), [reportRecords]);
   const filteredReports = useFleetSearch(normalizedReports, searchValue);
   const metricReports = isFallback ? [] : normalizedReports;
   const routeReportId = useMemo(() => getDetailId(location.pathname, "/reports"), [location.pathname]);
@@ -61,7 +67,10 @@ const Reports = ({ user, searchValue = "" }) => {
 
   useEffect(() => {
     const handlePointerDown = (event) => {
-      if (!actionsRef.current?.contains(event.target)) {
+      const isInsideActions = actionsRef.current?.contains(event.target);
+      const isInsideGenerateMenu = generateMenuRef.current?.contains(event.target);
+      const isInsideExportMenu = exportMenuRef.current?.contains(event.target);
+      if (!isInsideActions && !isInsideGenerateMenu && !isInsideExportMenu) {
         setIsGenerateOpen(false);
         setIsExportOpen(false);
       }
@@ -83,6 +92,12 @@ const Reports = ({ user, searchValue = "" }) => {
 
   const columns = [
     {
+      key: "systemId",
+      label: "ID",
+      render: (report) => <CopyableId value={report.systemId} />
+    },
+    { key: "serialNumber", label: "Serial Number" },
+    {
       key: "name",
       label: "Report",
       render: (report) => (
@@ -93,8 +108,8 @@ const Reports = ({ user, searchValue = "" }) => {
     },
     { key: "value", label: "Current Value" },
     { key: "change", label: "Change" },
-    { key: "status", label: "Status", render: (report) => <StatusBadge>{report.status}</StatusBadge> },
-    { key: "owner", label: "Category" }
+    { key: "status", label: "Status", filterable: true, render: (report) => <StatusBadge>{report.status}</StatusBadge> },
+    { key: "owner", label: "Category", filterable: true }
   ];
 
   return (
@@ -153,7 +168,7 @@ const Reports = ({ user, searchValue = "" }) => {
           action={(
             <div className="section-actions report-actions" ref={actionsRef}>
               {canGenerateReports && (
-                <div className="dashboard-filter-wrap report-menu-wrap">
+                <div className="dashboard-filter-wrap report-menu-wrap" ref={generateAnchorRef}>
                   <ActionButton
                     icon={BarChart3}
                     onClick={() => {
@@ -163,8 +178,14 @@ const Reports = ({ user, searchValue = "" }) => {
                   >
                     Generate Report
                   </ActionButton>
-                  {isGenerateOpen && (
-                    <div className="dashboard-filter-menu export-menu report-generate-menu" role="menu" aria-label="Generate reports">
+                  {isGenerateOpen && createPortal(
+                    <div
+                      className="dashboard-filter-menu export-menu report-generate-menu floating-report-menu"
+                      ref={generateMenuRef}
+                      role="menu"
+                      aria-label="Generate reports"
+                      style={getFloatingMenuStyle(generateAnchorRef.current)}
+                    >
                       {generateOptions.map((option) => (
                         <button
                           key={option.value}
@@ -199,11 +220,12 @@ const Reports = ({ user, searchValue = "" }) => {
                           <BarChart3 size={15} />
                         </button>
                       ))}
-                    </div>
+                    </div>,
+                    document.body
                   )}
                 </div>
               )}
-              <div className="dashboard-filter-wrap report-menu-wrap">
+              <div className="dashboard-filter-wrap report-menu-wrap" ref={exportAnchorRef}>
                 <ActionButton
                   icon={Download}
                   variant="primary"
@@ -214,8 +236,14 @@ const Reports = ({ user, searchValue = "" }) => {
                 >
                   Export
                 </ActionButton>
-                {isExportOpen && (
-                  <div className="dashboard-filter-menu export-menu report-export-menu" role="menu" aria-label="Export reports">
+                {isExportOpen && createPortal(
+                  <div
+                    className="dashboard-filter-menu export-menu report-export-menu floating-report-menu"
+                    ref={exportMenuRef}
+                    role="menu"
+                    aria-label="Export reports"
+                    style={getFloatingMenuStyle(exportAnchorRef.current)}
+                  >
                     <button type="button" onClick={async () => {
                       try {
                         await exportReadyReports("excel");
@@ -249,7 +277,19 @@ const Reports = ({ user, searchValue = "" }) => {
                       <span>Export Word</span>
                       <Download size={15} />
                     </button>
-                  </div>
+                    <button type="button" onClick={async () => {
+                      try {
+                        await exportReadyReports("json");
+                      } catch (requestError) {
+                        setToast({ title: "JSON export failed", message: requestError.message });
+                        window.setTimeout(() => setToast(null), 5000);
+                      }
+                    }}>
+                      <span>Export JSON</span>
+                      <FileText size={15} />
+                    </button>
+                  </div>,
+                  document.body
                 )}
               </div>
             </div>
@@ -259,6 +299,7 @@ const Reports = ({ user, searchValue = "" }) => {
           columns={columns}
           rows={filteredReports}
           getRowKey={(report) => report.uuid ?? report.id}
+          onRowClick={(report) => navigate(`/reports/${encodeURIComponent(report.uuid ?? report.id)}`)}
           emptyMessage={isLoading ? "Loading reports..." : "No reports generated yet."}
         />
       </div>
@@ -266,12 +307,14 @@ const Reports = ({ user, searchValue = "" }) => {
   );
 };
 
-const normalizeReport = (report) => {
+const normalizeReport = (report, index = 0) => {
   const name = report.title ?? report.name;
 
   return {
     ...report,
     uuid: report.id ?? toReportRouteId(name),
+    systemId: report.id ?? toReportRouteId(name),
+    serialNumber: report.reportCode ?? `RPT-${String(index + 1).padStart(4, "0")}`,
     name,
     type: report.type,
     value: report.value ?? report.dataSnapshot?.summary?.value ?? report.type ?? "Snapshot",
@@ -295,5 +338,26 @@ const isReportExportable = (report) => exportableStatuses.has(String(report.stat
 const getReportIdentity = (report) => report.id ?? report.uuid ?? toReportRouteId(report.title ?? report.name);
 
 const formatReportStatus = (status = "") => status.toString().toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const getFloatingMenuStyle = (anchor) => {
+  if (!anchor) return undefined;
+
+  const rect = anchor.getBoundingClientRect();
+  const menuWidth = 220;
+  const viewportPadding = 12;
+  const left = Math.min(
+    Math.max(viewportPadding, rect.right - menuWidth),
+    window.innerWidth - menuWidth - viewportPadding
+  );
+
+  return {
+    position: "fixed",
+    top: `${rect.bottom + 8}px`,
+    left: `${left}px`,
+    right: "auto",
+    width: `${menuWidth}px`,
+    zIndex: 10080
+  };
+};
 
 export default Reports;

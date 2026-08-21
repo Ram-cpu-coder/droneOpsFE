@@ -54,12 +54,14 @@ export const exportSingleReport = async (report, format) => {
   if (format === "excel") return exportReportExcel(report);
   if (format === "pdf") return exportReportPdf(report);
   if (format === "word") return exportReportWord(report);
+  if (format === "json") return exportReportJson(report);
 };
 
 export const exportReportCollection = async (reports, format) => {
   if (format === "excel") return exportCollectionExcel(reports);
   if (format === "pdf") return exportCollectionPdf(reports);
   if (format === "word") return exportCollectionWord(reports);
+  if (format === "json") return exportCollectionJson(reports);
 };
 
 const loadSpreadsheetExport = async () => import("xlsx");
@@ -222,4 +224,48 @@ const exportCollectionWord = async (reports) => {
 
   const blob = await Packer.toBlob(doc);
   saveAs(blob, "droneops-reports.docx");
+};
+
+const exportReportJson = async (report) => {
+  const payload = toJsonReport(report);
+  saveJson(payload, `${safeFileName(report.name)}.json`);
+};
+
+const exportCollectionJson = async (reports) => {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    totalReports: reports.length,
+    exportScope: "shareable_summary",
+    reports: reports.map(toShareableJsonReport)
+  };
+  saveJson(payload, "droneops-reports.json");
+};
+
+const toJsonReport = (report) => ({
+  id: report.uuid ?? report.id ?? null,
+  name: report.name ?? "DroneOps Report",
+  type: report.type ?? "Snapshot",
+  status: report.status ?? "Ready",
+  category: report.owner ?? "DroneOps",
+  value: report.value ?? "Snapshot",
+  change: report.change ?? "Stored audit snapshot",
+  createdAt: report.createdAt ?? null,
+  updatedAt: report.updatedAt ?? null,
+  fileUrl: report.fileUrl ?? null,
+  dataSnapshot: normalizeSnapshot(report)
+});
+
+const toShareableJsonReport = (report) => ({
+  name: report.name ?? "DroneOps Report",
+  type: report.type ?? "Snapshot",
+  status: report.status ?? "Ready",
+  category: report.type ?? report.owner ?? "DroneOps",
+  value: report.value ?? "Snapshot",
+  change: report.change ?? "Stored audit snapshot",
+  createdAt: report.createdAt ?? null
+});
+
+const saveJson = (payload, fileName) => {
+  const json = JSON.stringify(payload, null, 2);
+  saveAs(new Blob([json], { type: "application/json;charset=utf-8" }), fileName);
 };
