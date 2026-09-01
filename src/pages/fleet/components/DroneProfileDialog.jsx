@@ -21,6 +21,7 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
   const [form, setForm] = useState(() => toEditableForm(drone));
   const [modelCatalog, setModelCatalog] = useState([]);
   const telemetry = drone.latestTelemetry;
+  const telemetryReadout = useMemo(() => getTelemetryReadout(drone), [drone]);
   const droneUuid = drone.uuid ?? drone.idRaw ?? drone.id;
   const locationState = useMemo(() => getDroneLocationState(drone), [drone]);
   const manufacturerOptions = modelCatalog.map((entry) => entry.manufacturer);
@@ -168,10 +169,10 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
           {error && <div className="auth-alert">{error}</div>}
 
           <div className="profile-metrics">
-            <ProfileMetric icon={BatteryCharging} label="Battery" value={`${drone.battery ?? 0}%`}>
-              <BatteryMeter value={drone.battery ?? 0} />
+            <ProfileMetric icon={BatteryCharging} label="Battery" value={telemetryReadout.battery}>
+              <BatteryMeter value={telemetryReadout.batteryValue} />
             </ProfileMetric>
-            <ProfileMetric icon={RadioTower} label="Signal" value={locationState.isOffline ? "Offline" : `${drone.signal ?? 0}%`} />
+            <ProfileMetric icon={RadioTower} label="Link" value={telemetryReadout.link} />
             <ProfileMetric icon={Plane} label="Flight Hours" value={previewDrone.flightHours} />
           </div>
 
@@ -231,9 +232,14 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
               <ProfileSection icon={MapPin} title="Latest Telemetry">
                 <ProfileRow label="Location" value={locationState.hasLocation ? formatCoordinate(locationState.location) : "No location recorded"} />
                 <ProfileRow label="Map Status" value={locationState.isOffline ? "Offline - showing last known location" : locationState.hasLocation ? "Live location" : "Waiting for telemetry"} />
-                <ProfileRow label="Altitude" value={telemetry?.location?.altitude !== undefined ? `${telemetry.location.altitude} m` : "No data"} />
-                <ProfileRow label="Speed" value={telemetry ? `${telemetry.velocity.speed} m/s` : "No data"} />
-                <ProfileRow label="Heading" value={telemetry ? `${telemetry.velocity.heading} deg` : "No data"} />
+                <ProfileRow label="Battery" value={telemetryReadout.battery} />
+                <ProfileRow label="Battery Voltage" value={telemetryReadout.voltage} />
+                <ProfileRow label="Signal" value={telemetryReadout.signal} />
+                <ProfileRow label="Altitude" value={telemetryReadout.altitude} />
+                <ProfileRow label="Speed" value={telemetryReadout.speed} />
+                <ProfileRow label="Heading" value={telemetryReadout.heading} />
+                <ProfileRow label="Flight Status" value={formatOptionLabel(telemetry?.simulator?.flightStatus ?? telemetry?.status ?? "No data")} />
+                <ProfileRow label="Source" value={telemetry?.simulator?.droneId ?? telemetry?.source ?? "No data"} />
                 <ProfileRow label="Last Seen" value={locationState.timestamp ? formatDateTime(locationState.timestamp) : "No data"} />
               </ProfileSection>
             </div>
@@ -442,6 +448,24 @@ const getDroneLocationState = (drone) => {
       : isOffline
         ? "Showing last known location because the drone is offline."
         : "Showing current live telemetry location."
+  };
+};
+
+const getTelemetryReadout = (drone) => {
+  const telemetry = drone.latestTelemetry;
+  const batteryValue = Number(telemetry?.battery?.level ?? drone.battery ?? 0);
+  const signalValue = Number(telemetry?.signal?.strength ?? drone.signal ?? 0);
+  const linkQuality = telemetry?.signal?.linkQuality;
+
+  return {
+    batteryValue: Number.isFinite(batteryValue) ? batteryValue : 0,
+    battery: telemetry ? `${Number.isFinite(batteryValue) ? batteryValue : 0}%` : `${drone.battery ?? 0}%`,
+    voltage: telemetry?.battery?.voltage != null ? `${Number(telemetry.battery.voltage).toFixed(2)} V` : "No data",
+    signal: telemetry ? `${Number.isFinite(signalValue) ? signalValue : 0}%` : "No data",
+    link: linkQuality ? formatOptionLabel(linkQuality) : telemetry ? `${Number.isFinite(signalValue) ? signalValue : 0}%` : "No telemetry",
+    altitude: telemetry?.location?.altitude !== undefined ? `${telemetry.location.altitude} m` : "No data",
+    speed: telemetry?.velocity?.speed !== undefined ? `${telemetry.velocity.speed} m/s` : "No data",
+    heading: telemetry?.velocity?.heading !== undefined ? `${telemetry.velocity.heading} deg` : "No data"
   };
 };
 

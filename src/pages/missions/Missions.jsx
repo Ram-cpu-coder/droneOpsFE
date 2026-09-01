@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarClock, CheckCircle2, Plus, Route, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, Plus, Route, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ActionButton from "../../components/common/ActionButton";
 import CopyableId from "../../components/common/CopyableId";
@@ -23,7 +23,7 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
   const [toast, setToast] = useState(null);
   const canManageMissions = hasClientPermission(user, "missions:manage");
   const loadMissions = useCallback(() => droneOpsApi.missions.list(), []);
-  const { data: apiMissions, error, isLoading, isFallback, refresh } = useApiResource(loadMissions, []);
+  const { data: apiMissions, error, isLoading, isFallback, refresh } = useApiResource(loadMissions, [], { cacheKey: "missions:list", staleMs: 10000 });
   const normalizedMissions = useMemo(() => apiMissions.map(normalizeMission), [apiMissions]);
   const filteredMissions = useFleetSearch(normalizedMissions, searchValue);
   const metricMissions = isFallback ? [] : normalizedMissions;
@@ -95,6 +95,7 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
             refresh();
             if (action !== "riskAssessment") navigate(profileReturnPath);
             setToast({
+              type: updatedMission?.synctegralSyncStatus === "FAILED" ? "warning" : "success",
               title: getMissionToastTitle(action),
               message: getMissionToastMessage(updatedMission ?? selectedMission, action)
             });
@@ -105,8 +106,8 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
       )}
       {toast && (
         <div className="toast-region" role="status" aria-live="polite">
-          <div className="toast-card success">
-            <CheckCircle2 size={20} />
+          <div className={`toast-card ${toast.type ?? "success"}`}>
+            {toast.type === "warning" ? <AlertTriangle size={20} /> : <CheckCircle2 size={20} />}
             <div>
               <strong>{toast.title}</strong>
               <p>{toast.message}</p>
@@ -151,12 +152,7 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
           onCreated={(mission) => {
             refresh();
             setShowMissionForm(false);
-            setToast({
-              title: mission.status === "PLANNED" ? "Mission submitted" : "Mission created",
-              message: mission.status === "PLANNED"
-                ? `${mission.missionCode} is awaiting system administrator approval.`
-                : `${mission.missionCode} is now approved and saved in Mission Control.`
-            });
+            setToast(getMissionCreatedToast(mission));
             window.setTimeout(() => setToast(null), 4500);
           }}
           onCancel={() => setShowMissionForm(false)}
@@ -193,16 +189,70 @@ const getMissionToastTitle = (action) => {
 
 const getMissionToastMessage = (mission, action) => {
   const label = mission?.missionCode ?? mission?.id ?? "Mission";
+  const syncMessage = getSynctegralSyncMessage(mission);
   if (action === "approve") return `${label} is approved and ready for risk assessment.`;
   if (action === "riskAssessment") return `${label} passed pre-flight risk assessment checks and is ready to start.`;
-  if (action === "start") return `${label} is now active.`;
-  if (action === "complete") return `${label} is now completed.`;
-  return `${label} was updated successfully.`;
+  if (action === "start") return `${label} is now active.${syncMessage}`;
+  if (action === "complete") return `${label} is now completed.${syncMessage}`;
+  return `${label} was updated successfully.${syncMessage}`;
+};
+
+const getSynctegralSyncMessage = (mission) => {
+  if (!mission?.synctegralSyncStatus) return "";
+  if (mission.synctegralSyncStatus === "SYNCED") {
+    return mission.synctegralMissionId
+      ? ` Synctegral reference: ${mission.synctegralMissionId}.`
+      : " Synctegral sync completed.";
+  }
+  if (mission.synctegralSyncStatus === "FAILED") {
+    return ` Synctegral sync failed: ${mission.synctegralSyncError ?? "check Mission API availability."}`;
+  }
+  if (mission.synctegralSyncStatus === "SKIPPED") {
+    return " Synctegral sync is disabled in the backend.";
+  }
+  return "";
 };
 
 const getDetailId = (pathname, basePath) => {
   if (pathname === basePath || !pathname.startsWith(`${basePath}/`)) return null;
   return decodeURIComponent(pathname.slice(basePath.length + 1).split("/")[0] ?? "");
+};
+
+const getMissionCreatedToast = (mission) => {
+  const label = mission.missionCode ?? mission.id ?? "Mission";
+  const localMessage = mission.status === "PLANNED"
+    ? `${label} is awaiting system administrator approval.`
+    : `${label} is now approved and saved in Mission Control.`;
+
+  if (mission.synctegralSyncStatus === "SYNCED") {
+    return {
+      type: "success",
+      title: "Mission synced",
+      message: `${localMessage} Synctegral mission reference saved${mission.synctegralMissionId ? `: ${mission.synctegralMissionId}` : "."}`
+    };
+  }
+
+  if (mission.synctegralSyncStatus === "FAILED") {
+    return {
+      type: "warning",
+      title: "Mission saved, Synctegral sync failed",
+      message: `${localMessage} Backend could not sync it to Synctegral: ${mission.synctegralSyncError ?? "check BE environment and Mission API availability."}`
+    };
+  }
+
+  if (mission.synctegralSyncStatus === "SKIPPED") {
+    return {
+      type: "warning",
+      title: "Mission saved locally",
+      message: `${localMessage} Synctegral Mission API sync is disabled in BE env.`
+    };
+  }
+
+  return {
+    type: "warning",
+    title: "Mission saved, sync status unavailable",
+    message: `${localMessage} Backend did not return Synctegral sync status. Restart BE and apply the Prisma migration/generate step.`
+  };
 };
 
 const getMissionStatusLabel = (status) => {

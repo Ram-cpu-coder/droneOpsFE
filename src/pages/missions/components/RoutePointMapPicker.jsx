@@ -1,5 +1,5 @@
 /* oxlint-disable react-hooks/exhaustive-deps */
-import { Crosshair, Map as MapIcon, MapPin, Plus, Route, Trash2 } from "lucide-react";
+import { Crosshair, Loader2, Map as MapIcon, MapPin, Plus, Route, Search, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import "mapbox-gl/dist/mapbox-gl.css";
 
@@ -27,10 +27,15 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
   const [mapError, setMapError] = useState("");
   const [activeTool, setActiveTool] = useState("routePath");
   const [activeIndex, setActiveIndex] = useState(() => getFirstEmptyIndex(value));
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
   const routePoints = useMemo(() => normalizeRoutePoints(value), [value]);
   const activePoint = routePoints[activeIndex] ?? routePoints[0];
   const launchSite = normalizeLocation(locationPlan.launchSite);
   const operatingArea = normalizeLocation(locationPlan.operatingArea);
+  const showRouteSearch = activeTool === "routePath" && isStartOrEndPoint(activeIndex, routePoints.length);
 
   // oxlint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -200,6 +205,63 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
     setActiveIndex(0);
   };
 
+  const searchRouteLocation = async (event) => {
+    event?.preventDefault();
+    const query = searchQuery.trim();
+    if (!query) {
+      setSearchResults([]);
+      setSearchError("");
+      return;
+    }
+
+    setIsSearching(true);
+    setSearchError("");
+
+    try {
+      const response = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?` +
+          new URLSearchParams({
+            access_token: mapboxToken,
+            country: "AU",
+            limit: "5",
+            proximity: `${defaultCenter[0]},${defaultCenter[1]}`
+          })
+      );
+
+      if (!response.ok) throw new Error("Location search failed");
+      const payload = await response.json();
+      const results = Array.isArray(payload.features) ? payload.features : [];
+      setSearchResults(results);
+      if (!results.length) setSearchError("No matching locations found.");
+    } catch (error) {
+      setSearchResults([]);
+      setSearchError(error.message || "Location search failed.");
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const applySearchResult = (result) => {
+    const [longitude, latitude] = Array.isArray(result.center) ? result.center : [];
+    if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) return;
+
+    setPoint(activeIndex, { latitude, longitude });
+    setSearchQuery(result.place_name || result.text || "");
+    setSearchResults([]);
+
+    mapRef.current?.flyTo({
+      center: [Number(longitude), Number(latitude)],
+      zoom: Math.max(mapRef.current.getZoom(), 14),
+      speed: 0.9
+    });
+  };
+
+  const clearSearch = () => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearchError("");
+  };
+
   const focusPoint = (index) => {
     setActiveIndex(index);
     const point = routePoints[index];
@@ -237,7 +299,8 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
       markerElement.type = "button";
       markerElement.className = "route-picker-marker";
       markerElement.dataset.active = String(index === activeIndex);
-      markerElement.textContent = getMarkerLabel(index, routePoints.length);
+      markerElement.appendChild(createMarkerBubble(getMarkerLabel(index, routePoints.length)));
+      markerElement.appendChild(createMarkerTag(getMarkerCalloutLabel(index, routePoints.length, point)));
       markerElement.addEventListener("click", (event) => {
         event.stopPropagation();
         focusPoint(index);
@@ -294,7 +357,8 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
       markerElement.type = "button";
       markerElement.className = `route-picker-marker location-marker ${key}`;
       markerElement.dataset.active = String(activeTool === key);
-      markerElement.textContent = label;
+      markerElement.appendChild(createMarkerBubble(label));
+      markerElement.appendChild(createMarkerTag(key === "launchSite" ? "Launch site" : "Operating area"));
       markerElement.addEventListener("click", (event) => {
         event.stopPropagation();
         setActiveTool(key);
@@ -423,10 +487,55 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
       </div>
 
       <div className="route-picker-map-shell">
-        <div className="route-picker-map" ref={mapContainerRef} />
+        <div className="route-picker-map" ref={mapContainerRef} data-cy="mission-route-map" />
+        {showRouteSearch && (
+          <div className="route-picker-search">
+            <div className="route-picker-search-row">
+              <Search size={16} />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    searchRouteLocation();
+                  }
+                }}
+                placeholder={`Search ${getPointLabel(activeIndex, routePoints.length).toLowerCase()}`}
+                aria-label={`Search ${getPointLabel(activeIndex, routePoints.length)}`}
+              />
+              {searchQuery && (
+                <button type="button" onClick={clearSearch} aria-label="Clear location search">
+                  <X size={15} />
+                </button>
+              )}
+              <button type="button" onClick={searchRouteLocation} disabled={isSearching}>
+                {isSearching ? <Loader2 size={15} className="spin-icon" /> : "Find"}
+              </button>
+            </div>
+            {(searchResults.length > 0 || searchError) && (
+              <div className="route-picker-search-results">
+                {searchError && <span>{searchError}</span>}
+                {searchResults.map((result) => (
+                  <button key={result.id} type="button" onClick={() => applySearchResult(result)}>
+                    <strong>{result.text}</strong>
+                    <small>{result.place_name}</small>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <div className="route-picker-help">
           <strong>{getActiveToolLabel(activeTool, activePoint)}</strong>
           <span>Click anywhere on the map to place the selected item. Drag markers to adjust.</span>
+        </div>
+        <div className="route-picker-legend" aria-label="Mission map legend">
+          <span><i className="route-dot route" /> Route point</span>
+          <span><i className="route-dot location" /> Launch / area</span>
+          <span><i className="route-line" /> Planned path</span>
         </div>
         {!mapReady && !mapError && <div className="route-picker-map-status">Loading route map...</div>}
         {mapError && <div className="route-picker-map-status error">{mapError}</div>}
@@ -606,6 +715,27 @@ const getMarkerLabel = (index, total) => {
   if (index === 0) return "S";
   if (index === total - 1) return "E";
   return String(index);
+};
+
+const isStartOrEndPoint = (index, total) => index === 0 || index === total - 1;
+
+const getMarkerCalloutLabel = (index, total, point) => {
+  const altitude = point.altitude ? `${point.altitude} m AGL` : "0 m AGL";
+  return `${getMarkerLabel(index, total)} - ${altitude}`;
+};
+
+const createMarkerBubble = (label) => {
+  const bubble = document.createElement("span");
+  bubble.className = "route-picker-marker-bubble";
+  bubble.textContent = label;
+  return bubble;
+};
+
+const createMarkerTag = (label) => {
+  const tag = document.createElement("span");
+  tag.className = "route-picker-marker-tag";
+  tag.textContent = label;
+  return tag;
 };
 
 const isStop = (index, total) => index > 0 && index < total - 1;

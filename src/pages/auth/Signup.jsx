@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Eye, EyeOff, ImagePlus, UserPlus } from "lucide-react";
+import { Check, Eye, EyeOff, UserPlus } from "lucide-react";
 import ActionButton from "../../components/common/ActionButton";
 import { userRoles } from "../../data/authData";
 import { authService } from "../../features/auth/authService";
@@ -49,7 +49,6 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
     organizationName: "",
     industry: "",
     role: "operations_manager",
-    profileImageUrl: "",
   });
 
   // Password visibility.
@@ -57,13 +56,6 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
   const [resolvedOrganization, setResolvedOrganization] = useState(null);
   const [organizationLookup, setOrganizationLookup] = useState({ isLoading: false, error: "" });
   const submitLabel = form.organizationMode === "create" ? "Create Organisation" : "Join Organisation";
-
-  // Profile image upload state.
-  const [imageUpload, setImageUpload] = useState({
-    isUploading: false,
-    fileName: "",
-    error: "",
-  });
 
   // Check each password rule.
   const passwordStatus = passwordRules.map((rule) => ({
@@ -121,45 +113,6 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
     if (form.organizationMode === "create" && !form.organizationName.trim()) return;
 
     onSignup(form);
-  };
-
-  // Upload selected profile image.
-  const handleProfileImageChange = async (event) => {
-    const file = event.target.files?.[0];
-
-    if (!file) return;
-
-    setImageUpload({
-      isUploading: true,
-      fileName: file.name,
-      error: "",
-    });
-
-    try {
-      const result = await authService.uploadProfileImage(file);
-
-      setForm((current) => ({
-        ...current,
-        profileImageUrl: result.profileImageUrl,
-      }));
-
-      setImageUpload({
-        isUploading: false,
-        fileName: file.name,
-        error: "",
-      });
-    } catch (uploadError) {
-      setForm((current) => ({
-        ...current,
-        profileImageUrl: "",
-      }));
-
-      setImageUpload({
-        isUploading: false,
-        fileName: "",
-        error: uploadError.message,
-      });
-    }
   };
 
   return (
@@ -339,30 +292,6 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
           </label>
         )}
 
-        {/* Profile image upload */}
-        <label className="upload-field wide-field">
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handleProfileImageChange}
-            disabled={isLoading || imageUpload.isUploading}
-          />
-
-          <span>
-            <ImagePlus size={18} /> Upload profile image
-          </span>
-
-          <small>
-            {imageUpload.isUploading
-              ? "Uploading to Cloudinary..."
-              : imageUpload.fileName || "Optional PNG, JPG, or WebP"}
-          </small>
-        </label>
-
-        {/* Upload error */}
-        {imageUpload.error && (
-          <div className="auth-alert wide-field">{imageUpload.error}</div>
-        )}
       </fieldset>
 
       {/* Signup loading message */}
@@ -377,7 +306,7 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
         icon={UserPlus}
         variant="primary"
         type="submit"
-        disabled={isLoading || imageUpload.isUploading || !isPasswordValid || (form.organizationMode === "join" ? !resolvedOrganization : !form.organizationName.trim())}
+        disabled={isLoading || !isPasswordValid || (form.organizationMode === "join" ? !resolvedOrganization : !form.organizationName.trim())}
         isLoading={isLoading}
       >
         {isLoading ? (form.organizationMode === "create" ? "Creating organisation..." : "Joining organisation...") : submitLabel}

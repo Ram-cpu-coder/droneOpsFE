@@ -57,6 +57,7 @@ export const droneOpsApi = {
     list: () => apiClient.get("/reports"),
     summary: () => apiClient.get("/reports/summary"),
     create: (payload) => apiClient.post("/reports", payload),
+    previewGenerate: (payload) => apiClient.post("/reports/generate/preview", payload),
     generate: (payload) => apiClient.post("/reports/generate", payload),
     updateStatus: (id, status) => apiClient.put(`/reports/${id}/status`, { status }),
     remove: (id) => apiClient.delete(`/reports/${id}`)

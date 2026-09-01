@@ -42,8 +42,15 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
   const errorRef = useRef(null);
   const loadDrones = useCallback(() => droneOpsApi.drones.list(), []);
   const loadUsers = useCallback(() => droneOpsApi.users.list(), []);
-  const { data: drones } = useApiResource(loadDrones, []);
-  const { data: users } = useApiResource(loadUsers, []);
+  const loadMissions = useCallback(() => droneOpsApi.missions.list(), []);
+  const { data: drones } = useApiResource(loadDrones, [], { cacheKey: "drones:list", staleMs: 10000 });
+  const { data: users } = useApiResource(loadUsers, [], { cacheKey: "users:list", staleMs: 30000 });
+  const { data: missions } = useApiResource(loadMissions, [], { cacheKey: "missions:list", staleMs: 10000 });
+  const { plannedDate, startTime, endTime } = form;
+  const bookingContext = useMemo(
+    () => createResourceBookingContext({ missions, mission, plannedDate, startTime, endTime }),
+    [missions, mission, plannedDate, startTime, endTime]
+  );
 
   useEffect(() => {
     setForm(toFormState(mission));
@@ -59,7 +66,10 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
 
   const droneOptions = useMemo(
     () => drones
-      .filter((drone) => drone.status === "AVAILABLE" || form.droneIds.includes(drone.id))
+      .filter((drone) => (
+        form.droneIds.includes(drone.id) ||
+        (drone.status === "AVAILABLE" && !isResourceBookedForMission(bookingContext, drone.id, "drone"))
+      ))
       .map((drone) => ({
         value: drone.id,
         label: drone.droneCode ?? drone.id,
@@ -67,12 +77,16 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
         meta: formatReadableValue(drone.status),
         searchText: `${drone.droneCode ?? drone.id} ${drone.model ?? ""} ${drone.manufacturer ?? ""} ${drone.serialNumber ?? ""}`.toLowerCase()
       })),
-    [drones, form.droneIds]
+    [bookingContext, drones, form.droneIds]
   );
 
   const pilotOptions = useMemo(
     () => users
       .filter((user) => ["REMOTE_PILOT", "OPERATIONS_MANAGER", "SYSTEM_ADMINISTRATOR"].includes(user.role))
+      .filter((user) => (
+        form.pilotIds.includes(user.id) ||
+        !isResourceBookedForMission(bookingContext, user.id, "pilot")
+      ))
       .map((user) => ({
         value: user.id,
         label: user.name,
@@ -80,7 +94,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
         meta: user.email ?? "Available for assignment",
         searchText: `${user.name} ${user.email ?? ""} ${user.role ?? ""}`.toLowerCase()
       })),
-    [users]
+    [bookingContext, form.pilotIds, users]
   );
 
   const selectedDrones = useMemo(
@@ -255,6 +269,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
                 </div>
                 <MultiSearchableSelectField
                   label=""
+                  dataCy="mission-drone-picker"
                   className="assignment-picker-search"
                   value={form.droneIds}
                   onChange={(value) => setForm((current) => ({ ...current, droneIds: value, droneId: value[0] ?? "" }))}
@@ -273,6 +288,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
                 </div>
                 <MultiSearchableSelectField
                   label=""
+                  dataCy="mission-pilot-picker"
                   className="assignment-picker-search"
                   value={form.pilotIds}
                   onChange={(value) => setForm((current) => ({ ...current, pilotIds: value, pilotId: value[0] ?? "" }))}
@@ -382,7 +398,8 @@ const MultiSearchableSelectField = ({
   value = [],
   onChange,
   placeholder = "Search",
-  className = ""
+  className = "",
+  dataCy
 }) => {
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
@@ -420,7 +437,7 @@ const MultiSearchableSelectField = ({
   };
 
   return (
-    <div className={`field searchable-select-field ${className}`} ref={wrapperRef}>
+    <div className={`field searchable-select-field ${className}`} ref={wrapperRef} data-cy={dataCy}>
       {label && <span>{label}</span>}
       <div className={`field-search-input combo-input ${isOpen ? "open" : ""}`}>
         <Search size={16} />
@@ -609,6 +626,54 @@ const getScheduleError = (form) => {
   if (plannedEnd <= plannedStart) return "End time must be after start time.";
 
   return "";
+};
+
+const blockingMissionStatuses = new Set(["APPROVED", "RISK_ASSESSMENT_COMPLETED", "ACTIVE"]);
+
+const createResourceBookingContext = ({ missions = [], mission, plannedDate, startTime, endTime }) => ({
+  missions,
+  targetWindow: getMissionTimeWindowFromSchedule(plannedDate, startTime, endTime),
+  currentMissionIds: new Set([mission?.uuid, mission?.systemId, mission?.id].filter(Boolean).map(String))
+});
+
+const isResourceBookedForMission = ({ missions = [], targetWindow, currentMissionIds }, resourceId, resourceType) => {
+  if (!targetWindow || !resourceId) return false;
+
+  return missions.some((candidate) => {
+    if (currentMissionIds.has(String(candidate.id)) || currentMissionIds.has(String(candidate.missionCode))) return false;
+    if (!blockingMissionStatuses.has(candidate.status)) return false;
+    if (!timeWindowsOverlap(targetWindow, getMissionTimeWindow(candidate))) return false;
+
+    const resourceIds = resourceType === "drone"
+      ? getMissionDroneIds(candidate)
+      : getMissionPilotIds(candidate);
+
+    return resourceIds.includes(resourceId);
+  });
+};
+
+const getMissionTimeWindowFromSchedule = (plannedDate, startTime, endTime) => {
+  if (!plannedDate || !startTime || !endTime) return null;
+
+  return {
+    start: new Date(`${plannedDate}T${startTime}`),
+    end: new Date(`${plannedDate}T${endTime}`)
+  };
+};
+
+const getMissionTimeWindow = (mission) => {
+  if (!mission?.plannedStartAt || !mission?.plannedEndAt) return null;
+  return {
+    start: new Date(mission.plannedStartAt),
+    end: new Date(mission.plannedEndAt)
+  };
+};
+
+const timeWindowsOverlap = (first, second) => {
+  if (!first || !second) return false;
+  if (Number.isNaN(first.start.getTime()) || Number.isNaN(first.end.getTime())) return false;
+  if (Number.isNaN(second.start.getTime()) || Number.isNaN(second.end.getTime())) return false;
+  return first.start < second.end && first.end > second.start;
 };
 
 const getMissionSubmitErrorMessage = (message = "") => {

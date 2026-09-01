@@ -229,6 +229,20 @@ const GeospatialMap = () => {
       })
     ];
 
+    if (selectedDrone?.missionRoute?.length > 1) {
+      layers.push(
+        new PathLayer({
+          id: "active-mission-route",
+          data: [{ path: selectedDrone.missionRoute }],
+          getPath: (item) => item.path,
+          getColor: [247, 200, 95, 235],
+          getWidth: 6,
+          widthMinPixels: 4,
+          rounded: true
+        })
+      );
+    }
+
     if (selectedDroneTrack.length > 1) {
       layers.push(
         new PathLayer({
@@ -534,6 +548,14 @@ const MapOverlayCard = ({ selectedDrone, selectedDroneTrackLength }) => {
           <strong>{selectedDrone.missionLabel ?? "No active mission"}</strong>
         </div>
         <div>
+          <small>Flight Status</small>
+          <strong>{formatStatus(selectedDrone.flightStatus ?? selectedDrone.status)}</strong>
+        </div>
+        <div>
+          <small>Source</small>
+          <strong>{selectedDrone.simulatorDroneId ?? selectedDrone.source ?? "DroneOps"}</strong>
+        </div>
+        <div>
           <small>Position</small>
           <strong>{formatCoordinate(selectedDrone.coordinates)}</strong>
         </div>
@@ -643,6 +665,8 @@ const buildDronePopupHtml = (drone) => {
       <span>Altitude: ${drone.altitude ?? "--"} m</span>
       <span>Speed: ${drone.speed ?? "--"} m/s</span>
       <span>Mission: ${drone.missionLabel ?? "No active mission"}</span>
+      <span>Flight status: ${formatStatus(drone.flightStatus ?? drone.status)}</span>
+      <span>Source: ${drone.simulatorDroneId ?? drone.source ?? "DroneOps"}</span>
       <span>Location: ${formatCoordinate(drone.coordinates)}</span>
       <span>Seen: ${formatTimestamp(drone.timestamp)}</span>
     </div>
@@ -724,6 +748,7 @@ const MapLegend = () => {
         <span><i className="dot green" /> In mission</span>
         <span><i className="dot gray" /> Offline</span>
         <span><i className="legend-line blue" /> Replay</span>
+        <span><i className="legend-line amber" /> Mission route</span>
         <span><i className="dot white" /> Current point</span>
         <span><i className="dot red" /> Restricted</span>
         <span><i className="dot amber" /> Warning</span>
@@ -760,13 +785,29 @@ const normalizeTelemetryRow = (row) => {
 
   const timestamp = row.telemetry?.timestamp;
   const isStale = timestamp ? Date.now() - new Date(timestamp).getTime() > OFFLINE_AFTER_MS : true;
-  const isOffline = isStale || ["DISCONNECTED", "GROUNDED"].includes(row.drone?.status);
+  const telemetryStatus = row.telemetry?.status?.toUpperCase?.() ?? "";
+  const linkQuality = row.telemetry?.signal?.linkQuality?.toUpperCase?.() ?? "";
+  const isCompleted = ["MISSION_COMPLETE", "AIRCRAFT_COMPLETED", "COMPLETED"].includes(telemetryStatus);
+  const isOffline = isStale
+    || isCompleted
+    || ["LOST", "OFFLINE"].includes(linkQuality)
+    || ["DISCONNECTED", "GROUNDED"].includes(row.drone?.status);
+  const simulator = row.telemetry?.simulator ?? {};
+  const activeMission = row.drone?.activeMission ?? null;
 
   return {
     id: row.drone?.droneCode ?? row.drone?.id ?? "Unknown drone",
     model: row.drone?.model ?? "",
-    missionLabel: formatMissionLabel(row.drone?.activeMission),
+    missionLabel: formatMissionLabel(activeMission),
+    missionRoute: normalizeMissionRoute(activeMission?.plannedRoute),
+    missionProgress: activeMission?.progress,
     status: row.drone?.status ?? "UNKNOWN",
+    telemetryStatus,
+    flightStatus: simulator.flightStatus ?? telemetryStatus,
+    flightMode: simulator.flightMode,
+    simulatorDroneId: simulator.droneId,
+    simulatorMissionId: simulator.missionId,
+    source: row.telemetry?.source,
     coordinates,
     battery: row.telemetry?.battery?.level,
     signal: row.telemetry?.signal?.strength,
@@ -781,6 +822,21 @@ const normalizeTelemetryRow = (row) => {
 const formatMissionLabel = (mission) => {
   if (!mission) return "";
   return [mission.missionCode, mission.name].filter(Boolean).join(" - ");
+};
+
+const normalizeMissionRoute = (plannedRoute) => {
+  const routePoints = Array.isArray(plannedRoute?.waypoints)
+    ? plannedRoute.waypoints
+    : Array.isArray(plannedRoute?.coordinates)
+      ? plannedRoute.coordinates
+      : [];
+
+  return routePoints
+    .map((point) => {
+      if (Array.isArray(point)) return normalizeCoordinate(point);
+      return normalizeCoordinate([point?.longitude ?? point?.lng ?? point?.lon, point?.latitude ?? point?.lat]);
+    })
+    .filter(Boolean);
 };
 
 const normalizeGeofence = (zone) => {

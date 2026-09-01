@@ -27,8 +27,8 @@ const Fleet = ({ searchValue, user }) => {
     if (!canReadTelemetry) return Promise.resolve([]);
     return droneOpsApi.telemetry.live();
   }, [canReadTelemetry]);
-  const { data: apiDrones, error, isLoading, isFallback, refresh } = useApiResource(loadDrones, []);
-  const { data: telemetryRows } = useApiResource(loadTelemetry, []);
+  const { data: apiDrones, error, isLoading, isFallback, refresh } = useApiResource(loadDrones, [], { cacheKey: "drones:list", staleMs: 10000 });
+  const { data: telemetryRows } = useApiResource(loadTelemetry, [], { cacheKey: "telemetry-live:fleet", staleMs: 3000, enabled: canReadTelemetry });
   const normalizedDrones = useMemo(() => apiDrones.map((drone) => normalizeDrone(drone, telemetryRows)), [apiDrones, telemetryRows]);
   const filteredDrones = useFleetSearch(normalizedDrones, searchValue);
   const metricDrones = isFallback ? [] : normalizedDrones;

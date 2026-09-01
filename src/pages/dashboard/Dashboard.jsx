@@ -46,10 +46,10 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
     if (!showLivePanels || !canRead("telemetry:read")) return Promise.resolve([]);
     return droneOpsApi.telemetry.live();
   }, [canRead, showLivePanels]);
-  const { data: apiDrones, isLoading: isDronesLoading, isFallback: isDronesFallback } = useApiResource(loadDrones, [], { enabled: canRead("drones:read") });
-  const { data: apiMissions, isLoading: isMissionsLoading, isFallback: isMissionsFallback } = useApiResource(loadMissions, [], { enabled: canRead("missions:read") });
-  const { data: apiIncidents, isLoading: isIncidentsLoading, isFallback: isIncidentsFallback } = useApiResource(loadIncidents, [], { enabled: canRead("incidents:read") });
-  const { data: auditLogs, isLoading: isActivityLoading } = useApiResource(loadAudit, [], { enabled: canRead("audit:read") });
+  const { data: apiDrones, isLoading: isDronesLoading, isFallback: isDronesFallback } = useApiResource(loadDrones, [], { cacheKey: "drones:list", staleMs: 10000, enabled: canRead("drones:read") });
+  const { data: apiMissions, isLoading: isMissionsLoading, isFallback: isMissionsFallback } = useApiResource(loadMissions, [], { cacheKey: "missions:list", staleMs: 10000, enabled: canRead("missions:read") });
+  const { data: apiIncidents, isLoading: isIncidentsLoading, isFallback: isIncidentsFallback } = useApiResource(loadIncidents, [], { cacheKey: "incidents:list", staleMs: 10000, enabled: canRead("incidents:read") });
+  const { data: auditLogs, isLoading: isActivityLoading } = useApiResource(loadAudit, [], { cacheKey: "audit:recent", staleMs: 10000, enabled: canRead("audit:read") });
   const { data: telemetryRows } = useApiResource(
     loadTelemetry,
     [],

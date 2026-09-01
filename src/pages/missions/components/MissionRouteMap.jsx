@@ -6,19 +6,31 @@ import "mapbox-gl/dist/mapbox-gl.css";
 const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
 const defaultCenter = [151.2073, -33.8679];
 
-const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = null }) => {
+const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = null, telemetry = null, telemetryTrail = [], telemetryMode = "planned" }) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const mapboxRef = useRef(null);
   const markersRef = useRef([]);
+  const hasFittedRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState("");
   const routePoints = useMemo(() => waypoints.filter(hasCoordinates), [waypoints]);
+  const telemetryPoints = useMemo(() => {
+    const points = Array.isArray(telemetryTrail) ? telemetryTrail.map(normaliseTelemetryPoint).filter(hasCoordinates) : [];
+    const latestPoint = normaliseTelemetryPoint(telemetry);
+
+    if (hasCoordinates(latestPoint) && !points.some((point) => pointsAreSame(point, latestPoint))) {
+      points.push(latestPoint);
+    }
+
+    return points;
+  }, [telemetry, telemetryTrail]);
+  const latestTelemetryPoint = telemetryPoints[telemetryPoints.length - 1] ?? null;
   const locationPoints = useMemo(() => [
     { ...normaliseLocation(launchSite), markerLabel: "L", popupLabel: "Launch Site", markerClass: "launch" },
     { ...normaliseLocation(operatingArea), markerLabel: "A", popupLabel: "Operating Area", markerClass: "area" }
   ].filter(hasCoordinates), [launchSite, operatingArea]);
-  const mapPoints = useMemo(() => [...routePoints, ...locationPoints], [locationPoints, routePoints]);
+  const mapPoints = useMemo(() => [...routePoints, ...locationPoints, ...telemetryPoints], [locationPoints, routePoints, telemetryPoints]);
 
   useEffect(() => {
     if (!mapboxToken || mapRef.current || !mapContainerRef.current || mapPoints.length === 0) return;
@@ -48,7 +60,7 @@ const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = nu
         mapRef.current.on("load", () => {
           if (!isMounted) return;
           setMapReady(true);
-          renderRoute(mapRef.current, mapboxgl, routePoints, locationPoints, markersRef);
+          renderRoute(mapRef.current, mapboxgl, routePoints, locationPoints, telemetryPoints, latestTelemetryPoint, telemetryMode, markersRef);
         });
 
         const resizeObserver = new ResizeObserver(() => mapRef.current?.resize());
@@ -75,10 +87,14 @@ const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = nu
     mapRef.current.resize();
     updateRouteSource(mapRef.current, routePoints);
     updateOperatingAreaSource(mapRef.current, normaliseLocation(operatingArea));
+    updateTelemetrySource(mapRef.current, telemetryPoints, latestTelemetryPoint);
     resetMarkers(markersRef);
-    addMarkers(mapRef.current, mapboxRef.current, routePoints, locationPoints, markersRef);
-    fitMapToRoute(mapRef.current, mapboxRef.current, mapPoints);
-  }, [locationPoints, mapPoints, mapReady, routePoints]);
+    addMarkers(mapRef.current, mapboxRef.current, routePoints, locationPoints, latestTelemetryPoint, telemetryMode, markersRef);
+    if (!hasFittedRef.current) {
+      fitMapToRoute(mapRef.current, mapboxRef.current, mapPoints);
+      hasFittedRef.current = true;
+    }
+  }, [latestTelemetryPoint, locationPoints, mapPoints, mapReady, routePoints, telemetryMode, telemetryPoints]);
 
   if (!mapboxToken) {
     return (
@@ -107,11 +123,12 @@ const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = nu
   );
 };
 
-const renderRoute = (map, mapboxgl, points, locationPoints, markersRef) => {
+const renderRoute = (map, mapboxgl, points, locationPoints, telemetryPoints, latestTelemetryPoint, telemetryMode, markersRef) => {
   updateRouteSource(map, points);
   updateOperatingAreaSource(map, locationPoints.find((point) => point.markerClass === "area"));
-  addMarkers(map, mapboxgl, points, locationPoints, markersRef);
-  fitMapToRoute(map, mapboxgl, [...points, ...locationPoints]);
+  updateTelemetrySource(map, telemetryPoints, latestTelemetryPoint);
+  addMarkers(map, mapboxgl, points, locationPoints, latestTelemetryPoint, telemetryMode, markersRef);
+  fitMapToRoute(map, mapboxgl, [...points, ...locationPoints, ...telemetryPoints]);
 };
 
 const updateRouteSource = (map, points) => {
@@ -179,7 +196,62 @@ const updateOperatingAreaSource = (map, operatingArea) => {
   map.getSource("mission-profile-operating-area")?.setData(areaData);
 };
 
-const addMarkers = (map, mapboxgl, points, locationPoints, markersRef) => {
+const updateTelemetrySource = (map, telemetryPoints, latestTelemetryPoint) => {
+  const trailData = createTelemetryTrailData(telemetryPoints);
+  const currentData = createTelemetryCurrentData(latestTelemetryPoint);
+
+  if (!map.getSource("mission-profile-telemetry-trail")) {
+    map.addSource("mission-profile-telemetry-trail", {
+      type: "geojson",
+      data: trailData
+    });
+    map.addLayer({
+      id: "mission-profile-telemetry-trail-shadow",
+      type: "line",
+      source: "mission-profile-telemetry-trail",
+      paint: {
+        "line-color": "#04111f",
+        "line-width": 7,
+        "line-opacity": 0.42
+      }
+    });
+    map.addLayer({
+      id: "mission-profile-telemetry-trail",
+      type: "line",
+      source: "mission-profile-telemetry-trail",
+      paint: {
+        "line-color": "#2cf4b6",
+        "line-width": 4,
+        "line-opacity": 0.94
+      }
+    });
+  } else {
+    map.getSource("mission-profile-telemetry-trail")?.setData(trailData);
+  }
+
+  if (!map.getSource("mission-profile-telemetry-current")) {
+    map.addSource("mission-profile-telemetry-current", {
+      type: "geojson",
+      data: currentData
+    });
+    map.addLayer({
+      id: "mission-profile-telemetry-current-halo",
+      type: "circle",
+      source: "mission-profile-telemetry-current",
+      paint: {
+        "circle-color": "#2cf4b6",
+        "circle-radius": 16,
+        "circle-opacity": 0.2,
+        "circle-stroke-color": "#bdfdeb",
+        "circle-stroke-width": 2
+      }
+    });
+  } else {
+    map.getSource("mission-profile-telemetry-current")?.setData(currentData);
+  }
+};
+
+const addMarkers = (map, mapboxgl, points, locationPoints, latestTelemetryPoint, telemetryMode, markersRef) => {
   points.forEach((point, index) => {
     const markerElement = document.createElement("span");
     markerElement.className = "mission-profile-map-marker";
@@ -209,6 +281,27 @@ const addMarkers = (map, mapboxgl, points, locationPoints, markersRef) => {
 
     markersRef.current.push(marker);
   });
+
+  if (hasCoordinates(latestTelemetryPoint)) {
+    const markerElement = document.createElement("span");
+    markerElement.className = `mission-profile-map-marker drone ${telemetryMode === "recorded" ? "recorded" : "live"}`;
+    markerElement.setAttribute("aria-label", telemetryMode === "recorded" ? "Recorded aircraft position" : "Live aircraft position");
+
+    const popup = new mapboxgl.Popup({ offset: 20 }).setHTML(`
+      <strong>${escapeHtml(latestTelemetryPoint.label || "Aircraft")}</strong><br />
+      ${formatMarkerLine("Status", latestTelemetryPoint.status)}<br />
+      ${formatMarkerLine("Battery", latestTelemetryPoint.battery)}<br />
+      ${formatMarkerLine("Speed", latestTelemetryPoint.speed)}<br />
+      ${formatMarkerLine("Updated", latestTelemetryPoint.timestamp)}
+    `);
+
+    const marker = new mapboxgl.Marker({ element: markerElement, anchor: "center" })
+      .setLngLat([Number(latestTelemetryPoint.longitude), Number(latestTelemetryPoint.latitude)])
+      .setPopup(popup)
+      .addTo(map);
+
+    markersRef.current.push(marker);
+  }
 };
 
 const createRouteData = (points) => ({
@@ -218,6 +311,34 @@ const createRouteData = (points) => ({
     coordinates: points.map((point) => [Number(point.longitude), Number(point.latitude)])
   },
   properties: {}
+});
+
+const createTelemetryTrailData = (points) => ({
+  type: "FeatureCollection",
+  features: points.length >= 2
+    ? [{
+        type: "Feature",
+        geometry: {
+          type: "LineString",
+          coordinates: points.map((point) => [Number(point.longitude), Number(point.latitude)])
+        },
+        properties: {}
+      }]
+    : []
+});
+
+const createTelemetryCurrentData = (point) => ({
+  type: "FeatureCollection",
+  features: hasCoordinates(point)
+    ? [{
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [Number(point.longitude), Number(point.latitude)]
+        },
+        properties: {}
+      }]
+    : []
 });
 
 const fitMapToRoute = (map, mapboxgl, points) => {
@@ -251,6 +372,61 @@ const normaliseLocation = (location) => {
     radiusMeters: location.radiusMeters ?? location.radius
   };
 };
+
+const normaliseTelemetryPoint = (record) => {
+  if (!record || typeof record !== "object") return null;
+  const raw = record.simulator?.raw ?? record.raw ?? record;
+  const latitude = record.location?.latitude ?? getNestedValue(raw, "position.latitude") ?? raw.latitude ?? raw.lat;
+  const longitude = record.location?.longitude ?? getNestedValue(raw, "position.longitude") ?? raw.longitude ?? raw.lng ?? raw.lon;
+
+  return {
+    label: record.drone ?? record.droneCode ?? record.simulator?.droneId ?? raw.drone_id ?? "Aircraft",
+    latitude,
+    longitude,
+    altitude: record.location?.altitude ?? getNestedValue(raw, "position.altitude_agl_m") ?? raw.altitude_agl_m ?? raw.altitude_m,
+    battery: record.battery?.level ?? getNestedValue(raw, "power.remaining_percent") ?? raw.battery_percent,
+    speed: record.velocity?.speed ?? getNestedValue(raw, "motion.ground_speed_mps") ?? raw.speed_mps,
+    status: record.status ?? getNestedValue(raw, "aircraft.flight_status") ?? raw.flight_status,
+    timestamp: record.timestamp ?? raw.timestamp ?? raw.recorded_at_utc,
+    latitudeSource: latitude,
+    longitudeSource: longitude
+  };
+};
+
+const getNestedValue = (source, path) => {
+  if (!source || !path) return undefined;
+  return path.split(".").reduce((current, key) => current?.[key], source);
+};
+
+const pointsAreSame = (first, second) => {
+  if (!hasCoordinates(first) || !hasCoordinates(second)) return false;
+  return Number(first.latitude) === Number(second.latitude) && Number(first.longitude) === Number(second.longitude);
+};
+
+const formatMarkerLine = (label, value) => {
+  if (value === null || value === undefined || value === "") return `${label}: No data`;
+  if (label === "Battery") {
+    const number = Number(value);
+    return `${label}: ${Number.isFinite(number) ? `${Math.round(number)}%` : value}`;
+  }
+  if (label === "Speed") {
+    const number = Number(value);
+    return `${label}: ${Number.isFinite(number) ? `${number.toFixed(1)} m/s` : value}`;
+  }
+  if (label === "Updated") {
+    const date = new Date(value);
+    return `${label}: ${Number.isNaN(date.getTime()) ? value : date.toLocaleString()}`;
+  }
+  return `${label}: ${String(value).replaceAll("_", " ")}`;
+};
+
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  "\"": "&quot;",
+  "'": "&#039;"
+}[character]));
 
 const createCircleFeature = (center, radiusMeters, steps = 72) => {
   const earthRadiusMeters = 6371008.8;

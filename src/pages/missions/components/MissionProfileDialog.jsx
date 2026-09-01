@@ -1,11 +1,12 @@
-import { AlertTriangle, CalendarClock, CheckCircle2, MapPinned, Pencil, Play, Route, ShieldCheck, UserRound, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AlertTriangle, CalendarClock, CheckCircle2, FileWarning, Maximize2, Minimize2, Pencil, Plane, Play, RadioTower, Route, ShieldCheck, UserRound, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
 import CopyableId from "../../../components/common/CopyableId";
 import ProgressBar from "../../../components/common/ProgressBar";
 import StatusBadge from "../../../components/common/StatusBadge";
 import { droneOpsApi } from "../../../services/droneOpsApi";
+import IncidentForm from "../../incidents/components/IncidentForm";
 import MissionForm from "./MissionForm";
 import MissionRouteMap from "./MissionRouteMap";
 
@@ -15,6 +16,10 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
   const [riskForm, setRiskForm] = useState(() => createRiskForm(mission.riskAssessment));
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [isRiskSaving, setIsRiskSaving] = useState(false);
+  const [isRiskEditing, setIsRiskEditing] = useState(false);
+  const [liveReplay, setLiveReplay] = useState([]);
+  const [showLiveFullscreen, setShowLiveFullscreen] = useState(false);
+  const [showFlightIncidentForm, setShowFlightIncidentForm] = useState(false);
   const isSystemAdministrator = ["SYSTEM_ADMINISTRATOR", "system_administrator"].includes(user?.role);
   const canCompleteRisk = Boolean(user?.permissions?.includes("*") || user?.permissions?.includes("risk:complete") || user?.permissions?.includes("risk:manage"));
   const workflowStatus = mission.rawStatus ?? mission.status;
@@ -25,6 +30,20 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
   const operatingLocation = mission.plannedRoute?.operatingArea ?? toSavedLocation(mission.operatingArea);
   const routeEndpoints = getRouteEndpoints(waypoints);
   const routeSummary = getRouteSummary(waypoints);
+  const latestTelemetry = liveReplay[liveReplay.length - 1] ?? null;
+  const missionDroneIds = useMemo(() => getMissionDroneIds(mission), [mission]);
+  const flightIncidentDefaults = useMemo(() => ({
+    missionId: mission.uuid ?? mission.systemId ?? mission.id,
+    droneIds: missionDroneIds,
+    source: "Telemetry",
+    locationPoint: latestTelemetry?.location
+      ? {
+          label: "Live flight position",
+          latitude: latestTelemetry.location.latitude,
+          longitude: latestTelemetry.location.longitude
+        }
+      : null
+  }), [latestTelemetry, mission, missionDroneIds]);
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key === "Escape") onClose?.();
@@ -41,7 +60,37 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
 
   useEffect(() => {
     setRiskForm(createRiskForm(mission.riskAssessment));
+    setIsRiskEditing(false);
   }, [mission.riskAssessment]);
+
+  useEffect(() => {
+    let isMounted = true;
+    let timerId = 0;
+    const canLoadTelemetry = ["ACTIVE", "COMPLETED"].includes(workflowStatus);
+
+    const loadReplay = async () => {
+      if (!canLoadTelemetry) {
+        setLiveReplay([]);
+        return;
+      }
+
+      try {
+        const rows = await droneOpsApi.missions.replay(mission.uuid ?? mission.systemId ?? mission.id);
+        if (isMounted) setLiveReplay(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (isMounted) setLiveReplay([]);
+      } finally {
+        if (isMounted && workflowStatus === "ACTIVE") timerId = window.setTimeout(loadReplay, 3000);
+      }
+    };
+
+    loadReplay();
+
+    return () => {
+      isMounted = false;
+      window.clearTimeout(timerId);
+    };
+  }, [mission, workflowStatus]);
 
   if (isEditing) {
     return (
@@ -55,9 +104,22 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
     );
   }
 
+  if (showFlightIncidentForm) {
+    return (
+      <IncidentForm
+        initialValues={flightIncidentDefaults}
+        onCreated={() => {
+          setShowFlightIncidentForm(false);
+          onUpdated?.(mission, "incident");
+        }}
+        onCancel={() => setShowFlightIncidentForm(false)}
+      />
+    );
+  }
+
   const dialog = (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose?.()}>
-      <div className="modal-dialog profile-dialog" role="dialog" aria-modal="true" aria-labelledby="mission-profile-title">
+      <div className={`modal-dialog profile-dialog ${showLiveFullscreen ? "live-fullscreen-active" : ""}`} role="dialog" aria-modal="true" aria-labelledby="mission-profile-title">
         <div className="modal-header">
           <div>
             <p className="eyebrow">Mission Profile</p>
@@ -83,9 +145,26 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
 
           <div className="profile-metrics">
             <ProfileMetric icon={UserRound} label="Pilot" value={mission.pilot} />
-            <ProfileMetric icon={MapPinned} label="Drone" value={mission.drone} />
+            <ProfileMetric icon={Plane} label="Drone" value={mission.drone} />
             <ProfileMetric icon={CalendarClock} label="Mission Planned On" value={formatMissionPlannedOn(mission.plannedStartAt)} />
           </div>
+
+          {["ACTIVE", "COMPLETED"].includes(workflowStatus) && showLiveFullscreen && (
+            <MissionLiveOperationPanel
+              mission={mission}
+              waypoints={waypoints}
+              launchLocation={launchLocation}
+              operatingLocation={operatingLocation}
+              telemetry={latestTelemetry}
+              telemetryTrail={liveReplay}
+              replayCount={liveReplay.length}
+              routeProgress={routeProgress}
+              isFullscreen
+              isHistorical={workflowStatus === "COMPLETED"}
+              onToggleFullscreen={() => setShowLiveFullscreen((current) => !current)}
+              onLogIncident={() => setShowFlightIncidentForm(true)}
+            />
+          )}
 
           <div className="profile-grid">
             <ProfileSection icon={Route} title="Mission Overview">
@@ -151,6 +230,12 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
             <div className="profile-section-title">
               <ShieldCheck size={18} />
               <h3>Pre-flight Risk Assessment</h3>
+              {canCompleteRisk && hasRiskAssessment && ["APPROVED", "RISK_ASSESSMENT_COMPLETED"].includes(workflowStatus) && !isRiskEditing && (
+                <button className="icon-text-button compact" type="button" onClick={() => setIsRiskEditing(true)}>
+                  <Pencil size={15} />
+                  <span>Edit</span>
+                </button>
+              )}
             </div>
             <div className="risk-assessment-panel">
               <div className="risk-assessment-status">
@@ -165,7 +250,7 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
                 </div>
               )}
 
-              {canCompleteRisk && ["APPROVED", "RISK_ASSESSMENT_COMPLETED"].includes(workflowStatus) && (
+              {canCompleteRisk && ["APPROVED", "RISK_ASSESSMENT_COMPLETED"].includes(workflowStatus) && (!hasRiskAssessment || isRiskEditing) && (
                 <form className="risk-assessment-form" onSubmit={handleRiskAssessmentSubmit}>
                   <label className="field">
                     <span>Risk Level</span>
@@ -187,6 +272,14 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
                   <ActionButton icon={ShieldCheck} variant="primary" type="submit" disabled={isRiskSaving}>
                     {isRiskSaving ? "Saving Assessment" : hasRiskAssessment ? "Update Assessment" : "Complete Assessment"}
                   </ActionButton>
+                  {hasRiskAssessment && (
+                    <ActionButton type="button" onClick={() => {
+                      setRiskForm(createRiskForm(mission.riskAssessment));
+                      setIsRiskEditing(false);
+                    }}>
+                      Cancel Edit
+                    </ActionButton>
+                  )}
                 </form>
               )}
 
@@ -202,20 +295,29 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
           <section className="profile-section mission-readiness-section">
             <div className="profile-section-title">
               <CheckCircle2 size={18} />
-              <h3>Workflow Control</h3>
+              <h3>Approvals and Workflow Control</h3>
             </div>
             <dl>
               <div>
                 <dt>Current step</dt>
                 <dd>{getWorkflowDescription(workflowStatus, isSystemAdministrator)}</dd>
               </div>
+              <div>
+                <dt>Council / authority area</dt>
+                <dd>{formatAuthorityReadout(operatingLocation, mission.geofenceConfig)}</dd>
+              </div>
+              <div>
+                <dt>Approval evidence</dt>
+                <dd>{mission.synctegralMissionId ? `Synctegral reference ${mission.synctegralMissionId}` : "DroneOps approval and risk assessment records are stored locally."}</dd>
+              </div>
             </dl>
           </section>
         </div>
 
         <div className="modal-footer profile-footer">
-          {canManage && (
-            <div className="form-actions">
+          <div className="form-actions profile-primary-actions">
+            {canManage && (
+              <>
               {isSystemAdministrator && workflowStatus === "PLANNED" && (
                 <ActionButton
                   icon={CheckCircle2}
@@ -237,18 +339,44 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
                 </ActionButton>
               )}
               {workflowStatus === "ACTIVE" && (
-                <ActionButton
-                  icon={CheckCircle2}
-                  variant="primary"
-                  onClick={() => handleMissionAction("complete")}
-                  disabled={isActionLoading}
-                >
-                  {isActionLoading ? "Completing" : "Complete Mission"}
-                </ActionButton>
+                <>
+                  <ActionButton
+                    icon={FileWarning}
+                    onClick={() => setShowFlightIncidentForm(true)}
+                    disabled={isActionLoading}
+                  >
+                    Log Flight Incident
+                  </ActionButton>
+                  <ActionButton
+                    icon={Maximize2}
+                    onClick={() => setShowLiveFullscreen(true)}
+                    disabled={isActionLoading}
+                  >
+                    Live Map
+                  </ActionButton>
+                  <ActionButton
+                    icon={CheckCircle2}
+                    variant="primary"
+                    onClick={() => handleMissionAction("complete")}
+                    disabled={isActionLoading}
+                  >
+                    {isActionLoading ? "Completing" : "Complete Mission"}
+                  </ActionButton>
+                </>
               )}
-            </div>
-          )}
-          <div className="form-actions">
+              </>
+            )}
+            {workflowStatus === "COMPLETED" && (
+              <ActionButton
+                icon={Maximize2}
+                onClick={() => setShowLiveFullscreen(true)}
+                disabled={isActionLoading}
+              >
+                View Telemetry Data
+              </ActionButton>
+            )}
+          </div>
+          <div className="form-actions profile-secondary-actions">
             <ActionButton onClick={onClose}>Close</ActionButton>
           </div>
         </div>
@@ -271,6 +399,7 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
       if (action === "complete") updatedMission = await droneOpsApi.missions.complete(missionId);
 
       onUpdated?.(updatedMission, action);
+      if (action === "start") setShowLiveFullscreen(true);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -292,6 +421,7 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
       });
 
       onUpdated?.({ ...mission, status: "RISK_ASSESSMENT_COMPLETED", rawStatus: "RISK_ASSESSMENT_COMPLETED", riskAssessment: assessment }, "riskAssessment");
+      setIsRiskEditing(false);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -316,6 +446,210 @@ const ProfileIdentity = ({ id }) => (
   <div className="profile-identity-list" aria-label="Record identity">
     <span><strong>ID</strong><CopyableId value={id} /></span>
   </div>
+);
+
+const MissionLiveOperationPanel = ({
+  mission,
+  waypoints,
+  launchLocation,
+  operatingLocation,
+  telemetry,
+  telemetryTrail = [],
+  replayCount,
+  routeProgress,
+  isFullscreen,
+  isHistorical = false,
+  onToggleFullscreen,
+  onLogIncident
+}) => {
+  const missionState = String(mission.rawStatus ?? mission.status ?? telemetry?.status ?? "").toUpperCase();
+  const telemetryState = String(
+    telemetry?.status
+    ?? getRawTelemetryValue(telemetry, ["aircraft.flight_status", "flight_status"])
+    ?? ""
+  ).toUpperCase();
+  const telemetryIndicatesActive = ["ACTIVE", "IN_FLIGHT"].includes(telemetryState);
+  const isCompleted = !telemetryIndicatesActive && (isHistorical || missionState === "COMPLETED" || ["COMPLETED", "MISSION_COMPLETE"].includes(telemetryState));
+  const status = isCompleted
+    ? "MISSION COMPLETE"
+    : telemetryIndicatesActive || missionState === "ACTIVE"
+      ? "IN FLIGHT"
+      : telemetry?.status ?? "Waiting for telemetry";
+  const telemetryTitle = isCompleted ? "Recorded Aircraft Telemetry" : "Live Aircraft Telemetry";
+  const missionSummary = [
+    { label: "Distance", value: formatDistance(routeProgress?.totalDistanceMeters ?? getRouteDistanceMeters(waypoints)) },
+    { label: "Estimated flight time", value: formatMissionDuration(mission.plannedStartAt, mission.plannedEndAt) },
+    { label: "Altitude AGL", value: formatAltitudeRange(waypoints, telemetry) },
+    { label: "Telemetry records", value: replayCount || "No records" },
+    { label: "Mission status", value: getStatusLabel(isCompleted ? "COMPLETED" : mission.rawStatus ?? mission.status), tone: isCompleted ? "complete" : "" }
+  ];
+  const primaryTelemetry = [
+    { label: "AGL", value: formatTelemetryValue(getRawTelemetryValue(telemetry, ["position.altitude_agl_m", "altitude_agl_m"]) ?? telemetry?.location?.altitude, "m") },
+    { label: "AMSL", value: formatTelemetryValue(getRawTelemetryValue(telemetry, ["position.altitude_amsl_m", "altitude_msl_m", "altitude_m"]), "m") },
+    { label: "Ground speed", value: formatTelemetryValue(getRawTelemetryValue(telemetry, ["motion.ground_speed_mps", "speed_mps"]) ?? telemetry?.velocity?.speed, "m/s") },
+    { label: "Battery", value: formatTelemetryPercent(getRawTelemetryValue(telemetry, ["power.remaining_percent", "battery_percent"]) ?? telemetry?.battery?.level) },
+    { label: "Latitude", value: formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["position.latitude", "latitude"]) ?? telemetry?.location?.latitude) },
+    { label: "Longitude", value: formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["position.longitude", "longitude"]) ?? telemetry?.location?.longitude) },
+    { label: "Heading", value: formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["motion.heading_deg", "heading_deg"]) ?? telemetry?.velocity?.heading, "deg") },
+    { label: "Flight status", value: formatReadableTelemetry(getRawTelemetryValue(telemetry, ["aircraft.flight_status", "flight_status", "flightStatus"]) ?? telemetry?.simulator?.flightStatus ?? telemetry?.status) },
+    { label: "Engine", value: formatReadableTelemetry(getRawTelemetryValue(telemetry, ["aircraft.engine_status", "engine_status", "engineStatus"]) ?? telemetry?.simulator?.engineStatus) },
+    { label: "Current leg", value: formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["mission_context.leg", "current_leg"]) ?? telemetry?.simulator?.leg) },
+    { label: "Waypoint", value: formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["mission_context.waypoint", "current_waypoint"]) ?? telemetry?.simulator?.waypoint) },
+    { label: "Terrain", value: formatReadableTelemetry(getRawTelemetryValue(telemetry, ["position.terrain_quality", "terrain_quality", "navigation.gps_health"])) },
+    { label: "Battery voltage", value: formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["power.voltage_v", "battery_voltage_v"]) ?? telemetry?.battery?.voltage, "V") },
+    { label: "Command link", value: formatTelemetryPercent(getRawTelemetryValue(telemetry, ["link.command_quality_percent", "command_link_percent"]) ?? telemetry?.signal?.strength) },
+    { label: "Elapsed", value: formatTelemetryDuration(getRawTelemetryValue(telemetry, ["timing.simulation_elapsed_s", "elapsed_seconds"]) ?? telemetry?.simulator?.elapsedSeconds) },
+    { label: "Remaining", value: formatTelemetryDistance(getRawTelemetryValue(telemetry, ["mission_context.remaining_distance_m", "remaining_distance_m"]) ?? telemetry?.simulator?.remainingDistanceMeters) }
+  ];
+  const telemetryGroups = [
+    {
+      title: "Mission / timing",
+      rows: compactTelemetryRows([
+        ["External mission", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["mission_id", "mission.mission_id"]) ?? telemetry?.simulator?.missionId)],
+        ["Sequence", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["sequence"]) ?? telemetry?.simulator?.sequence)],
+        ["Current waypoint", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["mission_context.waypoint", "current_waypoint"]) ?? telemetry?.simulator?.waypoint)],
+        ["Current leg", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["mission_context.leg", "current_leg"]) ?? telemetry?.simulator?.leg)],
+        ["Elapsed", formatTelemetryDuration(getRawTelemetryValue(telemetry, ["timing.simulation_elapsed_s", "elapsed_seconds"]) ?? telemetry?.simulator?.elapsedSeconds)],
+        ["Remaining distance", formatTelemetryDistance(getRawTelemetryValue(telemetry, ["mission_context.remaining_distance_m", "remaining_distance_m"]) ?? telemetry?.simulator?.remainingDistanceMeters)],
+        ["Updated", telemetry?.timestamp ? formatDateTime(telemetry.timestamp) : "No data"]
+      ])
+    },
+    {
+      title: "Position / terrain",
+      rows: compactTelemetryRows([
+        ["Latitude", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["position.latitude", "latitude"]) ?? telemetry?.location?.latitude)],
+        ["Longitude", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["position.longitude", "longitude"]) ?? telemetry?.location?.longitude)],
+        ["AGL", formatTelemetryValue(getRawTelemetryValue(telemetry, ["position.altitude_agl_m", "altitude_agl_m"]) ?? telemetry?.location?.altitude, "m")],
+        ["AMSL", formatTelemetryValue(getRawTelemetryValue(telemetry, ["position.altitude_amsl_m", "altitude_msl_m", "altitude_m"]), "m")],
+        ["Terrain MSL", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["position.terrain_elevation_msl_m", "terrain_elevation_msl_m"]), "m")],
+        ["Terrain quality", formatReadableTelemetry(getRawTelemetryValue(telemetry, ["position.terrain_quality", "terrain_quality", "navigation.gps_health"]))]
+      ])
+    },
+    {
+      title: "Power / aircraft",
+      rows: compactTelemetryRows([
+        ["Battery", formatTelemetryPercent(getRawTelemetryValue(telemetry, ["power.remaining_percent", "battery_percent"]) ?? telemetry?.battery?.level)],
+        ["Battery voltage", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["power.voltage_v", "battery_voltage_v"]) ?? telemetry?.battery?.voltage, "V")],
+        ["Battery current", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["power.current_a", "battery_current_a"]), "A")],
+        ["Battery temperature", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["power.temperature_c", "battery_temperature_c"]), "C")],
+        ["Flight mode", formatReadableTelemetry(getRawTelemetryValue(telemetry, ["aircraft.flight_mode", "flight_mode", "flightMode"]) ?? telemetry?.simulator?.flightMode)],
+        ["Flight status", formatReadableTelemetry(getRawTelemetryValue(telemetry, ["aircraft.flight_status", "flight_status", "flightStatus"]) ?? telemetry?.simulator?.flightStatus ?? telemetry?.status)],
+        ["Engine status", formatReadableTelemetry(getRawTelemetryValue(telemetry, ["aircraft.engine_status", "engine_status", "engineStatus"]) ?? telemetry?.simulator?.engineStatus)],
+        ["Armed", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["aircraft.armed", "raw_vendor_telemetry.armed", "armed"]))]
+      ])
+    },
+    {
+      title: "Navigation / link",
+      rows: compactTelemetryRows([
+        ["Heading", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["motion.heading_deg", "heading_deg"]) ?? telemetry?.velocity?.heading, "deg")],
+        ["Ground speed", formatTelemetryValue(getRawTelemetryValue(telemetry, ["motion.ground_speed_mps", "speed_mps"]) ?? telemetry?.velocity?.speed, "m/s")],
+        ["Vertical speed", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["motion.vertical_speed_mps", "vertical_speed_mps"]), "m/s")],
+        ["GNSS fix", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["navigation.gnss_fix", "gnss_fix", "gnss"]))],
+        ["Satellites", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["navigation.satellites", "satellites"]))],
+        ["HDOP", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["navigation.hdop", "hdop"]))],
+        ["RTK status", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["navigation.rtk_status", "rtk_status"]))],
+        ["Command quality", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["link.command_quality_percent", "command_link_percent"]), "%")],
+        ["Video quality", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["link.video_quality_percent", "video_quality_percent"]), "%")],
+        ["RSSI", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["link.rssi_dbm", "rssi_dbm"]), "dBm")]
+      ])
+    },
+    {
+      title: "Authority / extras",
+      rows: compactTelemetryRows([
+        ["Council", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["mission_context.council", "council_name"]))],
+        ["Council match", formatReadableTelemetry(getRawTelemetryValue(telemetry, ["mission_context.council_match_quality", "council_match_quality"]))],
+        ["Pilot", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["pilot"]))],
+        ["CPU load", formatTelemetryPercent(getRawTelemetryValue(telemetry, ["raw_vendor_telemetry.cpu_load_percent", "cpu_load_percent"]))],
+        ["Roll", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["attitude.roll_deg", "roll_deg"]), "deg")],
+        ["Pitch", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["attitude.pitch_deg", "pitch_deg"]), "deg")],
+        ["Yaw", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["attitude.yaw_deg", "yaw_deg"]), "deg")],
+        ["Gimbal pitch", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["gimbal.pitch_deg", "gimbal_pitch_deg"]), "deg")],
+        ["Gimbal yaw", formatRawTelemetryValue(getRawTelemetryValue(telemetry, ["gimbal.yaw_deg", "gimbal_yaw_deg"]), "deg")]
+      ])
+    }
+  ].filter((group) => group.rows.length);
+
+  return (
+    <section className={`mission-live-panel ${isFullscreen ? "fullscreen" : ""}`}>
+      <div className="mission-live-header">
+        <div>
+          <div className="profile-section-title">
+            <RadioTower size={18} />
+            <span className={`mission-live-state-dot ${isCompleted ? "complete" : "live"}`} aria-hidden="true" />
+            <h3>{isCompleted ? "Recorded Flight Operation" : "Live Flight Operation"}</h3>
+          </div>
+          <p>{isHistorical ? "Mission map, final telemetry values, and replay evidence captured during the completed operation." : "Map, flight path, telemetry, and incident response for the active mission."}</p>
+        </div>
+        <div className="mission-live-actions">
+          <span className={`mission-live-status ${isCompleted ? "complete" : "active"}`}>{status}</span>
+          {!isHistorical && <ActionButton icon={FileWarning} onClick={onLogIncident}>Log Incident</ActionButton>}
+          <button className="icon-button" type="button" onClick={onToggleFullscreen} aria-label={isFullscreen ? "Exit full screen live operation" : "Expand live operation"}>
+            {isFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+          </button>
+        </div>
+      </div>
+
+      <details className="mission-live-summary" open>
+        <summary>Mission Summary</summary>
+        <div>
+          {missionSummary.map((item) => (
+            <TelemetryReadout key={item.label} label={item.label} value={item.value} compact tone={item.tone} />
+          ))}
+        </div>
+      </details>
+
+      <div className="mission-live-grid">
+        <div className="mission-live-map">
+          <MissionRouteMap
+            waypoints={waypoints}
+            launchSite={launchLocation}
+            operatingArea={operatingLocation}
+            telemetry={telemetry}
+            telemetryTrail={telemetryTrail}
+            telemetryMode={isCompleted ? "recorded" : "live"}
+          />
+        </div>
+        <aside className="mission-live-telemetry" aria-label="Live telemetry readout">
+          <div className="mission-live-readout-heading">
+            <strong>{telemetryTitle}</strong>
+            <span>{isHistorical ? "Final captured record" : `Record ${replayCount || 0}`}</span>
+          </div>
+          <div className="mission-live-readout-grid">
+            {primaryTelemetry.map((item) => (
+              <TelemetryReadout key={item.label} label={item.label} value={item.value} />
+            ))}
+          </div>
+          <p className="mission-live-telemetry-note">Vendor-neutral telemetry fields from the simulator/API. Empty values mean the simulator did not provide that measurement.</p>
+          <div className="mission-live-accordion-list">
+            {telemetryGroups.map((group) => (
+              <TelemetryDetails key={group.title} title={group.title} rows={group.rows} />
+            ))}
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+};
+
+const TelemetryReadout = ({ label, value, compact = false, tone = "" }) => (
+  <div className={`mission-live-readout ${compact ? "compact" : ""} ${tone ? `tone-${tone}` : ""}`}>
+    <span>{label}</span>
+    <strong>{value ?? "No data"}</strong>
+  </div>
+);
+
+const TelemetryDetails = ({ title, rows }) => (
+  <details className="mission-live-details">
+    <summary>{title}</summary>
+    <dl>
+      {rows.map(([label, value]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>{value || "No data"}</dd>
+        </div>
+      ))}
+    </dl>
+  </details>
 );
 
 const ProfileSection = ({ icon: Icon, title, children }) => (
@@ -363,6 +697,47 @@ const formatDistance = (value) => {
   if (!Number.isFinite(meters)) return "Not available";
   if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
   return `${Math.round(meters)} m`;
+};
+
+const getRouteDistanceMeters = (waypoints) => {
+  const points = waypoints.filter(hasWaypointCoordinates);
+  if (points.length < 2) return null;
+
+  return points.slice(1).reduce((total, point, index) => (
+    total + getDistanceMeters(points[index], point)
+  ), 0);
+};
+
+const getDistanceMeters = (from, to) => {
+  const earthRadiusMeters = 6371008.8;
+  const fromLatitude = toRadians(Number(from.latitude));
+  const toLatitude = toRadians(Number(to.latitude));
+  const deltaLatitude = toRadians(Number(to.latitude) - Number(from.latitude));
+  const deltaLongitude = toRadians(Number(to.longitude) - Number(from.longitude));
+  const haversine = Math.sin(deltaLatitude / 2) ** 2 +
+    Math.cos(fromLatitude) * Math.cos(toLatitude) * Math.sin(deltaLongitude / 2) ** 2;
+
+  return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+};
+
+const toRadians = (degrees) => degrees * Math.PI / 180;
+
+const formatMissionDuration = (start, end) => {
+  if (!start || !end) return "Not scheduled";
+  const durationMinutes = (new Date(end).getTime() - new Date(start).getTime()) / 60000;
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) return "Not scheduled";
+  return `${durationMinutes.toFixed(1)} min`;
+};
+
+const formatAltitudeRange = (waypoints, telemetry) => {
+  const altitudes = waypoints
+    .map((waypoint) => Number(waypoint.altitude))
+    .filter(Number.isFinite);
+  const liveAltitude = Number(getRawTelemetryValue(telemetry, "position.altitude_agl_m") ?? telemetry?.location?.altitude);
+
+  if (altitudes.length >= 2) return `${Math.min(...altitudes)}-${Math.max(...altitudes)} m`;
+  if (Number.isFinite(liveAltitude)) return `${liveAltitude.toFixed(1)} m`;
+  return "Not available";
 };
 
 const hasWaypointCoordinates = (waypoint) => {
@@ -460,6 +835,102 @@ const getStatusLabel = (status) => {
   if (status === "PLANNED") return "Awaiting Approval";
   if (status === "RISK_ASSESSMENT_COMPLETED") return "Risk Assessment Completed";
   return status;
+};
+
+const getMissionDroneIds = (mission) => {
+  const assignmentIds = mission.droneAssignments?.map((assignment) => assignment.drone?.id ?? assignment.droneId).filter(Boolean) ?? [];
+  return [...new Set([mission.drone?.id, mission.droneId, ...assignmentIds].filter(Boolean))];
+};
+
+const formatAuthorityReadout = (operatingLocation, geofenceConfig) => {
+  const configuredCouncil = geofenceConfig?.councilName ?? geofenceConfig?.authorityName;
+  if (configuredCouncil) return configuredCouncil;
+  if (operatingLocation?.label && operatingLocation.label !== "Operating area") return operatingLocation.label;
+  return "Authority/council approval evidence can be attached once the external authority dataset is available.";
+};
+
+const formatTelemetryPercent = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${Math.round(number)}%` : "No data";
+};
+
+const formatTelemetryValue = (value, unit) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "No data";
+  return `${Number.isInteger(number) ? number : number.toFixed(2)} ${unit}`;
+};
+
+const getRawTelemetryValue = (telemetry, path) => {
+  const paths = Array.isArray(path) ? path : [path];
+  const raw = telemetry?.simulator?.raw;
+  const candidates = [
+    raw,
+    raw?.telemetry,
+    raw?.record,
+    raw?.data,
+    raw?.raw_vendor_telemetry,
+    telemetry?.simulator,
+    telemetry
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    for (const currentPath of paths) {
+      if (!currentPath) continue;
+      const value = currentPath.split(".").reduce((current, key) => current?.[key], candidate);
+      if (value !== undefined && value !== null && value !== "") return value;
+    }
+  }
+
+  return undefined;
+};
+
+const formatRawTelemetryValue = (value, unit = "") => {
+  if (value === null || value === undefined || value === "") return "No data";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  const number = Number(value);
+  if (Number.isFinite(number)) {
+    const displayValue = Number.isInteger(number) ? number : number.toFixed(2);
+    return unit ? `${displayValue} ${unit}` : `${displayValue}`;
+  }
+  return String(value);
+};
+
+const compactTelemetryRows = (rows) => rows.filter(([, value]) => isTelemetryValueAvailable(value));
+
+const isTelemetryValueAvailable = (value) => (
+  value !== null &&
+  value !== undefined &&
+  value !== "" &&
+  value !== "No data" &&
+  value !== "NaN" &&
+  value !== "NaN m" &&
+  value !== "NaN m/s" &&
+  value !== "NaN %" &&
+  value !== "NaN deg"
+);
+
+const formatTelemetryDuration = (value) => {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) return "No data";
+
+  const wholeSeconds = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(wholeSeconds / 60);
+  const remainingSeconds = wholeSeconds % 60;
+
+  if (!minutes) return `${remainingSeconds} sec`;
+  return `${minutes} min ${remainingSeconds} sec`;
+};
+
+const formatTelemetryDistance = (value) => {
+  const meters = Number(value);
+  if (!Number.isFinite(meters)) return "No data";
+  if (Math.abs(meters) >= 1000) return `${(meters / 1000).toFixed(2)} km`;
+  return `${Math.round(meters)} m`;
+};
+
+const formatReadableTelemetry = (value) => {
+  if (!value) return "No data";
+  return String(value).replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
 };
 
 const createRiskForm = (assessment) => ({

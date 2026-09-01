@@ -1,12 +1,29 @@
 // Backend API base URL.
-const API_BASE_URL =
+const configuredApiBaseUrl =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5001/api/v1";
+
+const API_BASE_URL = (() => {
+  if (typeof window === "undefined") return configuredApiBaseUrl;
+
+  const appHost = window.location.hostname;
+
+  if (appHost === "127.0.0.1" && configuredApiBaseUrl.includes("://localhost:")) {
+    return configuredApiBaseUrl.replace("://localhost:", "://127.0.0.1:");
+  }
+
+  if (appHost === "localhost" && configuredApiBaseUrl.includes("://127.0.0.1:")) {
+    return configuredApiBaseUrl.replace("://127.0.0.1:", "://localhost:");
+  }
+
+  return configuredApiBaseUrl;
+})();
 
 // localStorage key for saved session.
 const SESSION_KEY = "droneops_session";
 
 // Stores active GET requests to avoid duplicate calls.
 const inFlightGetRequests = new Map();
+let refreshTokenRequest = null;
 
 // Reads session from localStorage.
 const getSession = () => {
@@ -33,7 +50,7 @@ const getSession = () => {
 };
 
 // Gets access token from saved session.
-const getAccessToken = () => {
+export const getAccessToken = () => {
   return getSession()?.accessToken ?? "";
 };
 
@@ -101,36 +118,44 @@ const formatValidationDetails = (details) => {
 
 // Gets a new access token using the HttpOnly refresh cookie.
 const refreshAccessToken = async () => {
+  if (refreshTokenRequest) return refreshTokenRequest;
+
   const session = getSession();
 
   if (!session) return null;
 
-  const response = await fetch(`${API_BASE_URL}/auth/refresh-token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({}),
+  refreshTokenRequest = (async () => {
+    const response = await fetch(`${API_BASE_URL}/auth/refresh-token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({}),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+
+    // If refresh fails, force logout.
+    if (!response.ok) {
+      localStorage.removeItem(SESSION_KEY);
+      window.dispatchEvent(new Event("droneops:session-expired"));
+      return null;
+    }
+
+    // Save refreshed session.
+    const nextSession = {
+      ...session,
+      accessToken: payload.data.accessToken,
+      user: payload.data.user ?? session.user,
+    };
+
+    localStorage.setItem(SESSION_KEY, JSON.stringify(nextSession));
+
+    return nextSession.accessToken;
+  })().finally(() => {
+    refreshTokenRequest = null;
   });
 
-  const payload = await response.json().catch(() => ({}));
-
-  // If refresh fails, force logout.
-  if (!response.ok) {
-    localStorage.removeItem(SESSION_KEY);
-    window.dispatchEvent(new Event("droneops:session-expired"));
-    return null;
-  }
-
-  // Save refreshed session.
-  const nextSession = {
-    ...session,
-    accessToken: payload.data.accessToken,
-    user: payload.data.user ?? session.user,
-  };
-
-  localStorage.setItem(SESSION_KEY, JSON.stringify(nextSession));
-
-  return nextSession.accessToken;
+  return refreshTokenRequest;
 };
 
 // Main request function used by all API methods.

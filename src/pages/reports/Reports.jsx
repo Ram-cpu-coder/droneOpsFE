@@ -16,6 +16,13 @@ import ReportProfileDialog from "./components/ReportProfileDialog";
 import { exportReportCollection } from "../../utils/reportExport";
 
 const exportableStatuses = new Set(["READY", "GENERATED"]);
+const reportTypeOptions = [
+  { value: "FLIGHT_ACTIVITY", label: "Flight Activity", help: "Missions by planned date" },
+  { value: "INCIDENT", label: "Incident", help: "Incidents by reported date" },
+  { value: "MAINTENANCE", label: "Maintenance", help: "Maintenance by due date" },
+  { value: "COMPLIANCE", label: "Compliance", help: "Compliance records in scope" },
+  { value: "UTILIZATION", label: "Utilization", help: "Fleet and mission utilization" }
+];
 
 const Reports = ({ user, searchValue = "" }) => {
   const location = useLocation();
@@ -30,14 +37,18 @@ const Reports = ({ user, searchValue = "" }) => {
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [generateDraft, setGenerateDraft] = useState({
-    type: "FLIGHT_ACTIVITY",
+    types: ["FLIGHT_ACTIVITY"],
     dateFrom: "",
-    dateTo: "",
-    limit: 50
+    dateTo: ""
+  });
+  const [scopePreview, setScopePreview] = useState({
+    isLoading: false,
+    totalRecords: null,
+    error: ""
   });
   const [toast, setToast] = useState(null);
   const loadReports = useCallback(() => droneOpsApi.reports.list(), []);
-  const { data: reportRecords, error, isLoading, isFallback, refresh, setData: setReportRecords } = useApiResource(loadReports, []);
+  const { data: reportRecords, error, isLoading, isFallback, refresh, setData: setReportRecords } = useApiResource(loadReports, [], { cacheKey: "reports:list", staleMs: 10000 });
   const normalizedReports = useMemo(() => reportRecords.map((report, index) => normalizeReport(report, index)), [reportRecords]);
   const filteredReports = useFleetSearch(normalizedReports, searchValue);
   const metricReports = isFallback ? [] : normalizedReports;
@@ -49,14 +60,7 @@ const Reports = ({ user, searchValue = "" }) => {
   const exportableReports = useMemo(() => normalizedReports.filter(isReportExportable), [normalizedReports]);
   const readyReports = exportableReports.length;
   const reportTypeCount = new Set(metricReports.map((report) => report.type).filter(Boolean)).size;
-  const generateOptions = [
-    { value: "FLIGHT_ACTIVITY", label: "Flight Activity" },
-    { value: "INCIDENT", label: "Incident" },
-    { value: "MAINTENANCE", label: "Maintenance" },
-    { value: "COMPLIANCE", label: "Compliance" },
-    { value: "UTILIZATION", label: "Utilization" }
-  ];
-  const selectedGenerateOption = generateOptions.find((option) => option.value === generateDraft.type) ?? generateOptions[0];
+  const selectedGenerateLabel = getSelectedReportTypeLabel(generateDraft.types);
 
   const exportReadyReports = async (format) => {
     if (!exportableReports.length) {
@@ -73,6 +77,15 @@ const Reports = ({ user, searchValue = "" }) => {
     setIsExportOpen(false);
   };
 
+  const buildGeneratePayload = useCallback(() => {
+    const payload = {
+      types: generateDraft.types
+    };
+    if (generateDraft.dateFrom) payload.dateFrom = generateDraft.dateFrom;
+    if (generateDraft.dateTo) payload.dateTo = generateDraft.dateTo;
+    return payload;
+  }, [generateDraft]);
+
   const handleGenerateReport = async (event) => {
     event.preventDefault();
 
@@ -87,22 +100,20 @@ const Reports = ({ user, searchValue = "" }) => {
 
     setIsGeneratingReport(true);
     try {
-      const payload = {
-        type: generateDraft.type,
-        limit: Number(generateDraft.limit) || 50
-      };
-      if (generateDraft.dateFrom) payload.dateFrom = generateDraft.dateFrom;
-      if (generateDraft.dateTo) payload.dateTo = generateDraft.dateTo;
-
-      const report = await droneOpsApi.reports.generate(payload);
+      const generated = await droneOpsApi.reports.generate(buildGeneratePayload());
+      const reports = Array.isArray(generated) ? generated : [generated];
+      const firstReport = reports[0];
       window.dispatchEvent(new Event("droneops:activity-changed"));
-      setReportRecords((current) => [report, ...current.filter((item) => item.id !== report.id)]);
+      setReportRecords((current) => [
+        ...reports,
+        ...current.filter((item) => !reports.some((report) => item.id === report.id))
+      ]);
       await refresh();
-      navigate(`/reports/${encodeURIComponent(report.id)}`);
+      if (firstReport?.id) navigate(`/reports/${encodeURIComponent(firstReport.id)}`);
       setIsGenerateOpen(false);
       setToast({
-        title: "Report generated",
-        message: `${selectedGenerateOption.label} report was created with the selected export scope.`
+        title: reports.length === 1 ? "Report generated" : "Reports generated",
+        message: `${selectedGenerateLabel} created with the selected export scope.`
       });
       window.setTimeout(() => setToast(null), 4500);
     } catch (requestError) {
@@ -130,6 +141,46 @@ const Reports = ({ user, searchValue = "" }) => {
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, []);
+
+  useEffect(() => {
+    if (!isGenerateOpen) return undefined;
+
+    if (generateDraft.dateFrom && generateDraft.dateTo && generateDraft.dateFrom > generateDraft.dateTo) {
+      setScopePreview({
+        isLoading: false,
+        totalRecords: null,
+        error: "Start date cannot be after end date."
+      });
+      return undefined;
+    }
+
+    let isStale = false;
+    setScopePreview((current) => ({ ...current, isLoading: true, error: "" }));
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const preview = await droneOpsApi.reports.previewGenerate(buildGeneratePayload());
+        if (isStale) return;
+        setScopePreview({
+          isLoading: false,
+          totalRecords: preview.totalRecords ?? 0,
+          error: ""
+        });
+      } catch (requestError) {
+        if (isStale) return;
+        setScopePreview({
+          isLoading: false,
+          totalRecords: null,
+          error: requestError.message || "Could not calculate matching records."
+        });
+      }
+    }, 250);
+
+    return () => {
+      isStale = true;
+      window.clearTimeout(timer);
+    };
+  }, [buildGeneratePayload, generateDraft.dateFrom, generateDraft.dateTo, isGenerateOpen]);
 
   useEffect(() => {
     if (!routeReportId) {
@@ -328,16 +379,20 @@ const Reports = ({ user, searchValue = "" }) => {
                   <ListFilter size={18} />
                   <h3>Report Category</h3>
                 </div>
-                <div className="report-type-grid" role="radiogroup" aria-label="Report category">
-                  {generateOptions.map((option) => (
+                <div className="report-type-grid" role="group" aria-label="Report categories">
+                  {reportTypeOptions.map((option) => (
                     <button
                       key={option.value}
-                      className={`report-type-card ${generateDraft.type === option.value ? "selected" : ""}`}
+                      className={`report-type-card ${generateDraft.types.includes(option.value) ? "selected" : ""}`}
                       type="button"
-                      onClick={() => setGenerateDraft((current) => ({ ...current, type: option.value }))}
+                      aria-pressed={generateDraft.types.includes(option.value)}
+                      onClick={() => setGenerateDraft((current) => ({ ...current, types: toggleReportType(current.types, option.value) }))}
                     >
+                      <span className="report-type-check" aria-hidden="true">
+                        {generateDraft.types.includes(option.value) && <CheckCircle2 size={14} />}
+                      </span>
                       <strong>{option.label}</strong>
-                      <span>{getReportTypeHelp(option.value)}</span>
+                      <span>{option.help}</span>
                     </button>
                   ))}
                 </div>
@@ -365,20 +420,10 @@ const Reports = ({ user, searchValue = "" }) => {
                       onChange={(event) => setGenerateDraft((current) => ({ ...current, dateTo: event.target.value }))}
                     />
                   </label>
-                  <label className="field">
-                    <span>Maximum records</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="250"
-                      value={generateDraft.limit}
-                      onChange={(event) => setGenerateDraft((current) => ({ ...current, limit: event.target.value }))}
-                    />
-                  </label>
                   <div className="report-scope-preview" aria-live="polite">
                     <span>Export scope</span>
-                    <strong>{selectedGenerateOption.label}</strong>
-                    <p>{buildScopePreview(generateDraft)}</p>
+                    <strong>{selectedGenerateLabel}</strong>
+                    <p>{buildScopePreview(generateDraft, scopePreview)}</p>
                   </div>
                 </div>
               </section>
@@ -433,18 +478,21 @@ const formatReportStatus = (status = "") => status.toString().toLowerCase().repl
 
 const formatReportType = (type = "Snapshot") => type.toString().toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
-const getReportTypeHelp = (type) => {
-  const help = {
-    FLIGHT_ACTIVITY: "Missions by planned date",
-    INCIDENT: "Incidents by reported date",
-    MAINTENANCE: "Maintenance by due date",
-    COMPLIANCE: "Compliance records in scope",
-    UTILIZATION: "Fleet and mission utilization"
-  };
-  return help[type] ?? "Operational records";
+const toggleReportType = (types = [], type) => {
+  if (types.includes(type)) {
+    return types.length === 1 ? types : types.filter((currentType) => currentType !== type);
+  }
+
+  return [...types, type];
 };
 
-const buildScopePreview = ({ dateFrom, dateTo, limit }) => {
+const getSelectedReportTypeLabel = (types = []) => {
+  const selectedOptions = reportTypeOptions.filter((option) => types.includes(option.value));
+  if (selectedOptions.length === 1) return selectedOptions[0].label;
+  return `${selectedOptions.length} report types`;
+};
+
+const buildScopePreview = ({ dateFrom, dateTo }, preview) => {
   const dates = dateFrom && dateTo
     ? `${formatDateLabel(dateFrom)} to ${formatDateLabel(dateTo)}`
     : dateFrom
@@ -452,7 +500,12 @@ const buildScopePreview = ({ dateFrom, dateTo, limit }) => {
       : dateTo
         ? `Up to ${formatDateLabel(dateTo)}`
         : "All available dates";
-  return `${dates}. Export will include up to ${Number(limit) || 50} matching records.`;
+  if (preview?.error) return `${dates}. ${preview.error}`;
+  if (preview?.isLoading) return `${dates}. Calculating matching records...`;
+
+  const total = Number(preview?.totalRecords ?? 0);
+
+  return `${dates}. ${total} matching records found.`;
 };
 
 const formatDateLabel = (value) => new Date(`${value}T00:00:00`).toLocaleDateString("en-AU");

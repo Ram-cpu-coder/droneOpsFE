@@ -23,7 +23,7 @@ const UserManagement = ({ user, searchValue = "" }) => {
   const [deletingUser, setDeletingUser] = useState(null);
   const [toast, setToast] = useState(null);
   const loadUsers = useCallback(() => droneOpsApi.users.list(), []);
-  const { data: apiUsers, error, isLoading, isFallback, setData } = useApiResource(loadUsers, []);
+  const { data: apiUsers, error, isLoading, isFallback, setData } = useApiResource(loadUsers, [], { cacheKey: "users:list", staleMs: 30000 });
   const users = useMemo(() => apiUsers.map((item, index) => normalizeUser(item, index)), [apiUsers]);
   const filteredUsers = useFleetSearch(users, searchValue);
   const routeUserId = useMemo(() => getDetailId(location.pathname, "/users"), [location.pathname]);

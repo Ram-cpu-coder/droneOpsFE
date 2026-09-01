@@ -23,7 +23,7 @@ const Incidents = ({ searchValue, user }) => {
   const canCreateIncident = hasClientPermission(user, "incidents:manage") || hasClientPermission(user, "incidents:create");
   const canManageIncident = hasClientPermission(user, "incidents:manage");
   const loadIncidents = useCallback(() => droneOpsApi.incidents.list(), []);
-  const { data: apiIncidents, error, isLoading, isFallback, refresh } = useApiResource(loadIncidents, []);
+  const { data: apiIncidents, error, isLoading, isFallback, refresh } = useApiResource(loadIncidents, [], { cacheKey: "incidents:list", staleMs: 10000 });
   const normalizedIncidents = useMemo(() => apiIncidents.map(normalizeIncident), [apiIncidents]);
   const filteredIncidents = useFleetSearch(normalizedIncidents, searchValue);
   const metricIncidents = isFallback ? [] : normalizedIncidents;

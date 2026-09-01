@@ -1,4 +1,4 @@
-import { ImagePlus, Mail, Pencil, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
+import { CalendarClock, ImagePlus, Mail, Pencil, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
@@ -26,6 +26,8 @@ const UserProfileDialog = ({ user, currentUser, canManage = false, onUpdated, on
   const [form, setForm] = useState(() => toFormState(user));
   const roleLabel = userRoles.find((role) => role.id === user.role)?.label ?? user.role;
   const canDelete = canManage && user.id !== currentUser?.id;
+  const displayedProfileImage = isEditing ? form.profileImageUrl : user.profileImageUrl;
+  const displayedName = isEditing ? form.name : user.name;
 
   useEffect(() => {
     setForm(toFormState(user));
@@ -108,11 +110,17 @@ const UserProfileDialog = ({ user, currentUser, canManage = false, onUpdated, on
   const dialog = (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose?.()}>
       <form className="modal-dialog profile-dialog" role="dialog" aria-modal="true" aria-labelledby="user-profile-title" onSubmit={handleSave}>
-        <div className="modal-header">
-          <div>
+        <div className="modal-header user-profile-header">
+          <UserProfileAvatar imageUrl={displayedProfileImage} name={displayedName} isVerified={user.isVerified} />
+          <div className="user-profile-heading">
             <p className="eyebrow">User Profile</p>
             <h2 id="user-profile-title">{user.serialNumber ?? user.name}</h2>
-            <p>{user.name} | {roleLabel} access inside {user.organization}</p>
+            <p>{user.name}</p>
+            <div className="user-profile-chips" aria-label="User profile summary">
+              <span>{roleLabel}</span>
+              <span>{user.organization}</span>
+              <span>{displayedProfileImage ? "Profile photo added" : "Profile photo missing"}</span>
+            </div>
             <ProfileIdentity id={user.systemId ?? user.id} />
           </div>
           <div className="profile-header-actions">
@@ -124,17 +132,21 @@ const UserProfileDialog = ({ user, currentUser, canManage = false, onUpdated, on
                 <X size={18} />
               </button>
             </div>
-            <StatusBadge>{user.isVerified ? "Verified" : "Awaiting Approval"}</StatusBadge>
+            <div className="user-profile-status-card">
+              <StatusBadge>{user.isVerified ? "Verified" : "Awaiting Approval"}</StatusBadge>
+              <span>{formatDateTime(user.lastLoginAt, "No login recorded")}</span>
+            </div>
           </div>
         </div>
 
         <div className="modal-body">
           {error && <div className="auth-alert">{error}</div>}
 
-          <div className="profile-metrics">
+          <div className="profile-metrics user-profile-metrics">
             <ProfileMetric icon={ShieldCheck} label="Role" value={roleLabel} />
             <ProfileMetric icon={UserRound} label="Organisation" value={user.organization} />
             <ProfileMetric icon={Mail} label="Last Login" value={formatDateTime(user.lastLoginAt, "Not logged in yet")} />
+            <ProfileMetric icon={CalendarClock} label="Created" value={formatDateTime(user.createdAt)} />
           </div>
 
           {isEditing ? (
@@ -150,7 +162,7 @@ const UserProfileDialog = ({ user, currentUser, canManage = false, onUpdated, on
                     ))}
                   </select>
                 </label>
-                <label className="upload-field wide-field user-profile-upload">
+                <label className={`upload-field wide-field user-profile-upload ${form.profileImageUrl ? "has-image" : ""}`}>
                   <input type="file" accept="image/*" onChange={handleProfileImageChange} disabled={isSaving || imageUpload.isUploading} />
                   <span><ImagePlus size={18} /> Upload profile image</span>
                   <small>
@@ -163,7 +175,10 @@ const UserProfileDialog = ({ user, currentUser, canManage = false, onUpdated, on
                 {form.profileImageUrl && (
                   <div className="uploaded-image-preview wide-field">
                     <img src={form.profileImageUrl} alt="" />
-                    <span>Profile image selected</span>
+                    <div>
+                      <strong>Profile image selected</strong>
+                      <span>{imageUpload.fileName || "Ready to save"}</span>
+                    </div>
                   </div>
                 )}
                 <label className="confirm-row user-verified-toggle">
@@ -177,15 +192,15 @@ const UserProfileDialog = ({ user, currentUser, canManage = false, onUpdated, on
               </FormSection>
             </div>
           ) : (
-            <div className="profile-grid">
-              <ProfileSection icon={UserRound} title="Identity">
+            <div className="profile-grid user-profile-detail-grid">
+              <ProfileSection icon={UserRound} title="Identity" className="user-profile-section">
                 <ProfileRow label="Name" value={user.name} />
                 <ProfileRow label="Email" value={user.email} />
                 <ProfileRow label="Organisation" value={user.organization} />
-                <ProfileRow label="Profile Image" value={user.profileImageUrl ? "Available" : "Not uploaded"} />
+                <ProfileRow label="Profile Photo" value={user.profileImageUrl ? "Uploaded" : "Not uploaded"} />
               </ProfileSection>
 
-              <ProfileSection icon={ShieldCheck} title="Access">
+              <ProfileSection icon={ShieldCheck} title="Access" className="user-profile-section">
                 <ProfileRow label="Role" value={roleLabel} />
                 <ProfileRow label="Verification" value={user.isVerified ? "Verified" : "Awaiting Approval"} />
                 <ProfileRow label="Created" value={formatDateTime(user.createdAt)} />
@@ -259,6 +274,13 @@ const ProfileIdentity = ({ id }) => (
   </div>
 );
 
+const UserProfileAvatar = ({ imageUrl, name, isVerified }) => (
+  <div className={`user-profile-avatar ${imageUrl ? "has-image" : ""}`} aria-label={`${name || "User"} profile picture`}>
+    {imageUrl ? <img src={imageUrl} alt="" /> : <span>{getInitials(name)}</span>}
+    <small className={isVerified ? "verified" : ""} aria-hidden="true" />
+  </div>
+);
+
 const ProfileMetric = ({ icon: Icon, label, value }) => (
   <div className="profile-metric">
     <Icon size={18} />
@@ -267,8 +289,8 @@ const ProfileMetric = ({ icon: Icon, label, value }) => (
   </div>
 );
 
-const ProfileSection = ({ icon: Icon, title, children }) => (
-  <section className="profile-section">
+const ProfileSection = ({ icon: Icon, title, children, className = "" }) => (
+  <section className={`profile-section ${className}`}>
     <div className="profile-section-title">
       <Icon size={18} />
       <h3>{title}</h3>
@@ -312,6 +334,11 @@ const toFormState = (user) => ({
 const formatDateTime = (value, fallback = "Not provided") => {
   if (!value) return fallback;
   return new Date(value).toLocaleString();
+};
+
+const getInitials = (name = "") => {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "U";
 };
 
 export default UserProfileDialog;
