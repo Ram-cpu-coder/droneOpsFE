@@ -17,30 +17,39 @@ const DroneOpsVantaScene = () => {
     let timeoutHandle;
 
     const loadVanta = async () => {
-      const THREE = await import("three");
-      const module = await import("vanta/dist/vanta.net.min");
-      const NET = typeof module.default === "function" ? module.default : module.NET;
+      try {
+        const THREE = await import("three");
+        const module = await import("vanta/dist/vanta.net.min");
+        // Vite may wrap Vanta's CommonJS export in an additional default export.
+        const NET = [module.default, module.default?.default, module.NET].find(
+          (candidate) => typeof candidate === "function"
+        );
 
-      if (cancelled || !sceneRef.current) return;
-      if (typeof NET !== "function") return;
+        if (cancelled || !sceneRef.current) return;
+        if (typeof NET !== "function") return;
 
-      vantaRef.current = NET({
-        el: sceneRef.current,
-        THREE,
-        mouseControls: true,
-        touchControls: true,
-        gyroControls: false,
-        minHeight: 200,
-        minWidth: 200,
-        scale: 1,
-        scaleMobile: 1,
-        color: 0x4d8dff,
-        backgroundColor: 0x06101d,
-        points: 12,
-        maxDistance: 24,
-        spacing: 18,
-        showDots: true
-      });
+        vantaRef.current = NET({
+          el: sceneRef.current,
+          THREE,
+          mouseControls: true,
+          touchControls: true,
+          gyroControls: false,
+          minHeight: 200,
+          minWidth: 200,
+          scale: 1,
+          scaleMobile: 1,
+          color: 0x4d8dff,
+          backgroundColor: 0x06101d,
+          points: 12,
+          maxDistance: 24,
+          spacing: 18,
+          showDots: true
+        });
+      } catch {
+        // Keep the existing CSS background when WebGL is unavailable.
+        vantaRef.current?.destroy();
+        vantaRef.current = null;
+      }
     };
 
     if ("requestIdleCallback" in window) {
