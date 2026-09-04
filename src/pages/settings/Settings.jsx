@@ -327,6 +327,11 @@ const Settings = ({ user }) => {
     setIsCatalogFormOpen(false);
   };
 
+  const refreshCatalogRows = async () => {
+    const refreshedCatalog = await droneOpsApi.drones.catalog({ includeInactive: true });
+    setCatalogRows(toCatalogRows(refreshedCatalog));
+  };
+
   const handleNewCatalogModel = () => {
     setCatalogDraft(defaultCatalogDraft);
     setEditingCatalogId("");
@@ -374,13 +379,16 @@ const Settings = ({ user }) => {
       };
 
       if (editingCatalogId) {
-        await droneOpsApi.drones.updateCatalogModel(editingCatalogId, payload);
+        const updatedModel = await droneOpsApi.drones.updateCatalogModel(editingCatalogId, payload);
+        setCatalogRows((current) => current.map((row) => (
+          row.id === editingCatalogId ? toCatalogRow(updatedModel ?? { ...row, ...payload, id: editingCatalogId }) : row
+        )));
       } else {
-        await droneOpsApi.drones.createCatalogModel(payload);
+        const createdModel = await droneOpsApi.drones.createCatalogModel(payload);
+        setCatalogRows((current) => [toCatalogRow(createdModel ?? payload), ...current]);
       }
 
-      const refreshedCatalog = await droneOpsApi.drones.catalog({ includeInactive: true });
-      setCatalogRows(toCatalogRows(refreshedCatalog));
+      refreshCatalogRows();
       resetCatalogForm();
       showToast({
         type: "success",
@@ -399,8 +407,10 @@ const Settings = ({ user }) => {
 
     try {
       await droneOpsApi.drones.removeCatalogModel(row.id);
-      const refreshedCatalog = await droneOpsApi.drones.catalog({ includeInactive: true });
-      setCatalogRows(toCatalogRows(refreshedCatalog));
+      setCatalogRows((current) => current.map((item) => (
+        item.id === row.id ? { ...item, isActive: false } : item
+      )));
+      refreshCatalogRows();
       if (editingCatalogId === row.id) resetCatalogForm();
       showToast({ type: "success", title: "Catalog model deactivated", message: `${row.model} will no longer appear in drone registration.` });
     } catch (error) {
@@ -845,17 +855,25 @@ const getInitials = (name = "") => {
 
 const toCatalogRows = (catalog = []) => (
   catalog.flatMap((manufacturerGroup) => (
-    (manufacturerGroup.models ?? []).map((model) => ({
+    (manufacturerGroup.models ?? []).map((model) => toCatalogRow({
       ...model,
       manufacturer: manufacturerGroup.manufacturer,
       telemetryProvider: model.telemetryProvider ?? manufacturerGroup.telemetryProvider ?? "NONE"
     }))
   )).map((row, index) => ({
     ...row,
-    systemId: row.id,
-    serialNumber: row.catalogCode ?? row.modelCode ?? `CAT-${String(index + 1).padStart(4, "0")}`
+    serialNumber: row.serialNumber ?? row.catalogCode ?? row.modelCode ?? `CAT-${String(index + 1).padStart(4, "0")}`
   }))
 );
+
+const toCatalogRow = (row = {}) => ({
+  ...row,
+  id: row.id ?? row.modelCode ?? `${row.manufacturer ?? "catalog"}-${row.model ?? Date.now()}`,
+  systemId: row.id ?? row.systemId,
+  serialNumber: row.catalogCode ?? row.modelCode ?? row.serialNumber,
+  telemetryProvider: row.telemetryProvider ?? "NONE",
+  isActive: row.isActive !== false
+});
 
 const toDateInputValue = (value) => {
   if (!value) return "";

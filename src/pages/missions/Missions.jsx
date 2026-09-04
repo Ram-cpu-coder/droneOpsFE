@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CalendarClock, CheckCircle2, Plus, Route, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, Plus, RadioTower, Route, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ActionButton from "../../components/common/ActionButton";
 import CopyableId from "../../components/common/CopyableId";
@@ -23,14 +23,14 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
   const [toast, setToast] = useState(null);
   const canManageMissions = hasClientPermission(user, "missions:manage");
   const loadMissions = useCallback(() => droneOpsApi.missions.list(), []);
-  const { data: apiMissions, error, isLoading, isFallback, refresh } = useApiResource(loadMissions, [], { cacheKey: "missions:list", staleMs: 10000 });
+  const { data: apiMissions, error, isLoading, isFallback, refresh, setData: setMissionRows } = useApiResource(loadMissions, [], { cacheKey: "missions:list", staleMs: 10000 });
   const normalizedMissions = useMemo(() => apiMissions.map(normalizeMission), [apiMissions]);
   const filteredMissions = useFleetSearch(normalizedMissions, searchValue);
   const metricMissions = isFallback ? [] : normalizedMissions;
   const routeMissionId = useMemo(() => getDetailId(location.pathname, "/missions"), [location.pathname]);
   const profileReturnPath = location.state?.returnTo === "/dashboard" ? "/dashboard" : "/missions";
   const activeMissions = metricMissions.filter((mission) => ["ACTIVE", "In Progress"].includes(mission.rawStatus ?? mission.status)).length;
-  const scheduledMissions = metricMissions.filter((mission) => ["PLANNED", "APPROVED", "RISK_ASSESSMENT_COMPLETED", "Scheduled"].includes(mission.rawStatus ?? mission.status)).length;
+  const scheduledMissions = metricMissions.filter((mission) => ["AWAITING_AUTHORITY_APPROVAL", "PLANNED", "APPROVED", "RISK_ASSESSMENT_COMPLETED", "Scheduled"].includes(mission.rawStatus ?? mission.status)).length;
   const averageProgress = metricMissions.length
     ? Math.round(metricMissions.reduce((total, mission) => total + Number(mission.progress ?? 0), 0) / metricMissions.length)
     : 0;
@@ -71,6 +71,7 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
     { key: "drone", label: "Drone" },
     { key: "pilot", label: "Pilot" },
     { key: "status", label: "Status", filterable: true, render: (mission) => <StatusBadge>{mission.status}</StatusBadge> },
+    { key: "synctegralSyncStatus", label: "Synctegral", filterable: true, render: (mission) => <MissionSyncCell mission={mission} /> },
     { key: "risk", label: "Risk", filterable: true, render: (mission) => <StatusBadge type="risk">{mission.risk}</StatusBadge> },
     { key: "progress", label: "Progress", render: (mission) => <ProgressBar value={mission.progress} /> },
     { key: "eta", label: "Mission Planned On" }
@@ -84,6 +85,32 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
     setShowMissionForm(true);
   };
 
+  const reconcileMissionRows = useCallback((mission, action) => {
+    if (!mission) {
+      refresh();
+      return;
+    }
+
+    const missionId = mission.id ?? mission.uuid ?? mission.systemId;
+    const missionCode = mission.missionCode;
+
+    setMissionRows((currentRows = []) => {
+      if (action === "delete") {
+        return currentRows.filter((row) => !isSameMission(row, missionId, missionCode));
+      }
+
+      const existingIndex = currentRows.findIndex((row) => isSameMission(row, missionId, missionCode));
+
+      if (existingIndex === -1) {
+        return [mission, ...currentRows];
+      }
+
+      return currentRows.map((row, index) => (index === existingIndex ? { ...row, ...mission } : row));
+    });
+
+    refresh();
+  }, [refresh, setMissionRows]);
+
   return (
     <section className="page-stack">
       {selectedMission && (
@@ -92,11 +119,20 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
           canManage={canManageMissions}
           user={user}
           onUpdated={(updatedMission, action) => {
-            refresh();
-            if (action !== "riskAssessment") navigate(profileReturnPath);
+            reconcileMissionRows(updatedMission ?? selectedMission, action);
+            if (action === "delete") {
+              setSelectedMission(null);
+              navigate(profileReturnPath);
+            } else if (action !== "riskAssessment" && action !== "synctegralSync") {
+              navigate(profileReturnPath);
+            } else if (updatedMission) {
+              setSelectedMission(normalizeMission(updatedMission));
+            }
             setToast({
-              type: updatedMission?.synctegralSyncStatus === "FAILED" ? "warning" : "success",
-              title: getMissionToastTitle(action),
+              type: ["FAILED", "SKIPPED"].includes(updatedMission?.synctegralSyncStatus) ? "warning" : "success",
+              title: action === "synctegralSync"
+                ? (updatedMission?.synctegralSyncStatus === "SYNCED" ? "Synctegral synchronized" : "Synctegral needs attention")
+                : getMissionToastTitle(action),
               message: getMissionToastMessage(updatedMission ?? selectedMission, action)
             });
             window.setTimeout(() => setToast(null), 4500);
@@ -150,7 +186,7 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
       {canManageMissions && showMissionForm && (
         <MissionForm
           onCreated={(mission) => {
-            refresh();
+            reconcileMissionRows(mission, "create");
             setShowMissionForm(false);
             setToast(getMissionCreatedToast(mission));
             window.setTimeout(() => setToast(null), 4500);
@@ -162,38 +198,133 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
   );
 };
 
-const normalizeMission = (mission) => ({
-  ...mission,
-  uuid: mission.id,
-  systemId: mission.id,
-  rawStatus: mission.status,
-  id: mission.missionCode ?? mission.id,
-  serialNumber: mission.missionCode ?? mission.id,
-  drone: mission.drone?.droneCode ?? mission.drone ?? "Unassigned",
-  pilot: mission.pilot?.name ?? mission.pilot ?? "Unassigned",
-  status: getMissionStatusLabel(mission.status),
-  risk: mission.riskAssessment?.level ?? mission.risk ?? "Pending",
-  eta: mission.eta ?? formatMissionPlannedOn(mission.plannedStartAt),
-  launchSite: mission.launchSite,
-  operatingArea: mission.operatingArea,
-  routeNotes: mission.plannedRoute?.notes
-});
+const normalizeMission = (mission) => {
+  const assignedDroneRecords = getMissionDroneRecords(mission);
+  const assignedPilotRecords = getMissionPilotRecords(mission);
+  const droneRecord = assignedDroneRecords[0] ?? null;
+  const pilotRecord = assignedPilotRecords[0] ?? null;
+
+  return {
+    ...mission,
+    uuid: mission.id,
+    systemId: mission.id,
+    rawStatus: mission.status,
+    id: mission.missionCode ?? mission.id,
+    serialNumber: mission.missionCode ?? mission.id,
+    drone: formatAssignmentLabel(assignedDroneRecords, "droneCode", mission.drone, "Unassigned"),
+    drones: assignedDroneRecords,
+    droneRecord,
+    assignedDroneRecords,
+    externalDeviceId: assignedDroneRecords.find((drone) => drone.externalDeviceId)?.externalDeviceId ?? mission.externalDeviceId,
+    pilot: formatAssignmentLabel(assignedPilotRecords, "name", mission.pilot, "Unassigned"),
+    pilots: assignedPilotRecords,
+    pilotRecord,
+    assignedPilotRecords,
+    status: getMissionStatusLabel(mission.status),
+    risk: mission.riskAssessment?.level ?? mission.risk ?? "Pending",
+    eta: mission.eta ?? formatMissionPlannedOn(mission.plannedStartAt),
+    launchSite: mission.launchSite,
+    operatingArea: mission.operatingArea,
+    routeNotes: mission.plannedRoute?.notes
+  };
+};
+
+const getMissionDroneRecords = (mission) => uniqueRecords([
+  ...(Array.isArray(mission.drones) ? mission.drones : []),
+  ...(mission.droneAssignments?.map((assignment) => ({
+    ...(assignment.drone ?? {}),
+    id: assignment.drone?.id ?? assignment.droneId,
+    isPrimary: assignment.isPrimary ?? assignment.drone?.isPrimary
+  })) ?? []),
+  ...(mission.drone && typeof mission.drone === "object" ? [{ ...mission.drone, isPrimary: true }] : [])
+]);
+
+const getMissionPilotRecords = (mission) => uniqueRecords([
+  ...(Array.isArray(mission.pilots) ? mission.pilots : []),
+  ...(mission.pilotAssignments?.map((assignment) => ({
+    ...(assignment.pilot ?? {}),
+    id: assignment.pilot?.id ?? assignment.pilotId,
+    isPrimary: assignment.isPrimary ?? assignment.pilot?.isPrimary
+  })) ?? []),
+  ...(mission.pilot && typeof mission.pilot === "object" ? [{ ...mission.pilot, isPrimary: true }] : [])
+]);
+
+const uniqueRecords = (records) => {
+  const seen = new Set();
+  return records.filter((record) => {
+    const id = record?.id;
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+};
+
+const isSameMission = (mission, missionId, missionCode) => {
+  const candidates = [
+    mission.id,
+    mission.uuid,
+    mission.systemId,
+    mission.missionCode,
+    mission.serialNumber
+  ].filter(Boolean).map(String);
+
+  return candidates.includes(String(missionId)) || (missionCode && candidates.includes(String(missionCode)));
+};
+
+const formatAssignmentLabel = (records, labelKey, fallbackValue, emptyLabel) => {
+  const labels = records.map((record) => record[labelKey] ?? record.id).filter(Boolean);
+  if (labels.length) return labels.join(", ");
+  return typeof fallbackValue === "string" && fallbackValue.trim() ? fallbackValue : emptyLabel;
+};
+
+const MissionSyncCell = ({ mission }) => {
+  const status = normalizeSyncStatus(mission.synctegralSyncStatus);
+  const hasReference = Boolean(mission.synctegralMissionId);
+  const label = status === "SYNCED"
+    ? "Synced"
+    : status === "FAILED"
+      ? "Failed"
+      : status === "SKIPPED"
+        ? "Disabled"
+        : hasReference
+          ? "Linked"
+          : "Pending";
+  const title = hasReference
+    ? `Synctegral mission ${mission.synctegralMissionId}`
+    : mission.synctegralSyncError ?? "Mission has not received a Synctegral mission reference yet.";
+
+  return (
+    <span className={`mission-sync-chip ${status.toLowerCase()}`} title={title}>
+      <RadioTower size={13} />
+      <span>{label}</span>
+    </span>
+  );
+};
+
+const normalizeSyncStatus = (status) => {
+  const normalized = String(status ?? "").toUpperCase();
+  if (["SYNCED", "FAILED", "SKIPPED"].includes(normalized)) return normalized;
+  return "PENDING";
+};
 
 const getMissionToastTitle = (action) => {
   if (action === "approve") return "Mission approved";
   if (action === "riskAssessment") return "Risk assessment saved";
   if (action === "start") return "Mission started";
   if (action === "complete") return "Mission completed";
+  if (action === "delete") return "Mission deleted";
   return "Mission updated";
 };
 
 const getMissionToastMessage = (mission, action) => {
   const label = mission?.missionCode ?? mission?.id ?? "Mission";
   const syncMessage = getSynctegralSyncMessage(mission);
+  if (action === "synctegralSync") return `${label}.${syncMessage}`;
   if (action === "approve") return `${label} is approved and ready for risk assessment.`;
   if (action === "riskAssessment") return `${label} passed pre-flight risk assessment checks and is ready to start.`;
   if (action === "start") return `${label} is now active.${syncMessage}`;
   if (action === "complete") return `${label} is now completed.${syncMessage}`;
+  if (action === "delete") return `${label} was removed from Mission Control. Linked telemetry, incidents, and flight logs were kept as historical records.`;
   return `${label} was updated successfully.${syncMessage}`;
 };
 
@@ -256,6 +387,7 @@ const getMissionCreatedToast = (mission) => {
 };
 
 const getMissionStatusLabel = (status) => {
+  if (status === "AWAITING_AUTHORITY_APPROVAL") return "Awaiting Authority Approval";
   if (status === "PLANNED") return "Awaiting Approval";
   if (status === "RISK_ASSESSMENT_COMPLETED") return "Risk Assessment Completed";
   return status;

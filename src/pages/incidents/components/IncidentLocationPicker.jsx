@@ -1,59 +1,56 @@
 /* oxlint-disable react-hooks/exhaustive-deps */
-import { LocateFixed, MapPin, Search } from "lucide-react";
+import { LocateFixed, Search } from "lucide-react";
+import L from "leaflet";
+import MapWorkspace, { MapDataDetails } from "../../../components/maps/MapWorkspace";
+import "leaflet/dist/leaflet.css";
 import { useEffect, useRef, useState } from "react";
-import "mapbox-gl/dist/mapbox-gl.css";
 
 const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
-const defaultCenter = [151.2073, -33.8679];
+const defaultCenter = { latitude: -33.8679, longitude: 151.2073 };
 
 const IncidentLocationPicker = ({ value, onChange, error }) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
-  const mapboxRef = useRef(null);
+  const resizeObserverRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState("");
   const [query, setQuery] = useState("");
 
   useEffect(() => {
-    if (!mapboxToken || mapRef.current || !mapContainerRef.current) return;
-    let isMounted = true;
+    if (mapRef.current || !mapContainerRef.current) return;
 
-    const setupMap = async () => {
-      try {
-        const mapboxModule = await import("mapbox-gl");
-        if (!isMounted) return;
+    try {
+      const location = normalizeLocation(value);
+      const map = L.map(mapContainerRef.current, {
+        center: toLatLng(location ?? defaultCenter),
+        zoom: location ? 14 : 11,
+        zoomControl: false,
+        attributionControl: true
+      });
 
-        const mapboxgl = mapboxModule.default;
-        mapboxgl.accessToken = mapboxToken;
-        mapboxRef.current = mapboxgl;
+      L.control.zoom({ position: "topright" }).addTo(map);
+      L.control.scale({ position: "bottomleft", imperial: true, metric: true }).addTo(map);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(map);
 
-        const location = normalizeLocation(value);
-        mapRef.current = new mapboxgl.Map({
-          container: mapContainerRef.current,
-          style: "mapbox://styles/mapbox/navigation-night-v1",
-          center: location ? [location.longitude, location.latitude] : defaultCenter,
-          zoom: location ? 14 : 11.5,
-          pitch: 12
-        });
+      map.on("click", async (event) => {
+        await setLocationFromCoordinates(event.latlng.lat, event.latlng.lng);
+      });
 
-        mapRef.current.addControl(new mapboxgl.NavigationControl({ showCompass: true }), "top-right");
-        mapRef.current.on("load", () => {
-          if (!isMounted) return;
-          setMapReady(true);
-        });
-        mapRef.current.on("click", async (event) => {
-          await setLocationFromCoordinates(event.lngLat.lat, event.lngLat.lng);
-        });
-      } catch (setupError) {
-        if (isMounted) setMapError(setupError.message);
-      }
-    };
-
-    setupMap();
+      resizeObserverRef.current = new ResizeObserver(() => map.invalidateSize());
+      resizeObserverRef.current.observe(mapContainerRef.current);
+      mapRef.current = map;
+      setMapReady(true);
+    } catch (setupError) {
+      setMapError(setupError.message || "Incident location map failed to load.");
+    }
 
     return () => {
-      isMounted = false;
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
       markerRef.current?.remove();
       markerRef.current = null;
       mapRef.current?.remove();
@@ -62,60 +59,53 @@ const IncidentLocationPicker = ({ value, onChange, error }) => {
   }, []);
 
   useEffect(() => {
-    if (!mapReady || !mapRef.current || !mapboxRef.current) return;
+    if (!mapReady || !mapRef.current) return;
     syncMarker(normalizeLocation(value));
   }, [mapReady, value]);
 
   const setLocation = (location) => {
     onChange?.(location);
-    if (mapRef.current) {
-      mapRef.current.flyTo({
-        center: [location.longitude, location.latitude],
-        zoom: Math.max(mapRef.current.getZoom(), 14),
-        speed: 0.9
-      });
-    }
+    mapRef.current?.flyTo(toLatLng(location), Math.max(mapRef.current.getZoom(), 14), { duration: 0.7 });
   };
 
   const setLocationFromCoordinates = async (latitude, longitude) => {
     const label = await reverseGeocodeLocation(latitude, longitude);
-    setLocation({
-      label,
-      latitude,
-      longitude
-    });
+    setLocation({ label, latitude, longitude });
   };
 
   const syncMarker = (location) => {
-    if (!location || !mapRef.current || !mapboxRef.current) {
+    if (!location || !mapRef.current) {
       markerRef.current?.remove();
       markerRef.current = null;
       return;
     }
 
-    const lngLat = [location.longitude, location.latitude];
+    const latLng = toLatLng(location);
     if (!markerRef.current) {
-      const markerElement = document.createElement("div");
-      markerElement.className = "incident-location-marker";
-      markerElement.textContent = "!";
-      markerRef.current = new mapboxRef.current.Marker({ element: markerElement, draggable: true })
-        .setLngLat(lngLat)
-        .addTo(mapRef.current);
+      markerRef.current = L.marker(latLng, {
+        draggable: true,
+        icon: createIncidentMarkerIcon()
+      }).addTo(mapRef.current);
+
       markerRef.current.on("dragend", async () => {
-        const nextLocation = markerRef.current.getLngLat();
+        const nextLocation = markerRef.current.getLatLng();
         await setLocationFromCoordinates(nextLocation.lat, nextLocation.lng);
       });
       return;
     }
 
-    markerRef.current.setLngLat(lngLat);
+    markerRef.current.setLatLng(latLng);
   };
 
   const handleSearch = async () => {
     const trimmedQuery = query.trim();
-    if (!trimmedQuery || !mapboxToken) return;
+    if (!trimmedQuery) return;
+    if (!mapboxToken) {
+      setMapError("Location search needs the Mapbox token already used by DroneOps.");
+      return;
+    }
 
-    const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(trimmedQuery)}.json?limit=1&access_token=${mapboxToken}`);
+    const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(trimmedQuery)}.json?limit=1&country=AU&access_token=${mapboxToken}`);
     const result = await response.json().catch(() => ({}));
     const feature = result.features?.[0];
     if (!feature?.center) {
@@ -133,19 +123,11 @@ const IncidentLocationPicker = ({ value, onChange, error }) => {
 
   const location = normalizeLocation(value);
 
-  if (!mapboxToken) {
-    return (
-      <div className={`incident-location-picker empty ${error ? "has-error" : ""}`}>
-        <MapPin size={18} />
-        <strong>Map location unavailable</strong>
-        <span>Add `VITE_MAPBOX_TOKEN` to select incident locations on the map.</span>
-        {error && <small>{error}</small>}
-      </div>
-    );
-  }
-
   return (
-    <div className={`incident-location-picker ${error ? "has-error" : ""}`}>
+    <MapWorkspace title="Incident location" details={location
+      ? <MapDataDetails title="Selected location" value={location} />
+      : <p>No incident location selected.</p>}>
+    <div className={`incident-location-picker leaflet-incident-location-picker ${error ? "has-error" : ""}`}>
       <div className="incident-location-search">
         <Search size={16} />
         <input
@@ -162,15 +144,23 @@ const IncidentLocationPicker = ({ value, onChange, error }) => {
         />
         <button type="button" onClick={handleSearch}>Find</button>
       </div>
-      <div className="incident-location-map" ref={mapContainerRef} />
+      <div className="incident-location-map leaflet-incident-location-map" ref={mapContainerRef} />
       <div className="incident-location-meta">
         <LocateFixed size={15} />
         <span>{location ? formatLocationLabel(location) : "Search or click the map to choose the incident location."}</span>
       </div>
       {(error || mapError) && <small className="field-error">{error || mapError}</small>}
     </div>
+    </MapWorkspace>
   );
 };
+
+const createIncidentMarkerIcon = () => L.divIcon({
+  className: "leaflet-route-marker-wrapper",
+  html: '<button type="button" class="route-picker-marker mission-profile-map-marker incident" aria-label="Incident location"><span class="route-picker-marker-bubble">!</span></button>',
+  iconSize: [28, 28],
+  iconAnchor: [14, 14]
+});
 
 const normalizeLocation = (location) => {
   if (!location || typeof location !== "object") return null;
@@ -180,6 +170,8 @@ const normalizeLocation = (location) => {
     ? { ...location, latitude, longitude }
     : null;
 };
+
+const toLatLng = (location) => [Number(location.latitude), Number(location.longitude)];
 
 const formatLocationLabel = (location) => (
   `${location.label || "Selected location"} (${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)})`

@@ -420,6 +420,18 @@ const loadCachedSearchRows = async (key, loader) => {
   return rows;
 };
 
+const getMissionDroneLabel = (mission) => (
+  mission.drones?.map((drone) => drone.droneCode ?? drone.id).filter(Boolean).join(", ")
+  || mission.drone?.droneCode
+  || (typeof mission.drone === "string" ? mission.drone : "")
+);
+
+const getMissionPilotLabel = (mission) => (
+  mission.pilots?.map((pilot) => pilot.name ?? pilot.id).filter(Boolean).join(", ")
+  || mission.pilot?.name
+  || (typeof mission.pilot === "string" ? mission.pilot : "")
+);
+
 const loadGlobalSearchResults = async ({ query, routes, canRead }) => {
   const routeResults = routes
     .filter((route) => itemMatches([route.label, route.description, route.path], query))
@@ -457,10 +469,10 @@ const loadGlobalSearchResults = async ({ query, routes, canRead }) => {
       map: (mission) => ({
         id: mission.id,
         title: mission.missionCode ?? mission.title ?? mission.id,
-        subtitle: [mission.title, mission.type, mission.status, mission.drone?.droneCode, mission.pilot?.name].filter(Boolean).join(" / "),
+        subtitle: [mission.title, mission.type, mission.status, getMissionDroneLabel(mission), getMissionPilotLabel(mission)].filter(Boolean).join(" / "),
         path: `/missions/${encodeURIComponent(mission.id)}`
       }),
-      values: (mission) => [mission.missionCode, mission.title, mission.type, mission.status, mission.drone?.droneCode, mission.pilot?.name]
+      values: (mission) => [mission.missionCode, mission.title, mission.type, mission.status, getMissionDroneLabel(mission), getMissionPilotLabel(mission)]
     },
     {
       enabled: canRead("incidents"),

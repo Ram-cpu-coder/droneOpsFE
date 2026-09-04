@@ -1,34 +1,29 @@
+/* oxlint-disable react-hooks/exhaustive-deps */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Crosshair, Home, MapPin, MoonStar, RefreshCw, SunDim, SunMedium } from "lucide-react";
-import mapboxgl from "mapbox-gl";
-import "mapbox-gl/dist/mapbox-gl.css";
-import { MapboxOverlay } from "@deck.gl/mapbox";
-import { PathLayer, PolygonLayer, ScatterplotLayer } from "@deck.gl/layers";
+import { Crosshair, Home, RefreshCw } from "lucide-react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import LoadingLogo from "../common/LoadingLogo";
-import { geofenceZones, mapCenter } from "../../data/geospatialData";
+import MapWorkspace from "./MapWorkspace";
+import { mapCenter } from "../../data/geospatialData";
 import { droneOpsApi } from "../../services/droneOpsApi";
 import { getRealtimeSocket } from "../../services/realtimeClient";
 
-const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
 const TELEMETRY_REFRESH_MS = 3000;
 const DRONE_HISTORY_LIMIT = 30;
 const OFFLINE_AFTER_MS = 30000;
-const mapPresets = [
-  { id: "dawn", label: "Dawn", icon: SunDim, lightPreset: "dawn", theme: "default" },
-  { id: "dusk", label: "Dusk", icon: SunMedium, lightPreset: "dusk", theme: "faded" },
-  { id: "night", label: "Night", icon: MoonStar, lightPreset: "night", theme: "monochrome" }
-];
+
 const GeospatialMap = () => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
-  const overlayRef = useRef(null);
-  const droneMarkersRef = useRef(new Map());
+  const resizeObserverRef = useRef(null);
+  const layersRef = useRef(null);
   const telemetryTimerRef = useRef(null);
   const telemetryErrorCountRef = useRef(0);
   const hasAutoFramedRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [liveDrones, setLiveDrones] = useState([]);
-  const [liveGeofences, setLiveGeofences] = useState(geofenceZones);
+  const [liveGeofences, setLiveGeofences] = useState([]);
   const [selectedDroneId, setSelectedDroneId] = useState("");
   const [selectedDroneTrack, setSelectedDroneTrack] = useState([]);
   const [lastUpdatedAt, setLastUpdatedAt] = useState("");
@@ -37,7 +32,6 @@ const GeospatialMap = () => {
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [geofenceMessage, setGeofenceMessage] = useState("");
   const [telemetrySyncMessage, setTelemetrySyncMessage] = useState("");
-  const [mapPresetId, setMapPresetId] = useState("dusk");
 
   const selectedDrone = useMemo(
     () => liveDrones.find((drone) => drone.id === selectedDroneId) ?? null,
@@ -56,27 +50,29 @@ const GeospatialMap = () => {
         const geofenceRows = await droneOpsApi.geofences.list();
         if (!isMounted) return;
 
-        const normalizedGeofences = geofenceRows
-          .map(normalizeGeofence)
-          .filter(Boolean);
-
+        const normalizedGeofences = geofenceRows.filter((zone) => zone.isActive).map(normalizeGeofence).filter(Boolean);
         if (normalizedGeofences.length) {
           setLiveGeofences(normalizedGeofences);
           setGeofenceMessage("");
           return;
         }
 
-        setGeofenceMessage("No live geofences configured. Showing reference zones.");
+        setLiveGeofences([]);
+        setGeofenceMessage("No active operational geofences configured.");
       } catch (error) {
-        if (!isMounted) return;
-        setGeofenceMessage(`Geofences unavailable. ${error.message}`);
+        if (isMounted) setGeofenceMessage(`Geofences unavailable. ${error.message}`);
       }
     };
 
     loadGeofences();
+    const socket = getRealtimeSocket();
+    socket.on("geofences:changed", loadGeofences);
+    const timer = window.setInterval(loadGeofences, 15000);
 
     return () => {
       isMounted = false;
+      socket.off("geofences:changed", loadGeofences);
+      window.clearInterval(timer);
     };
   }, []);
 
@@ -111,12 +107,8 @@ const GeospatialMap = () => {
         if (!isMounted) return;
 
         telemetryErrorCountRef.current = 0;
-        if (!options.keepSyncError) {
-          setMapError("");
-        }
-        if (!options.keepSyncMessage) {
-          setTelemetrySyncMessage("");
-        }
+        if (!options.keepSyncError) setMapError("");
+        if (!options.keepSyncMessage) setTelemetrySyncMessage("");
 
         const nextDrones = telemetryRows
           .map(normalizeTelemetryRow)
@@ -128,18 +120,13 @@ const GeospatialMap = () => {
 
         setLiveDrones(nextDrones);
         setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
-        setSelectedDroneId((current) => {
-          if (current && nextDrones.some((drone) => drone.id === current)) return current;
-          return nextDrones[0]?.id ?? "";
-        });
-
+        setSelectedDroneId((current) => current && nextDrones.some((drone) => drone.id === current) ? current : nextDrones[0]?.id ?? "");
         scheduleNextTelemetryLoad();
       } catch (error) {
         if (!isMounted) return;
 
         telemetryErrorCountRef.current += 1;
         setMapError(`Live telemetry paused: ${error.message}`);
-
         if (telemetryErrorCountRef.current < 3) {
           scheduleNextTelemetryLoad(TELEMETRY_REFRESH_MS * 2);
         }
@@ -213,224 +200,60 @@ const GeospatialMap = () => {
     };
   }, [selectedDroneId]);
 
-  const deckLayers = useMemo(() => {
-    const layers = [
-      new PolygonLayer({
-        id: "geofence-zones",
-        data: liveGeofences,
-        getPolygon: (zone) => zone.polygon,
-        getFillColor: (zone) => zone.type === "RESTRICTED" ? [198, 23, 50, 36] : zone.type === "WARNING" ? [245, 183, 0, 36] : [29, 111, 234, 24],
-        getLineColor: (zone) => zone.type === "RESTRICTED" ? [198, 23, 50, 210] : zone.type === "WARNING" ? [245, 183, 0, 210] : [29, 111, 234, 180],
-        getLineWidth: 3,
-        lineWidthMinPixels: 2,
-        stroked: true,
-        filled: true,
-        pickable: true
-      })
-    ];
-
-    if (selectedDrone?.missionRoute?.length > 1) {
-      layers.push(
-        new PathLayer({
-          id: "active-mission-route",
-          data: [{ path: selectedDrone.missionRoute }],
-          getPath: (item) => item.path,
-          getColor: [247, 200, 95, 235],
-          getWidth: 6,
-          widthMinPixels: 4,
-          rounded: true
-        })
-      );
-    }
-
-    if (selectedDroneTrack.length > 1) {
-      layers.push(
-        new PathLayer({
-          id: "selected-drone-path",
-          data: [{ path: selectedDroneTrack }],
-          getPath: (item) => item.path,
-          getColor: selectedDrone?.isOffline ? [148, 163, 184, 220] : [29, 111, 234, 235],
-          getWidth: 4,
-          widthMinPixels: 3,
-          rounded: true
-        }),
-        new ScatterplotLayer({
-          id: "selected-drone-breadcrumbs",
-          data: selectedDroneTrack.map((coordinates, index) => ({
-            coordinates,
-            isCurrent: index === selectedDroneTrack.length - 1,
-            isStart: index === 0
-          })),
-          getPosition: (item) => item.coordinates,
-          getRadius: (item) => item.isCurrent ? 22 : item.isStart ? 18 : 10,
-          radiusMinPixels: 3,
-          radiusMaxPixels: 14,
-          stroked: true,
-          filled: true,
-          getFillColor: (item) => item.isCurrent
-            ? [255, 255, 255, 230]
-            : item.isStart
-              ? [82, 211, 172, 220]
-              : selectedDrone?.isOffline
-                ? [148, 163, 184, 180]
-                : [77, 141, 255, 170],
-          getLineColor: (item) => item.isCurrent ? [29, 111, 234, 255] : [255, 255, 255, 180],
-          getLineWidth: (item) => item.isCurrent ? 3 : 1,
-          lineWidthMinPixels: 1,
-          pickable: false
-        })
-      );
-    }
-
-    return layers;
-  }, [liveGeofences, selectedDrone, selectedDroneTrack]);
-
   useEffect(() => {
-    if (!mapboxToken || mapRef.current || !mapContainerRef.current) return;
+    if (mapRef.current || !mapContainerRef.current) return;
 
-    mapboxgl.accessToken = mapboxToken;
+    try {
+      const map = L.map(mapContainerRef.current, {
+        center: [mapCenter.latitude, mapCenter.longitude],
+        zoom: 12,
+        zoomControl: false,
+        attributionControl: true
+      });
 
-    const droneMarkers = droneMarkersRef.current;
-    const map = new mapboxgl.Map({
-      container: mapContainerRef.current,
-      style: "mapbox://styles/mapbox/standard",
-      config: {
-        basemap: {
-          lightPreset: "dusk",
-          theme: "faded"
-        }
-      },
-      center: [mapCenter.longitude, mapCenter.latitude],
-      zoom: 12.4,
-      pitch: 54,
-      bearing: -18,
-      attributionControl: false
-    });
+      L.control.zoom({ position: "topright" }).addTo(map);
+      L.control.scale({ position: "bottomleft", imperial: true, metric: true }).addTo(map);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(map);
 
-    mapRef.current = map;
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: true }), "top-right");
+      layersRef.current = {
+        geofences: L.layerGroup().addTo(map),
+        routes: L.layerGroup().addTo(map),
+        tracks: L.layerGroup().addTo(map),
+        drones: L.layerGroup().addTo(map)
+      };
 
-    const overlay = new MapboxOverlay({
-      interleaved: true,
-      layers: [],
-      getTooltip: getMapTooltip
-    });
-
-    overlayRef.current = overlay;
-
-    map.on("load", () => {
-      map.addControl(overlay);
+      resizeObserverRef.current = new ResizeObserver(() => map.invalidateSize());
+      resizeObserverRef.current.observe(mapContainerRef.current);
+      mapRef.current = map;
       setMapReady(true);
-    });
+    } catch (error) {
+      setMapError(`Map failed to load: ${error.message}`);
+    }
 
     return () => {
-      overlay.finalize();
-      droneMarkers.forEach((marker) => marker.remove());
-      droneMarkers.clear();
-      map.remove();
-      overlayRef.current = null;
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+      mapRef.current?.remove();
       mapRef.current = null;
+      layersRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    overlayRef.current?.setProps({ layers: deckLayers });
-  }, [deckLayers]);
-
-  useEffect(() => {
-    if (!mapReady || !mapRef.current || !mapContainerRef.current) return;
-
-    let resizeFrame = 0;
-    const resizeMap = () => {
-      window.cancelAnimationFrame(resizeFrame);
-      resizeFrame = window.requestAnimationFrame(() => {
-        mapRef.current?.resize();
-      });
-    };
-
-    const resizeObserver = typeof ResizeObserver !== "undefined"
-      ? new ResizeObserver(resizeMap)
-      : null;
-
-    resizeObserver?.observe(mapContainerRef.current);
-    window.addEventListener("droneops-map-layout-change", resizeMap);
-    resizeMap();
-
-    return () => {
-      window.cancelAnimationFrame(resizeFrame);
-      resizeObserver?.disconnect();
-      window.removeEventListener("droneops-map-layout-change", resizeMap);
-    };
-  }, [mapReady]);
-
-  useEffect(() => {
-    if (!mapReady || !mapRef.current) return;
-    const preset = mapPresets.find((item) => item.id === mapPresetId);
-    if (!preset) return;
-
-    mapRef.current.setConfigProperty("basemap", "lightPreset", preset.lightPreset);
-    mapRef.current.setConfigProperty("basemap", "theme", preset.theme);
-  }, [mapPresetId, mapReady]);
-
-  useEffect(() => {
-    if (!mapReady || !mapRef.current) return;
-
-    const activeMarkerIds = new Set(liveDrones.map((drone) => drone.id));
-
-    droneMarkersRef.current.forEach((marker, markerId) => {
-      if (!activeMarkerIds.has(markerId)) {
-        marker.remove();
-        droneMarkersRef.current.delete(markerId);
-      }
+    if (!mapReady || !layersRef.current) return;
+    renderDashboardMapLayers({
+      layers: layersRef.current,
+      liveDrones,
+      liveGeofences,
+      selectedDrone,
+      selectedDroneId,
+      selectedDroneTrack,
+      onSelectDrone: setSelectedDroneId
     });
-
-    liveDrones.forEach((drone) => {
-      const existingMarker = droneMarkersRef.current.get(drone.id);
-      const popup = new mapboxgl.Popup(getDronePopupOptions(drone, mapRef.current)).setHTML(buildDronePopupHtml(drone));
-
-      if (existingMarker) {
-        existingMarker.setLngLat(drone.coordinates);
-        existingMarker.setPopup(popup);
-        updateDroneMarkerElement(existingMarker.getElement(), drone, drone.id === selectedDroneId);
-        placeDroneMarkerLabel(existingMarker.getElement(), drone, mapRef.current);
-        return;
-      }
-
-      const markerElement = buildDroneMarkerElement(drone, drone.id === selectedDroneId, setSelectedDroneId);
-      placeDroneMarkerLabel(markerElement, drone, mapRef.current);
-      const marker = new mapboxgl.Marker({ element: markerElement, anchor: "center" })
-        .setLngLat(drone.coordinates)
-        .setPopup(popup)
-        .addTo(mapRef.current);
-
-      droneMarkersRef.current.set(drone.id, marker);
-    });
-  }, [liveDrones, mapReady, selectedDroneId]);
-
-  useEffect(() => {
-    if (!mapReady || !mapRef.current) return;
-
-    const map = mapRef.current;
-    const updateLabelPositions = () => {
-      liveDrones.forEach((drone) => {
-        const marker = droneMarkersRef.current.get(drone.id);
-        if (marker) placeDroneMarkerLabel(marker.getElement(), drone, map);
-      });
-    };
-
-    map.on("move", updateLabelPositions);
-    map.on("zoom", updateLabelPositions);
-    map.on("resize", updateLabelPositions);
-    window.addEventListener("droneops-map-layout-change", updateLabelPositions);
-    updateLabelPositions();
-
-    return () => {
-      map.off("move", updateLabelPositions);
-      map.off("zoom", updateLabelPositions);
-      map.off("resize", updateLabelPositions);
-      window.removeEventListener("droneops-map-layout-change", updateLabelPositions);
-    };
-  }, [liveDrones, mapReady]);
+  }, [liveDrones, liveGeofences, mapReady, selectedDrone, selectedDroneId, selectedDroneTrack]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !liveDrones.length || hasAutoFramedRef.current) return;
@@ -440,19 +263,13 @@ const GeospatialMap = () => {
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !selectedDrone) return;
-    mapRef.current.easeTo({
-      center: selectedDrone.coordinates,
-      duration: 800,
-      zoom: Math.max(mapRef.current.getZoom(), 13.8)
-    });
+    mapRef.current.flyTo(toLatLng(selectedDrone.coordinates), Math.max(mapRef.current.getZoom(), 14), { duration: 0.8 });
   }, [mapReady, selectedDrone]);
 
-  if (!mapboxToken) {
-    return <FallbackOperationalMap />;
-  }
-
   return (
-    <div className="panel map-panel geospatial-panel">
+    <MapWorkspace title="Fleet telemetry" details={<FleetMapDetails drones={liveDrones} selectedDroneId={selectedDroneId} onSelectDrone={setSelectedDroneId} />}>
+    {(fullscreenButton) => (
+    <div className="panel map-panel geospatial-panel leaflet-geospatial-panel">
       <div className="panel-heading compact map-panel-heading">
         <div>
           <div className="map-title-row">
@@ -462,24 +279,6 @@ const GeospatialMap = () => {
           <p>{mapError || telemetrySyncMessage || geofenceMessage || "Live fleet positions, selected-drone replay, and geofence overlays."}</p>
         </div>
         <div className="map-toolbar">
-          <div className="map-preset-switcher" aria-label="Map lighting preset">
-            {mapPresets.map((preset) => {
-              const Icon = preset.icon;
-              const isActive = preset.id === mapPresetId;
-              return (
-                <button
-                  key={preset.id}
-                  className={isActive ? "active" : ""}
-                  type="button"
-                  onClick={() => setMapPresetId(preset.id)}
-                  aria-pressed={isActive}
-                >
-                  <Icon size={15} />
-                  <span>{preset.label}</span>
-                </button>
-              );
-            })}
-          </div>
           <div className="map-view-controls" aria-label="Map view controls">
             <button className="icon-button" type="button" aria-label="Center map on active data" onClick={() => fitMapToData(mapRef.current, liveDrones, liveGeofences, selectedDroneTrack)}>
               <Crosshair size={17} />
@@ -489,11 +288,14 @@ const GeospatialMap = () => {
             </button>
           </div>
         </div>
-        <button className="icon-button map-refresh-button" type="button" aria-label="Refresh telemetry" onClick={() => refreshTelemetryNow(telemetryTimerRef, setIsRefreshing, setMapError)}>
+        <div className="fleet-map-actions">
+        <button className="icon-button" type="button" aria-label="Refresh telemetry" onClick={() => refreshTelemetryNow(telemetryTimerRef, setIsRefreshing, setMapError)}>
           {isRefreshing ? <LoadingLogo label="Refreshing telemetry" size="xs" compact /> : <RefreshCw size={17} />}
         </button>
+        {fullscreenButton}
+        </div>
       </div>
-      <div className="mapbox-canvas" ref={mapContainerRef} />
+      <div className="geospatial-map-canvas leaflet-dashboard-map" ref={mapContainerRef} />
       <MapOverlayCard selectedDrone={selectedDrone} selectedDroneTrackLength={selectedDroneTrack.length} />
       <LiveDroneList
         drones={liveDrones}
@@ -504,8 +306,99 @@ const GeospatialMap = () => {
       />
       <MapLegend />
     </div>
+    )}
+    </MapWorkspace>
   );
 };
+
+const FleetMapDetails = ({ drones, selectedDroneId, onSelectDrone }) => {
+  const [openedId, setOpenedId] = useState(null);
+  return <div className="fleet-map-details">
+    {drones.length === 0 && <p>No drone positions available.</p>}
+    {drones.map((drone) => <section className="fleet-drone-accordion" key={drone.id}>
+      <button type="button" aria-expanded={openedId === drone.id} aria-controls={`fleet-details-${drone.id}`}
+        className={selectedDroneId === drone.id ? "selected" : ""}
+        onClick={() => { setOpenedId(openedId === drone.id ? null : drone.id); onSelectDrone(drone.id); }}>
+        <strong>{drone.id}</strong><span aria-hidden="true">{openedId === drone.id ? "−" : "+"}</span>
+      </button>
+      {openedId === drone.id && <dl id={`fleet-details-${drone.id}`}>
+        {Object.entries({ Status: drone.isOffline ? "Offline - last position" : formatStatus(drone.flightStatus ?? drone.status), Mission: drone.missionLabel ?? "No active mission", Battery: `${drone.battery ?? "--"}%`, Signal: `${drone.signal ?? "--"}%`, Speed: `${drone.speed ?? "--"} m/s`, Altitude: `${drone.altitude ?? "--"} m`, Heading: `${drone.heading ?? "--"} deg`, Position: formatCoordinate(drone.coordinates) }).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+      </dl>}
+    </section>)}
+  </div>;
+};
+
+const renderDashboardMapLayers = ({ layers, liveDrones, liveGeofences, selectedDrone, selectedDroneId, selectedDroneTrack, onSelectDrone }) => {
+  Object.values(layers).forEach((layer) => layer.clearLayers());
+
+  liveGeofences.forEach((zone) => {
+    if (!Array.isArray(zone.polygon) || zone.polygon.length < 3) return;
+    const restricted = zone.type === "RESTRICTED";
+    const warning = zone.type === "WARNING";
+    const color = restricted ? "#c61732" : warning ? "#f5b700" : "#1d6fea";
+    L.polygon(zone.polygon.map(toLatLng), {
+      color,
+      weight: 2,
+      opacity: 0.82,
+      fillColor: color,
+      fillOpacity: 0.14
+    })
+      .bindTooltip(`<strong>${escapeHtml(zone.name ?? "Geofence")}</strong><br/>Type: ${escapeHtml(formatStatus(zone.type))}`)
+      .addTo(layers.geofences);
+  });
+
+  if (selectedDrone?.missionRoute?.length > 1) {
+    L.polyline(selectedDrone.missionRoute.map(toLatLng), {
+      color: "#f7c85f",
+      weight: 5,
+      opacity: 0.92
+    }).addTo(layers.routes);
+  }
+
+  if (selectedDroneTrack.length > 1) {
+    L.polyline(selectedDroneTrack.map(toLatLng), {
+      color: selectedDrone?.isOffline ? "#94a3b8" : "#1d6fea",
+      weight: 4,
+      opacity: 0.92
+    }).addTo(layers.tracks);
+
+    selectedDroneTrack.forEach((coordinates, index) => {
+      const isCurrent = index === selectedDroneTrack.length - 1;
+      const isStart = index === 0;
+      L.circleMarker(toLatLng(coordinates), {
+        radius: isCurrent ? 7 : isStart ? 6 : 4,
+        color: isCurrent ? "#1d6fea" : "#ffffff",
+        weight: isCurrent ? 3 : 1,
+        fillColor: isCurrent ? "#ffffff" : isStart ? "#52d3ac" : "#4d8dff",
+        fillOpacity: 0.88
+      }).addTo(layers.tracks);
+    });
+  }
+
+  liveDrones.forEach((drone) => {
+    L.marker(toLatLng(drone.coordinates), {
+      icon: createDroneMarkerIcon(drone, drone.id === selectedDroneId)
+    })
+      .on("click", () => onSelectDrone(drone.id))
+      .bindPopup(buildDronePopupHtml(drone), { closeButton: false, maxWidth: 260 })
+      .addTo(layers.drones);
+  });
+};
+
+const createDroneMarkerIcon = (drone, isSelected) => L.divIcon({
+  className: "leaflet-route-marker-wrapper",
+  html: `
+    <button type="button" class="drone-map-marker ${drone.isOffline ? "offline" : drone.status === "IN_MISSION" ? "in-mission" : "standby"} ${isSelected ? "selected" : ""}" style="--drone-heading:${Number(drone.heading ?? 0)}deg" aria-label="${escapeAttribute(`${drone.id} ${drone.isOffline ? "offline" : formatStatus(drone.status)}`)}">
+      <span class="drone-marker-pulse"></span>
+      <span class="drone-marker-body">
+        <span class="drone-marker-glyph" aria-hidden="true"></span>
+      </span>
+      <span class="drone-marker-label">${escapeHtml(drone.id)} | ${escapeHtml(drone.battery ?? "--")}%</span>
+    </button>
+  `,
+  iconSize: [44, 44],
+  iconAnchor: [22, 22]
+});
 
 const MapOverlayCard = ({ selectedDrone, selectedDroneTrackLength }) => {
   if (!selectedDrone) return null;
@@ -513,249 +406,76 @@ const MapOverlayCard = ({ selectedDrone, selectedDroneTrackLength }) => {
   return (
     <div className="map-overlay-card">
       <div className="map-overlay-head">
-      <strong>{selectedDrone.id}</strong>
-      <span className={selectedDrone.isOffline ? "offline" : "live"}>
-        {selectedDrone.isOffline ? "Offline" : "Tracking"}
-      </span>
+        <strong>{selectedDrone.id}</strong>
+        <span className={selectedDrone.isOffline ? "offline" : "live"}>
+          {selectedDrone.isOffline ? "Offline" : "Tracking"}
+        </span>
       </div>
       <div className="map-overlay-grid">
-        <div>
-          <small>Battery</small>
-          <strong>{selectedDrone.battery ?? "--"}%</strong>
-        </div>
-        <div>
-          <small>Signal</small>
-          <strong>{selectedDrone.signal ?? "--"}%</strong>
-        </div>
-        <div>
-          <small>Speed</small>
-          <strong>{selectedDrone.speed ?? "--"} m/s</strong>
-        </div>
-        <div>
-          <small>Altitude</small>
-          <strong>{selectedDrone.altitude ?? "--"} m</strong>
-        </div>
-        <div>
-          <small>Heading</small>
-          <strong>{selectedDrone.heading ?? "--"} deg</strong>
-        </div>
-        <div>
-          <small>Replay</small>
-          <strong>{selectedDroneTrackLength > 1 ? `${selectedDroneTrackLength} pts` : "Pending"}</strong>
-        </div>
-        <div>
-          <small>Mission</small>
-          <strong>{selectedDrone.missionLabel ?? "No active mission"}</strong>
-        </div>
-        <div>
-          <small>Flight Status</small>
-          <strong>{formatStatus(selectedDrone.flightStatus ?? selectedDrone.status)}</strong>
-        </div>
-        <div>
-          <small>Source</small>
-          <strong>{selectedDrone.simulatorDroneId ?? selectedDrone.source ?? "DroneOps"}</strong>
-        </div>
-        <div>
-          <small>Position</small>
-          <strong>{formatCoordinate(selectedDrone.coordinates)}</strong>
-        </div>
+        <div><small>Battery</small><strong>{selectedDrone.battery ?? "--"}%</strong></div>
+        <div><small>Signal</small><strong>{selectedDrone.signal ?? "--"}%</strong></div>
+        <div><small>Speed</small><strong>{selectedDrone.speed ?? "--"} m/s</strong></div>
+        <div><small>Altitude</small><strong>{selectedDrone.altitude ?? "--"} m</strong></div>
+        <div><small>Heading</small><strong>{selectedDrone.heading ?? "--"} deg</strong></div>
+        <div><small>Replay</small><strong>{selectedDroneTrackLength > 1 ? `${selectedDroneTrackLength} pts` : "Pending"}</strong></div>
+        <div><small>Mission</small><strong>{selectedDrone.missionLabel ?? "No active mission"}</strong></div>
+        <div><small>Flight Status</small><strong>{formatStatus(selectedDrone.flightStatus ?? selectedDrone.status)}</strong></div>
+        <div><small>Source</small><strong>{selectedDrone.simulatorDroneId ?? selectedDrone.source ?? "DroneOps"}</strong></div>
+        <div><small>Position</small><strong>{formatCoordinate(selectedDrone.coordinates)}</strong></div>
       </div>
     </div>
   );
 };
 
-const LiveDroneList = ({ drones, lastUpdatedAt, selectedDroneId, onSelectDrone, replayStatus }) => {
-  return (
-    <section className="live-drone-list" aria-label="Live drone locations">
-      <div className="live-drone-list-header">
-        <strong>Active Airspace</strong>
-        <span>{lastUpdatedAt ? `Updated ${lastUpdatedAt}` : "Waiting for telemetry"}</span>
-        {replayStatus && <span className="live-drone-replay-status">{replayStatus}</span>}
-      </div>
-      {drones.length === 0 && <p className="empty-state">No live drone coordinates are available yet.</p>}
-      {drones.map((drone) => (
-        <button
-          className={`live-drone-card ${drone.id === selectedDroneId ? "selected" : ""}`}
-          key={drone.id}
-          type="button"
-          onClick={() => onSelectDrone(drone.id)}
-        >
-          <div>
-            <strong>{drone.id}</strong>
-            <span>{drone.missionLabel ?? drone.model ?? formatStatus(drone.status)}</span>
-          </div>
-          <div>
-            <span>{drone.isOffline ? "offline - last position" : formatStatus(drone.status)}</span>
-            <span>{formatCoordinate(drone.coordinates)}</span>
-          </div>
-          <div>
-            <span>Battery {drone.battery ?? "--"}%</span>
-            <span>Signal {drone.signal ?? "--"}%</span>
-          </div>
-        </button>
-      ))}
-    </section>
-  );
-};
-
-const buildDroneMarkerElement = (drone, isSelected, onSelect) => {
-  const element = document.createElement("button");
-  element.type = "button";
-  element.addEventListener("click", () => onSelect(drone.id));
-  updateDroneMarkerElement(element, drone, isSelected);
-  return element;
-};
-
-const updateDroneMarkerElement = (element, drone, isSelected) => {
-  element.className = `drone-map-marker ${drone.isOffline ? "offline" : drone.status === "IN_MISSION" ? "in-mission" : "standby"} ${isSelected ? "selected" : ""}`;
-  element.style.setProperty("--drone-heading", `${Number(drone.heading ?? 0)}deg`);
-  element.setAttribute("aria-label", `${drone.id} ${drone.isOffline ? "offline" : formatStatus(drone.status)}`);
-  element.innerHTML = `
-    <span class="drone-marker-pulse"></span>
-    <span class="drone-marker-body">
-      <span class="drone-marker-glyph" aria-hidden="true"></span>
-    </span>
-    <span class="drone-marker-label">${drone.id} | ${drone.battery ?? "--"}%</span>
-  `;
-};
-
-const placeDroneMarkerLabel = (element, drone, map) => {
-  if (!map) return;
-
-  const canvas = map.getCanvas();
-  const point = map.project(drone.coordinates);
-  const labelWidth = Math.max(86, String(drone.id ?? "").length * 8 + 44);
-  const sideBuffer = labelWidth / 2 + 12;
-  const topBuffer = 42;
-  const bottomBuffer = 58;
-  const classNames = ["label-top", "label-bottom", "label-left", "label-right"];
-
-  element.classList.remove(...classNames);
-
-  if (point.x < sideBuffer) {
-    element.classList.add("label-right");
-    return;
-  }
-
-  if (point.x > canvas.clientWidth - sideBuffer) {
-    element.classList.add("label-left");
-    return;
-  }
-
-  if (point.y < topBuffer) {
-    element.classList.add("label-bottom");
-    return;
-  }
-
-  if (point.y > canvas.clientHeight - bottomBuffer) {
-    element.classList.add("label-top");
-    return;
-  }
-
-  element.classList.add("label-top");
-};
-
-const buildDronePopupHtml = (drone) => {
-  return `
-    <div class="drone-map-popup">
-      <strong>${drone.id}</strong>
-      <span>Status: ${drone.isOffline ? "offline - last known position" : formatStatus(drone.status)}</span>
-      <span>Battery: ${drone.battery ?? "--"}%</span>
-      <span>Signal: ${drone.signal ?? "--"}%</span>
-      <span>Altitude: ${drone.altitude ?? "--"} m</span>
-      <span>Speed: ${drone.speed ?? "--"} m/s</span>
-      <span>Mission: ${drone.missionLabel ?? "No active mission"}</span>
-      <span>Flight status: ${formatStatus(drone.flightStatus ?? drone.status)}</span>
-      <span>Source: ${drone.simulatorDroneId ?? drone.source ?? "DroneOps"}</span>
-      <span>Location: ${formatCoordinate(drone.coordinates)}</span>
-      <span>Seen: ${formatTimestamp(drone.timestamp)}</span>
+const LiveDroneList = ({ drones, lastUpdatedAt, selectedDroneId, onSelectDrone, replayStatus }) => (
+  <section className="live-drone-list" aria-label="Live drone locations">
+    <div className="live-drone-list-header">
+      <strong>Active Airspace</strong>
+      <span>{lastUpdatedAt ? `Updated ${lastUpdatedAt}` : "Waiting for telemetry"}</span>
+      {replayStatus && <span className="live-drone-replay-status">{replayStatus}</span>}
     </div>
-  `;
-};
-
-const getDronePopupOptions = (drone, map) => {
-  const point = map?.project(drone.coordinates);
-  const canvas = map?.getCanvas();
-  const options = {
-    closeButton: false,
-    closeOnMove: false,
-    maxWidth: "260px",
-    offset: {
-      top: [0, 30],
-      bottom: [0, -30],
-      left: [-30, 0],
-      right: [30, 0],
-      "top-left": [22, 30],
-      "top-right": [-22, 30],
-      "bottom-left": [22, -30],
-      "bottom-right": [-22, -30]
-    }
-  };
-
-  if (!point || !canvas) return options;
-
-  const nearLeft = point.x < 180;
-  const nearRight = point.x > canvas.clientWidth - 180;
-  const nearTop = point.y < 145;
-  const nearBottom = point.y > canvas.clientHeight - 185;
-
-  if (nearBottom && nearLeft) return { ...options, anchor: "bottom-left" };
-  if (nearBottom && nearRight) return { ...options, anchor: "bottom-right" };
-  if (nearTop && nearLeft) return { ...options, anchor: "top-left" };
-  if (nearTop && nearRight) return { ...options, anchor: "top-right" };
-  if (nearBottom) return { ...options, anchor: "bottom" };
-  if (nearTop) return { ...options, anchor: "top" };
-  if (nearLeft) return { ...options, anchor: "left" };
-  if (nearRight) return { ...options, anchor: "right" };
-  return options;
-};
-
-const FallbackOperationalMap = () => {
-  return (
-    <div className="panel map-panel">
-      <div className="panel-heading compact">
+    {drones.length === 0 && <p className="empty-state">No live drone coordinates are available yet.</p>}
+    {drones.map((drone) => (
+      <button
+        className={`live-drone-card ${drone.id === selectedDroneId ? "selected" : ""}`}
+        key={drone.id}
+        type="button"
+        onClick={() => onSelectDrone(drone.id)}
+      >
         <div>
-          <h3>Telemetry Map</h3>
-          <p>Live telemetry map is waiting for map service configuration.</p>
+          <strong>{drone.id}</strong>
+          <span>{drone.missionLabel ?? drone.model ?? formatStatus(drone.status)}</span>
         </div>
-        <button className="icon-button" type="button" aria-label="Center map">
-          <Home size={17} />
-        </button>
-      </div>
-      <div className="map-canvas geospatial-fallback" aria-label="Drone location map">
-        <div className="map-grid" />
-        <div className="geofence-shape restricted" />
-        <div className="geofence-shape warning" />
-        <div className="flight-path-line" />
-        <MapPin className="map-pin pin-a" size={34} />
-        <MapPin className="map-pin pin-b" size={28} />
-        <MapPin className="map-pin pin-c" size={30} />
-        <div className="map-label">Telemetry map surface ready</div>
-      </div>
-      <MapLegend />
-    </div>
-  );
-};
+        <div>
+          <span>{drone.isOffline ? "offline - last position" : formatStatus(drone.status)}</span>
+          <span>{formatCoordinate(drone.coordinates)}</span>
+        </div>
+        <div>
+          <span>Battery {drone.battery ?? "--"}%</span>
+          <span>Signal {drone.signal ?? "--"}%</span>
+        </div>
+      </button>
+    ))}
+  </section>
+);
 
-const MapLegend = () => {
-  return (
-    <div className="map-legend-panel">
-      <div className="map-legend-heading">
-        <strong>Legend</strong>
-      </div>
-      <div className="map-legend">
-        <span><i className="dot blue" /> Operational</span>
-        <span><i className="dot green" /> In mission</span>
-        <span><i className="dot gray" /> Offline</span>
-        <span><i className="legend-line blue" /> Replay</span>
-        <span><i className="legend-line amber" /> Mission route</span>
-        <span><i className="dot white" /> Current point</span>
-        <span><i className="dot red" /> Restricted</span>
-        <span><i className="dot amber" /> Warning</span>
-      </div>
+const MapLegend = () => (
+  <div className="map-legend-panel">
+    <div className="map-legend-heading">
+      <strong>Legend</strong>
     </div>
-  );
-};
+    <div className="map-legend">
+      <span><i className="dot blue" /> Operational</span>
+      <span><i className="dot green" /> In mission</span>
+      <span><i className="dot gray" /> Offline</span>
+      <span><i className="legend-line blue" /> Replay</span>
+      <span><i className="legend-line amber" /> Mission route</span>
+      <span><i className="dot white" /> Current point</span>
+      <span><i className="dot red" /> Restricted</span>
+      <span><i className="dot amber" /> Warning</span>
+    </div>
+  </div>
+);
 
 const getReplayStatus = (selectedDrone, isHistoryLoading, selectedDroneTrackLength) => {
   if (!selectedDrone) return "Select a drone to inspect replay";
@@ -846,10 +566,7 @@ const normalizeGeofence = (zone) => {
   const normalizedPolygon = polygon.map(normalizeCoordinate).filter(Boolean);
   if (!normalizedPolygon.length) return null;
 
-  return {
-    ...zone,
-    polygon: normalizedPolygon
-  };
+  return { ...zone, polygon: normalizedPolygon };
 };
 
 const normalizeCoordinate = (coordinate) => {
@@ -863,67 +580,44 @@ const normalizeCoordinate = (coordinate) => {
 const fitMapToData = (map, drones = [], geofences = [], selectedTrack = []) => {
   if (!map) return;
 
-  const bounds = new mapboxgl.LngLatBounds();
-  let hasBounds = false;
+  const latLngs = [
+    ...drones.map((drone) => drone.coordinates).filter(Boolean),
+    ...geofences.flatMap((zone) => zone.polygon ?? []),
+    ...selectedTrack
+  ].map(toLatLng);
 
-  drones.forEach((drone) => {
-    bounds.extend(drone.coordinates);
-    hasBounds = true;
-  });
-
-  geofences.forEach((zone) => {
-    zone.polygon?.forEach((coordinate) => {
-      bounds.extend(coordinate);
-      hasBounds = true;
-    });
-  });
-
-  selectedTrack.forEach((coordinate) => {
-    bounds.extend(coordinate);
-    hasBounds = true;
-  });
-
-  if (!hasBounds) {
+  if (!latLngs.length) {
     resetMapView(map);
     return;
   }
 
-  map.fitBounds(bounds, {
-    padding: 60,
-    duration: 900,
-    maxZoom: 14.5
-  });
+  map.fitBounds(L.latLngBounds(latLngs), { padding: [60, 60], maxZoom: 14 });
 };
 
 const resetMapView = (map) => {
   if (!map) return;
-  map.easeTo({
-    center: [mapCenter.longitude, mapCenter.latitude],
-    zoom: 12.4,
-    pitch: 54,
-    bearing: -18,
-    duration: 800
-  });
+  map.flyTo([mapCenter.latitude, mapCenter.longitude], 12, { duration: 0.8 });
 };
 
-const getMapTooltip = ({ object, layer }) => {
-  if (!object) return null;
+const toLatLng = (coordinate) => [Number(coordinate[1]), Number(coordinate[0])];
 
-  if (layer?.id === "geofence-zones") {
-    return {
-      html: `
-        <strong>${object.name ?? "Geofence"}</strong><br/>
-        Type: ${formatStatus(object.type)}
-      `
-    };
-  }
+const buildDronePopupHtml = (drone) => `
+  <div class="drone-map-popup">
+    <strong>${escapeHtml(drone.id)}</strong>
+    <span>Status: ${escapeHtml(drone.isOffline ? "offline - last known position" : formatStatus(drone.status))}</span>
+    <span>Battery: ${escapeHtml(drone.battery ?? "--")}%</span>
+    <span>Signal: ${escapeHtml(drone.signal ?? "--")}%</span>
+    <span>Altitude: ${escapeHtml(drone.altitude ?? "--")} m</span>
+    <span>Speed: ${escapeHtml(drone.speed ?? "--")} m/s</span>
+    <span>Mission: ${escapeHtml(drone.missionLabel ?? "No active mission")}</span>
+    <span>Flight status: ${escapeHtml(formatStatus(drone.flightStatus ?? drone.status))}</span>
+    <span>Source: ${escapeHtml(drone.simulatorDroneId ?? drone.source ?? "DroneOps")}</span>
+    <span>Location: ${escapeHtml(formatCoordinate(drone.coordinates))}</span>
+    <span>Seen: ${escapeHtml(formatTimestamp(drone.timestamp))}</span>
+  </div>
+`;
 
-  return null;
-};
-
-const formatStatus = (status = "") => {
-  return status.toString().toLowerCase().replaceAll("_", " ");
-};
+const formatStatus = (status = "") => status.toString().toLowerCase().replaceAll("_", " ");
 
 const formatCoordinate = (coordinates = []) => {
   const [longitude, latitude] = coordinates;
@@ -935,5 +629,14 @@ const formatTimestamp = (value) => {
   if (!value) return "No timestamp";
   return new Date(value).toLocaleString();
 };
+
+const escapeHtml = (value) => String(value)
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;")
+  .replaceAll("'", "&#39;");
+
+const escapeAttribute = escapeHtml;
 
 export default GeospatialMap;

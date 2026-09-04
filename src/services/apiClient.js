@@ -1,4 +1,6 @@
 // Backend API base URL.
+import { showFeedback } from "./feedbackBus";
+
 const configuredApiBaseUrl =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5001/api/v1";
 
@@ -75,6 +77,10 @@ const shouldNotifyActivityChange = (method = "GET", path = "") => {
 
   return !ignoredPaths.some((ignoredPath) => path.startsWith(ignoredPath));
 };
+
+const shouldShowOperationFeedback = (method, path) => (
+  !["GET", "HEAD"].includes(method.toUpperCase()) && shouldNotifyActivityChange(method, path)
+);
 
 // Sends browser event after data changes.
 const notifyActivityChanged = (path, method) => {
@@ -158,6 +164,22 @@ const refreshAccessToken = async () => {
   return refreshTokenRequest;
 };
 
+const shouldShowRequestFailure = (path = "") => {
+  const ignoredPaths = [
+    "/auth/login",
+    "/auth/google",
+    "/auth/google/complete-profile",
+    "/auth/signup",
+    "/auth/refresh-token",
+    "/auth/forgot-password",
+    "/auth/reset-password",
+    "/notifications/read",
+    "/notifications/read-all",
+  ];
+
+  return !ignoredPaths.some((ignoredPath) => path.startsWith(ignoredPath));
+};
+
 // Main request function used by all API methods.
 const request = async (path, options = {}, retry = true) => {
   const headers = new Headers(options.headers);
@@ -165,6 +187,17 @@ const request = async (path, options = {}, retry = true) => {
   const method = (options.method ?? "GET").toUpperCase();
   const hasRequestBody = Object.prototype.hasOwnProperty.call(options, "body");
   const shouldSendJsonBody = method !== "GET" && method !== "HEAD" && !(options.body instanceof FormData);
+  const feedbackId = `api:${method}:${path}`;
+
+  if (shouldShowOperationFeedback(method, path)) {
+    showFeedback({
+      id: feedbackId,
+      type: "loading",
+      title: getRequestLoadingTitle(method),
+      message: "DroneOps is processing the request. Keep this window open until it finishes.",
+      blocking: true
+    });
+  }
 
   // Attach access token if user is logged in.
   if (token) {
@@ -193,6 +226,14 @@ const request = async (path, options = {}, retry = true) => {
   // 204 means success with no response body.
   if (response.status === 204) {
     notifyActivityChanged(path, method);
+    if (shouldShowOperationFeedback(method, path)) {
+      showFeedback({
+        id: feedbackId,
+        type: "success",
+        title: getRequestSuccessTitle(method),
+        message: "The operation completed successfully."
+      });
+    }
     return null;
   }
 
@@ -208,8 +249,13 @@ const request = async (path, options = {}, retry = true) => {
       errorText.includes("tokenexpirederror") ||
       payload.code === "JWT_EXPIRED";
 
-    // If token expired, refresh and retry once.
-    if (retry && isExpiredJwt) {
+    const canRecoverAuth =
+      isExpiredJwt ||
+      payload.code === "AUTH_REQUIRED" ||
+      payload.code === "INVALID_TOKEN";
+
+    // If the access token is missing, invalid, or expired, refresh and retry once.
+    if (retry && canRecoverAuth) {
       const nextToken = await refreshAccessToken();
 
       if (nextToken) {
@@ -223,13 +269,31 @@ const request = async (path, options = {}, retry = true) => {
         ? formatValidationDetails(payload.details)
         : "";
 
-    throw new Error(
-      validationMessage || payload.message || `Request failed: ${response.status}`,
-    );
+    const message = validationMessage || payload.message || `Request failed: ${response.status}`;
+
+    if (shouldShowRequestFailure(path)) {
+      showFeedback({
+        id: feedbackId,
+        type: "error",
+        title: getRequestFailureTitle(payload.code, response.status),
+        message
+      });
+    }
+
+    throw new Error(message);
   }
 
   // Notify app if data changed.
   notifyActivityChanged(path, method);
+
+  if (shouldShowOperationFeedback(method, path)) {
+    showFeedback({
+      id: feedbackId,
+      type: "success",
+      title: getRequestSuccessTitle(method),
+      message: payload.message || "The operation completed successfully."
+    });
+  }
 
   // Return response data.
   return payload.data ?? payload;
@@ -261,14 +325,38 @@ const get = (path) => {
   return nextRequest;
 };
 
+const getRequestLoadingTitle = (method) => {
+  if (method === "POST") return "Creating or submitting";
+  if (method === "PUT" || method === "PATCH") return "Saving changes";
+  if (method === "DELETE") return "Deleting record";
+  return "Working";
+};
+
+const getRequestSuccessTitle = (method) => {
+  if (method === "POST") return "Submitted successfully";
+  if (method === "PUT" || method === "PATCH") return "Changes saved";
+  if (method === "DELETE") return "Record deleted";
+  return "Completed";
+};
+
 // Reusable API methods.
 export const apiClient = {
   get,
   post: (path, body) => request(path, { method: "POST", body }),
   put: (path, body) => request(path, { method: "PUT", body }),
+  patch: (path, body) => request(path, { method: "PATCH", body }),
   delete: (path) => request(path, { method: "DELETE" }),
   upload: (path, formData) =>
     request(path, { method: "POST", body: formData }),
+};
+
+const getRequestFailureTitle = (code, status) => {
+  if (code === "VALIDATION_ERROR") return "Review the highlighted details";
+  if (status === 403) return "You do not have permission";
+  if (status === 404) return "Record not found";
+  if (status === 409) return "This action cannot continue";
+  if (status >= 500) return "Backend error";
+  return "Request failed";
 };
 
 export { API_BASE_URL, SESSION_KEY };

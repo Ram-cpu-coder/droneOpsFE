@@ -27,7 +27,7 @@ const Fleet = ({ searchValue, user }) => {
     if (!canReadTelemetry) return Promise.resolve([]);
     return droneOpsApi.telemetry.live();
   }, [canReadTelemetry]);
-  const { data: apiDrones, error, isLoading, isFallback, refresh } = useApiResource(loadDrones, [], { cacheKey: "drones:list", staleMs: 10000 });
+  const { data: apiDrones, error, isLoading, isFallback, refresh, setData: setDroneRows } = useApiResource(loadDrones, [], { cacheKey: "drones:list", staleMs: 10000 });
   const { data: telemetryRows } = useApiResource(loadTelemetry, [], { cacheKey: "telemetry-live:fleet", staleMs: 3000, enabled: canReadTelemetry });
   const normalizedDrones = useMemo(() => apiDrones.map((drone) => normalizeDrone(drone, telemetryRows)), [apiDrones, telemetryRows]);
   const filteredDrones = useFleetSearch(normalizedDrones, searchValue);
@@ -85,6 +85,25 @@ const Fleet = ({ searchValue, user }) => {
     window.setTimeout(() => setToast(null), 4500);
   };
 
+  const reconcileDroneRows = useCallback((drone, action) => {
+    if (!drone) {
+      refresh();
+      return;
+    }
+
+    setDroneRows((currentRows = []) => {
+      if (action === "delete") {
+        return currentRows.filter((row) => !isSameDrone(row, drone));
+      }
+
+      const existingIndex = currentRows.findIndex((row) => isSameDrone(row, drone));
+      if (existingIndex === -1) return [drone, ...currentRows];
+      return currentRows.map((row, index) => (index === existingIndex ? { ...row, ...drone } : row));
+    });
+
+    refresh();
+  }, [refresh, setDroneRows]);
+
   return (
     <section className="page-stack">
       {toast && (
@@ -112,7 +131,7 @@ const Fleet = ({ searchValue, user }) => {
       {canManageDrones && showRegisterDrone && (
         <RegisterDroneForm
           onRegistered={(registeredDrone) => {
-            refresh();
+            reconcileDroneRows(registeredDrone, "create");
             setShowRegisterDrone(false);
             showToast({
               type: "success",
@@ -128,7 +147,7 @@ const Fleet = ({ searchValue, user }) => {
           drone={selectedDrone}
           canManage={canManageDrones}
           onUpdated={(updatedDrone) => {
-            refresh();
+            reconcileDroneRows(updatedDrone, "update");
             navigate(profileReturnPath);
             showToast({
               type: "success",
@@ -137,7 +156,7 @@ const Fleet = ({ searchValue, user }) => {
             });
           }}
           onDeleted={(deletedDrone) => {
-            refresh();
+            reconcileDroneRows(deletedDrone, "delete");
             navigate(profileReturnPath);
             showToast({
               type: "success",
@@ -215,6 +234,12 @@ const isTelemetryOffline = (drone, telemetry) => {
     || ["LOST", "OFFLINE"].includes(telemetry?.signal?.linkQuality?.toUpperCase?.())
     || ["DISCONNECTED", "GROUNDED"].includes(drone.status)
     || drone.connectorStatus === "OFFLINE";
+};
+
+const isSameDrone = (row, drone) => {
+  const rowKeys = [row.id, row.uuid, row.systemId, row.droneCode, row.serialNumber].filter(Boolean).map(String);
+  const droneKeys = [drone.id, drone.uuid, drone.systemId, drone.droneCode, drone.serialNumber].filter(Boolean).map(String);
+  return droneKeys.some((key) => rowKeys.includes(key));
 };
 
 const getDetailId = (pathname, basePath) => {

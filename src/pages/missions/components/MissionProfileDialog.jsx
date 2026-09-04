@@ -1,7 +1,9 @@
-import { AlertTriangle, CalendarClock, CheckCircle2, FileWarning, Maximize2, Minimize2, Pencil, Plane, Play, RadioTower, Route, ShieldCheck, UserRound, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, FileWarning, Maximize2, Minimize2, Pencil, Plane, Play, RadioTower, RefreshCw, Route, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import ActionButton from "../../../components/common/ActionButton";
+import HeaderDockedTabs from "../../../components/common/HeaderDockedTabs";
 import CopyableId from "../../../components/common/CopyableId";
 import ProgressBar from "../../../components/common/ProgressBar";
 import StatusBadge from "../../../components/common/StatusBadge";
@@ -11,15 +13,23 @@ import MissionForm from "./MissionForm";
 import MissionRouteMap from "./MissionRouteMap";
 
 const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onClose }) => {
+  const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState("");
   const [riskForm, setRiskForm] = useState(() => createRiskForm(mission.riskAssessment));
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [isRiskSaving, setIsRiskSaving] = useState(false);
   const [isRiskEditing, setIsRiskEditing] = useState(false);
+  const [authorityApprovalDraft, setAuthorityApprovalDraft] = useState({});
+  const [isAuthoritySaving, setIsAuthoritySaving] = useState(false);
+  const [authoritySaveMessage, setAuthoritySaveMessage] = useState("");
+  const [activeProfileTab, setActiveProfileTab] = useState("overview");
   const [liveReplay, setLiveReplay] = useState([]);
   const [showLiveFullscreen, setShowLiveFullscreen] = useState(false);
   const [showFlightIncidentForm, setShowFlightIncidentForm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isSyncingSynctegral, setIsSyncingSynctegral] = useState(false);
   const isSystemAdministrator = ["SYSTEM_ADMINISTRATOR", "system_administrator"].includes(user?.role);
   const canCompleteRisk = Boolean(user?.permissions?.includes("*") || user?.permissions?.includes("risk:complete") || user?.permissions?.includes("risk:manage"));
   const workflowStatus = mission.rawStatus ?? mission.status;
@@ -28,9 +38,22 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
   const waypoints = toWaypointRows(mission.plannedRoute?.waypoints ?? mission.plannedRoute?.coordinates);
   const launchLocation = mission.plannedRoute?.launchSite ?? toSavedLocation(mission.launchSite);
   const operatingLocation = mission.plannedRoute?.operatingArea ?? toSavedLocation(mission.operatingArea);
-  const routeEndpoints = getRouteEndpoints(waypoints);
+  const authorityAnalysis = mission.plannedRoute?.routeAnalysis?.authorityAnalysis ?? mission.geofenceConfig?.authorityAnalysis ?? null;
+  const councilApprovalState = getCouncilApprovalState(mission.geofenceConfig, authorityAnalysis, authorityApprovalDraft);
+  const canEditAuthorityApprovals = canManage && !["ACTIVE", "COMPLETED", "ABORTED", "CANCELLED"].includes(workflowStatus);
+  const canDeleteMission = canManage && workflowStatus !== "ACTIVE";
   const routeSummary = getRouteSummary(waypoints);
   const latestTelemetry = liveReplay[liveReplay.length - 1] ?? null;
+  const profileTabs = [
+    { id: "overview", label: "Overview", detail: "Plan and route" },
+    {
+      id: "permissions",
+      label: "Council Permissions",
+      detail: councilApprovalState.ready ? "Ready before flight" : `${councilApprovalState.pendingCount} pending`
+    },
+    { id: "integration", label: "Synctegral", detail: mission.synctegralSyncStatus ?? "Pending" },
+    { id: "preflight", label: "Pre-flight", detail: hasRiskAssessment ? "Risk done" : "Risk required" }
+  ];
   const missionDroneIds = useMemo(() => getMissionDroneIds(mission), [mission]);
   const flightIncidentDefaults = useMemo(() => ({
     missionId: mission.uuid ?? mission.systemId ?? mission.id,
@@ -62,6 +85,17 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
     setRiskForm(createRiskForm(mission.riskAssessment));
     setIsRiskEditing(false);
   }, [mission.riskAssessment]);
+
+  useEffect(() => {
+    setAuthorityApprovalDraft(createAuthorityApprovalDraft(mission.geofenceConfig, authorityAnalysis));
+    setAuthoritySaveMessage("");
+  }, [mission.geofenceConfig, authorityAnalysis]);
+
+  useEffect(() => {
+    if (workflowStatus === "AWAITING_AUTHORITY_APPROVAL") {
+      setActiveProfileTab("permissions");
+    }
+  }, [workflowStatus]);
 
   useEffect(() => {
     let isMounted = true;
@@ -159,6 +193,8 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
               telemetryTrail={liveReplay}
               replayCount={liveReplay.length}
               routeProgress={routeProgress}
+              synctegralMissionId={mission.synctegralMissionId}
+              externalDeviceId={getMissionExternalDeviceId(mission)}
               isFullscreen
               isHistorical={workflowStatus === "COMPLETED"}
               onToggleFullscreen={() => setShowLiveFullscreen((current) => !current)}
@@ -166,155 +202,234 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
             />
           )}
 
-          <div className="profile-grid">
-            <ProfileSection icon={Route} title="Mission Overview">
-              <ProfileRow label="Mission ID" value={mission.id} />
-              <ProfileRow label="Type" value={mission.type} />
-              <ProfileRow label="Status" value={getStatusLabel(workflowStatus)} />
-              <ProfileRow label="Risk" value={mission.risk} />
-            </ProfileSection>
+          <ProfileTabs tabs={profileTabs} activeTabId={activeProfileTab} onChange={setActiveProfileTab} />
 
-            <ProfileSection icon={UserRound} title="Assignments">
-              <ProfileRow label="Assigned Pilot" value={mission.pilot} />
-              <ProfileRow label="Assigned Drone" value={mission.drone} />
-              <ProfileRow label="Launch Site" value={formatLocationReadout(launchLocation, mission.launchSite)} />
-              <ProfileRow label="Operating Area" value={formatLocationReadout(operatingLocation, mission.operatingArea)} />
-              <ProfileRow label="Start Point" value={routeEndpoints.start} />
-              <ProfileRow label="End Point" value={routeEndpoints.end} />
-            </ProfileSection>
+          {activeProfileTab === "overview" && (
+            <div className="mission-profile-tab-panel">
+              <div className="profile-grid">
+                <ProfileSection icon={Route} title="Mission Overview">
+                  <ProfileRow label="Mission ID" value={mission.id} />
+                  <ProfileRow label="Type" value={mission.type} />
+                  <ProfileRow label="Status" value={getStatusLabel(workflowStatus)} />
+                  <ProfileRow label="Risk" value={mission.risk} />
+                </ProfileSection>
 
-            <ProfileSection icon={CalendarClock} title="Timing">
-              <ProfileRow label="Mission Planned On" value={formatDateTime(mission.plannedStartAt)} />
-              <ProfileRow label="Mission Deadline" value={formatDateTime(mission.plannedEndAt)} />
-              <ProfileRow label="Updated" value={formatDateTime(mission.updatedAt)} />
-              <ProfileRow label="Created" value={formatDateTime(mission.createdAt)} />
-            </ProfileSection>
-          </div>
+                <ProfileSection icon={UserRound} title="Assignments">
+                  <ProfileRow label="Assigned Pilot" value={mission.pilot} />
+                  <ProfileRow
+                    label="Assigned Drone"
+                    value={getMissionDroneRouteId(mission) ? (
+                      <button
+                        className="link-button strong-link inline-profile-link"
+                        type="button"
+                        onClick={() => navigate(`/fleet/${encodeURIComponent(getMissionDroneRouteId(mission))}`)}
+                      >
+                        {mission.drone}
+                      </button>
+                    ) : mission.drone}
+                  />
+                  <ProfileRow label="Vendor Device ID" value={getMissionExternalDeviceId(mission)} />
+                </ProfileSection>
 
-          <section className="profile-location-card">
-            <div className="profile-location-header">
-              <div>
-                <h3>Mission Progress</h3>
-                <p>{routeProgress?.source === "TELEMETRY" ? "Calculated from live telemetry and GPS waypoints." : "Current completion and route planning notes."}</p>
-              </div>
-              <strong>{Number(mission.progress ?? 0)}%</strong>
-            </div>
-            <div className="mission-progress-panel">
-              <ProgressBar value={Number(mission.progress ?? 0)} />
-            </div>
-            <MissionRouteMap waypoints={waypoints} launchSite={launchLocation} operatingArea={operatingLocation} />
-            <div className="mission-route-compact-summary">
-              <span>{routeSummary}</span>
-            </div>
-            <div className="mission-route-summary">
-              <ProfileRow label="Launch Site" value={formatLocationReadout(launchLocation, mission.launchSite)} />
-              <ProfileRow label="Operating Area" value={formatLocationReadout(operatingLocation, mission.operatingArea)} />
-              <ProfileRow label="Route Start" value={routeEndpoints.start} />
-              <ProfileRow label="Route End" value={routeEndpoints.end} />
-            </div>
-            {routeProgress?.source === "TELEMETRY" && (
-              <div className="mission-route-summary">
-                <ProfileRow label="Waypoints reached" value={`${routeProgress.reachedWaypoints ?? 0} of ${routeProgress.totalWaypoints ?? waypoints.length}`} />
-                <ProfileRow label="Route distance" value={formatDistance(routeProgress.totalDistanceMeters)} />
-                <ProfileRow label="Distance from route" value={formatDistance(routeProgress.distanceToRouteMeters)} />
-                <ProfileRow label="Last telemetry" value={formatDateTime(routeProgress.lastTelemetryAt)} />
-              </div>
-            )}
-            <div className="mission-notes-panel">
-              <strong>Route Notes</strong>
-              <p>{mission.routeNotes ?? mission.plannedRoute?.notes ?? "No route notes captured for this mission yet."}</p>
-            </div>
-          </section>
-
-          <section className="profile-section mission-readiness-section">
-            <div className="profile-section-title">
-              <ShieldCheck size={18} />
-              <h3>Pre-flight Risk Assessment</h3>
-              {canCompleteRisk && hasRiskAssessment && ["APPROVED", "RISK_ASSESSMENT_COMPLETED"].includes(workflowStatus) && !isRiskEditing && (
-                <button className="icon-text-button compact" type="button" onClick={() => setIsRiskEditing(true)}>
-                  <Pencil size={15} />
-                  <span>Edit</span>
-                </button>
-              )}
-            </div>
-            <div className="risk-assessment-panel">
-              <div className="risk-assessment-status">
-                <StatusBadge type="risk">{mission.riskAssessment?.level ?? "Required"}</StatusBadge>
-                <p>{hasRiskAssessment ? "Assessment completed. Mission can move to start checks." : "Complete this assessment before starting the mission."}</p>
+                <ProfileSection icon={CalendarClock} title="Timing">
+                  <ProfileRow label="Mission Planned On" value={formatDateTime(mission.plannedStartAt)} />
+                  <ProfileRow label="Mission Deadline" value={formatDateTime(mission.plannedEndAt)} />
+                  <ProfileRow label="Updated" value={formatDateTime(mission.updatedAt)} />
+                  <ProfileRow label="Created" value={formatDateTime(mission.createdAt)} />
+                </ProfileSection>
               </div>
 
-              {hasRiskAssessment && (
-                <div className="risk-assessment-readout">
-                  <RiskReadout title="Hazards" items={mission.riskAssessment.hazards} primaryKey="category" secondaryKey="risk" />
-                  <RiskReadout title="Mitigations" items={mission.riskAssessment.mitigations} primaryKey="hazard" secondaryKey="action" />
+              <section className="profile-location-card">
+                <div className="profile-location-header">
+                  <div>
+                    <h3>Mission Route</h3>
+                    <p>{routeSummary}</p>
+                  </div>
+                  <strong>{Number(mission.progress ?? 0)}%</strong>
                 </div>
-              )}
+                <div className="mission-progress-panel">
+                  <ProgressBar value={Number(mission.progress ?? 0)} />
+                </div>
+                <MissionRouteMap context={{ mission: mission.serialNumber ?? mission.id, name: mission.name, status: workflowStatus }} waypoints={waypoints} launchSite={launchLocation} operatingArea={operatingLocation} authorityAnalysis={authorityAnalysis} />
+                {routeProgress?.source === "TELEMETRY" && (
+                  <div className="mission-route-summary">
+                    <ProfileRow label="Waypoints reached" value={`${routeProgress.reachedWaypoints ?? 0} of ${routeProgress.totalWaypoints ?? waypoints.length}`} />
+                    <ProfileRow label="Route distance" value={formatDistance(routeProgress.totalDistanceMeters)} />
+                    <ProfileRow label="Distance from route" value={formatDistance(routeProgress.distanceToRouteMeters)} />
+                    <ProfileRow label="Last telemetry" value={formatDateTime(routeProgress.lastTelemetryAt)} />
+                  </div>
+                )}
+                <div className="mission-notes-panel">
+                  <strong>Route Notes</strong>
+                  <p>{mission.routeNotes ?? mission.plannedRoute?.notes ?? "No route notes captured for this mission yet."}</p>
+                </div>
+              </section>
+            </div>
+          )}
 
-              {canCompleteRisk && ["APPROVED", "RISK_ASSESSMENT_COMPLETED"].includes(workflowStatus) && (!hasRiskAssessment || isRiskEditing) && (
-                <form className="risk-assessment-form" onSubmit={handleRiskAssessmentSubmit}>
-                  <label className="field">
-                    <span>Risk Level</span>
-                    <select value={riskForm.level} onChange={(event) => updateRiskField("level", event.target.value)} required>
-                      <option value="LOW">Low</option>
-                      <option value="MEDIUM">Medium</option>
-                      <option value="HIGH">High</option>
-                      <option value="CRITICAL">Critical</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Hazards</span>
-                    <textarea value={riskForm.hazardsText} onChange={(event) => updateRiskField("hazardsText", event.target.value)} rows={3} placeholder="Weather: wind gusts&#10;Airspace: nearby restricted zone" required />
-                  </label>
-                  <label className="field">
-                    <span>Mitigations</span>
-                    <textarea value={riskForm.mitigationsText} onChange={(event) => updateRiskField("mitigationsText", event.target.value)} rows={3} placeholder="Weather: delay launch if gusts exceed threshold&#10;Airspace: maintain approved geofence" required />
-                  </label>
-                  <ActionButton icon={ShieldCheck} variant="primary" type="submit" disabled={isRiskSaving}>
-                    {isRiskSaving ? "Saving Assessment" : hasRiskAssessment ? "Update Assessment" : "Complete Assessment"}
+          {activeProfileTab === "permissions" && (
+            <section className="profile-section mission-readiness-section mission-permissions-section">
+              <div className="profile-section-title">
+                <CheckCircle2 size={18} />
+                <h3>Council Permissions Required Before Flight</h3>
+              </div>
+              <AuthorityApprovalReadout
+                operatingLocation={operatingLocation}
+                geofenceConfig={mission.geofenceConfig}
+                authorityAnalysis={authorityAnalysis}
+                approvalState={councilApprovalState}
+                approvals={authorityApprovalDraft}
+                editable={canEditAuthorityApprovals}
+                isSaving={isAuthoritySaving}
+                saveMessage={authoritySaveMessage}
+                onApprovalChange={updateAuthorityApprovalDraft}
+                onSave={handleAuthorityApprovalsSave}
+              />
+            </section>
+          )}
+
+          {activeProfileTab === "integration" && (
+            <section className="profile-section mission-sync-section">
+              <div className="profile-section-title">
+                <RadioTower size={18} />
+                <h3>Synctegral Integration</h3>
+                <MissionSyncBadge mission={mission} />
+                {canManage && (
+                  <ActionButton
+                    icon={RefreshCw}
+                    variant={mission.synctegralSyncStatus === "FAILED" || !mission.synctegralMissionId ? "primary" : "secondary"}
+                    type="button"
+                    onClick={handleSynctegralSync}
+                    disabled={isSyncingSynctegral}
+                    isLoading={isSyncingSynctegral}
+                  >
+                    {mission.synctegralSyncStatus === "FAILED" || !mission.synctegralMissionId ? "Reconnect Synctegral" : "Resync Synctegral"}
                   </ActionButton>
-                  {hasRiskAssessment && (
-                    <ActionButton type="button" onClick={() => {
-                      setRiskForm(createRiskForm(mission.riskAssessment));
-                      setIsRiskEditing(false);
-                    }}>
-                      Cancel Edit
-                    </ActionButton>
-                  )}
-                </form>
-              )}
-
-              {!canCompleteRisk && !hasRiskAssessment && (
-                <div className="risk-assessment-note">
-                  <AlertTriangle size={16} />
-                  <span>A remote pilot, safety officer, or system administrator must complete this before start.</span>
+                )}
+              </div>
+              <dl>
+                <div>
+                  <dt>Mission API reference</dt>
+                  <dd>{mission.synctegralMissionId || "Waiting for Synctegral mission_id"}</dd>
                 </div>
-              )}
-            </div>
-          </section>
+                <div>
+                  <dt>Drone mapping</dt>
+                  <dd>{getMissionExternalDeviceId(mission) || "Set the drone Vendor Device ID, for example SIM-001."}</dd>
+                </div>
+                <div>
+                  <dt>Telemetry matching rule</dt>
+                  <dd>{getTelemetryMatchText(mission)}</dd>
+                </div>
+                {mission.synctegralSyncError && (
+                  <div>
+                    <dt>Last sync error</dt>
+                    <dd>{mission.synctegralSyncError}</dd>
+                  </div>
+                )}
+              </dl>
+            </section>
+          )}
 
-          <section className="profile-section mission-readiness-section">
-            <div className="profile-section-title">
-              <CheckCircle2 size={18} />
-              <h3>Approvals and Workflow Control</h3>
+          {activeProfileTab === "preflight" && (
+            <div className="mission-profile-tab-panel">
+              <section className="profile-section mission-readiness-section">
+                <div className="profile-section-title">
+                  <CheckCircle2 size={18} />
+                  <h3>Workflow Control</h3>
+                </div>
+                <dl>
+                  <div>
+                    <dt>Current step</dt>
+                    <dd>{getWorkflowDescription(workflowStatus, isSystemAdministrator)}</dd>
+                  </div>
+                  <div>
+                    <dt>Approval evidence</dt>
+                    <dd>{mission.synctegralMissionId ? `Synctegral reference ${mission.synctegralMissionId}` : "DroneOps approval and risk assessment records are stored locally."}</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section className="profile-section mission-readiness-section">
+                <div className="profile-section-title">
+                  <ShieldCheck size={18} />
+                  <h3>Pre-flight Risk Assessment</h3>
+                  {canCompleteRisk && hasRiskAssessment && ["APPROVED", "RISK_ASSESSMENT_COMPLETED"].includes(workflowStatus) && !isRiskEditing && (
+                    <button className="icon-text-button compact" type="button" onClick={() => setIsRiskEditing(true)}>
+                      <Pencil size={15} />
+                      <span>Edit</span>
+                    </button>
+                  )}
+                </div>
+                <div className="risk-assessment-panel">
+                  <div className="risk-assessment-status">
+                    <StatusBadge type="risk">{mission.riskAssessment?.level ?? "Required"}</StatusBadge>
+                    <p>{hasRiskAssessment ? "Assessment completed. Mission can move to start checks." : "Complete this assessment before starting the mission."}</p>
+                  </div>
+
+                  {hasRiskAssessment && (
+                    <div className="risk-assessment-readout">
+                      <RiskReadout title="Hazards" items={mission.riskAssessment.hazards} primaryKey="category" secondaryKey="risk" />
+                      <RiskReadout title="Mitigations" items={mission.riskAssessment.mitigations} primaryKey="hazard" secondaryKey="action" />
+                    </div>
+                  )}
+
+                  {canCompleteRisk && ["APPROVED", "RISK_ASSESSMENT_COMPLETED"].includes(workflowStatus) && (!hasRiskAssessment || isRiskEditing) && (
+                    <form className="risk-assessment-form" onSubmit={handleRiskAssessmentSubmit}>
+                      <label className="field">
+                        <span>Risk Level</span>
+                        <select value={riskForm.level} onChange={(event) => updateRiskField("level", event.target.value)} required>
+                          <option value="LOW">Low</option>
+                          <option value="MEDIUM">Medium</option>
+                          <option value="HIGH">High</option>
+                          <option value="CRITICAL">Critical</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Hazards</span>
+                        <textarea value={riskForm.hazardsText} onChange={(event) => updateRiskField("hazardsText", event.target.value)} rows={3} placeholder="Weather: wind gusts&#10;Airspace: nearby restricted zone" required />
+                      </label>
+                      <label className="field">
+                        <span>Mitigations</span>
+                        <textarea value={riskForm.mitigationsText} onChange={(event) => updateRiskField("mitigationsText", event.target.value)} rows={3} placeholder="Weather: delay launch if gusts exceed threshold&#10;Airspace: maintain approved geofence" required />
+                      </label>
+                      <ActionButton icon={ShieldCheck} variant="primary" type="submit" disabled={isRiskSaving}>
+                        {isRiskSaving ? "Saving Assessment" : hasRiskAssessment ? "Update Assessment" : "Complete Assessment"}
+                      </ActionButton>
+                      {hasRiskAssessment && (
+                        <ActionButton type="button" onClick={() => {
+                          setRiskForm(createRiskForm(mission.riskAssessment));
+                          setIsRiskEditing(false);
+                        }}>
+                          Cancel Edit
+                        </ActionButton>
+                      )}
+                    </form>
+                  )}
+
+                  {!canCompleteRisk && !hasRiskAssessment && (
+                    <div className="risk-assessment-note">
+                      <AlertTriangle size={16} />
+                      <span>A remote pilot, safety officer, or system administrator must complete this before start.</span>
+                    </div>
+                  )}
+                </div>
+              </section>
             </div>
-            <dl>
-              <div>
-                <dt>Current step</dt>
-                <dd>{getWorkflowDescription(workflowStatus, isSystemAdministrator)}</dd>
-              </div>
-              <div>
-                <dt>Council / authority area</dt>
-                <dd>{formatAuthorityReadout(operatingLocation, mission.geofenceConfig)}</dd>
-              </div>
-              <div>
-                <dt>Approval evidence</dt>
-                <dd>{mission.synctegralMissionId ? `Synctegral reference ${mission.synctegralMissionId}` : "DroneOps approval and risk assessment records are stored locally."}</dd>
-              </div>
-            </dl>
-          </section>
+          )}
         </div>
 
         <div className="modal-footer profile-footer">
+          {canManage && (
+            <ActionButton
+              icon={Trash2}
+              variant="danger"
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={isDeleting || !canDeleteMission}
+              title={canDeleteMission ? "Delete this mission" : "Complete or abort the active mission before deleting it."}
+            >
+              Delete Mission
+            </ActionButton>
+          )}
           <div className="form-actions profile-primary-actions">
             {canManage && (
               <>
@@ -333,9 +448,9 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
                   icon={Play}
                   variant="primary"
                   onClick={() => handleMissionAction("start")}
-                  disabled={isActionLoading}
+                  disabled={isActionLoading || !councilApprovalState.ready}
                 >
-                  {isActionLoading ? "Starting" : "Start Mission"}
+                  {isActionLoading ? "Starting" : councilApprovalState.ready ? "Start Mission" : "Confirm Council Permissions First"}
                 </ActionButton>
               )}
               {workflowStatus === "ACTIVE" && (
@@ -380,6 +495,29 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
             <ActionButton onClick={onClose}>Close</ActionButton>
           </div>
         </div>
+        {showDeleteConfirm && (
+          <div className="delete-confirm-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !isDeleting && setShowDeleteConfirm(false)}>
+            <div className="delete-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-mission-title" aria-describedby="delete-mission-description">
+              <div className="delete-confirm-icon">
+                <Trash2 size={24} />
+              </div>
+              <div>
+                <h3 id="delete-mission-title">Delete {mission.serialNumber ?? mission.id}?</h3>
+                <p id="delete-mission-description">
+                  This removes the mission from Mission Control. Existing telemetry, incidents, and flight logs are kept for history, but they will no longer be attached to this mission.
+                </p>
+              </div>
+              <div className="delete-confirm-actions">
+                <ActionButton type="button" onClick={() => setShowDeleteConfirm(false)} disabled={isDeleting}>
+                  Cancel
+                </ActionButton>
+                <ActionButton icon={Trash2} variant="danger" type="button" onClick={handleDeleteMission} disabled={isDeleting} isLoading={isDeleting}>
+                  {isDeleting ? "Deleting" : "Delete Mission"}
+                </ActionButton>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -387,6 +525,11 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
   return createPortal(dialog, document.body);
 
   async function handleMissionAction(action) {
+    if (action === "start" && !councilApprovalState.ready) {
+      setError("Confirm permission for every council/authority before starting this mission.");
+      return;
+    }
+
     setIsActionLoading(true);
     setError("");
 
@@ -429,8 +572,60 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
     }
   }
 
+  async function handleAuthorityApprovalsSave() {
+    setIsAuthoritySaving(true);
+    setError("");
+
+    try {
+      const missionId = mission.uuid ?? mission.id;
+      const updatedMission = await droneOpsApi.missions.updateAuthorityApprovals(missionId, { approvals: authorityApprovalDraft });
+      setAuthoritySaveMessage("Council permission updates saved.");
+      onUpdated?.(updatedMission, "authorityApprovals");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setIsAuthoritySaving(false);
+    }
+  }
+
+  async function handleSynctegralSync() {
+    setIsSyncingSynctegral(true);
+    setError("");
+
+    try {
+      const missionId = mission.uuid ?? mission.systemId ?? mission.id;
+      const updatedMission = await droneOpsApi.missions.syncSynctegral(missionId);
+      onUpdated?.(updatedMission, "synctegralSync");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setIsSyncingSynctegral(false);
+    }
+  }
+
+  async function handleDeleteMission() {
+    setIsDeleting(true);
+    setError("");
+
+    try {
+      const missionId = mission.uuid ?? mission.systemId ?? mission.id;
+      await droneOpsApi.missions.remove(missionId);
+      setShowDeleteConfirm(false);
+      onUpdated?.(mission, "delete");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   function updateRiskField(field, value) {
     setRiskForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateAuthorityApprovalDraft(authorityKey, approved) {
+    setAuthoritySaveMessage("");
+    setAuthorityApprovalDraft((current) => ({ ...current, [authorityKey]: approved }));
   }
 };
 
@@ -448,6 +643,26 @@ const ProfileIdentity = ({ id }) => (
   </div>
 );
 
+const ProfileTabs = ({ tabs, activeTabId, onChange }) => (
+  <HeaderDockedTabs>
+  <div className="mission-profile-tabs" role="tablist" aria-label="Mission profile sections">
+    {tabs.map((tab) => (
+      <button
+        key={tab.id}
+        type="button"
+        role="tab"
+        aria-selected={activeTabId === tab.id}
+        className={activeTabId === tab.id ? "active" : ""}
+        onClick={() => onChange?.(tab.id)}
+      >
+        <strong>{tab.label}</strong>
+        <span>{tab.detail}</span>
+      </button>
+    ))}
+  </div>
+  </HeaderDockedTabs>
+);
+
 const MissionLiveOperationPanel = ({
   mission,
   waypoints,
@@ -457,6 +672,8 @@ const MissionLiveOperationPanel = ({
   telemetryTrail = [],
   replayCount,
   routeProgress,
+  synctegralMissionId,
+  externalDeviceId,
   isFullscreen,
   isHistorical = false,
   onToggleFullscreen,
@@ -476,6 +693,13 @@ const MissionLiveOperationPanel = ({
       ? "IN FLIGHT"
       : telemetry?.status ?? "Waiting for telemetry";
   const telemetryTitle = isCompleted ? "Recorded Aircraft Telemetry" : "Live Aircraft Telemetry";
+  const hasTelemetry = Boolean(telemetry);
+  const integrationMessage = getLiveTelemetryIntegrationMessage({
+    hasTelemetry,
+    isCompleted,
+    synctegralMissionId,
+    externalDeviceId
+  });
   const missionSummary = [
     { label: "Distance", value: formatDistance(routeProgress?.totalDistanceMeters ?? getRouteDistanceMeters(waypoints)) },
     { label: "Estimated flight time", value: formatMissionDuration(mission.plannedStartAt, mission.plannedEndAt) },
@@ -601,9 +825,11 @@ const MissionLiveOperationPanel = ({
       <div className="mission-live-grid">
         <div className="mission-live-map">
           <MissionRouteMap
+            context={{ mission: mission.serialNumber ?? mission.id, status: mission.status }}
             waypoints={waypoints}
             launchSite={launchLocation}
             operatingArea={operatingLocation}
+            authorityAnalysis={authorityAnalysis}
             telemetry={telemetry}
             telemetryTrail={telemetryTrail}
             telemetryMode={isCompleted ? "recorded" : "live"}
@@ -614,6 +840,12 @@ const MissionLiveOperationPanel = ({
             <strong>{telemetryTitle}</strong>
             <span>{isHistorical ? "Final captured record" : `Record ${replayCount || 0}`}</span>
           </div>
+          {integrationMessage && (
+            <div className="mission-live-integration-note">
+              <RadioTower size={16} />
+              <span>{integrationMessage}</span>
+            </div>
+          )}
           <div className="mission-live-readout-grid">
             {primaryTelemetry.map((item) => (
               <TelemetryReadout key={item.label} label={item.label} value={item.value} />
@@ -651,6 +883,21 @@ const TelemetryDetails = ({ title, rows }) => (
     </dl>
   </details>
 );
+
+const MissionSyncBadge = ({ mission }) => {
+  const status = normalizeSyncStatus(mission.synctegralSyncStatus);
+  const label = status === "SYNCED"
+    ? "Synced"
+    : status === "FAILED"
+      ? "Failed"
+      : status === "SKIPPED"
+        ? "Disabled"
+        : mission.synctegralMissionId
+          ? "Linked"
+          : "Pending";
+
+  return <span className={`mission-sync-chip ${status.toLowerCase()}`}>{label}</span>;
+};
 
 const ProfileSection = ({ icon: Icon, title, children }) => (
   <section className="profile-section">
@@ -747,22 +994,6 @@ const hasWaypointCoordinates = (waypoint) => {
   return Number.isFinite(latitude) && Number.isFinite(longitude);
 };
 
-const formatLocationReadout = (location, fallback) => {
-  if (location && hasWaypointCoordinates(location)) {
-    const label = location.label || "Selected location";
-    const radius = Number(location.radiusMeters);
-    const radiusText = Number.isFinite(radius) ? ` | Radius ${formatRadius(radius)}` : "";
-    return (
-      <span className="location-readout">
-        <span>{label}</span>
-        <small>{Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)}{radiusText}</small>
-      </span>
-    );
-  }
-
-  return fallback ?? "Not selected";
-};
-
 const formatMissionPlannedOn = (value) => {
   if (!value) return "Not scheduled";
   return new Date(value).toLocaleString([], {
@@ -773,33 +1004,6 @@ const formatMissionPlannedOn = (value) => {
     minute: "2-digit"
   });
 };
-
-const formatRadius = (radiusMeters) => (
-  radiusMeters >= 1000 ? `${(radiusMeters / 1000).toFixed(1)} km` : `${Math.round(radiusMeters)} m`
-);
-
-const getWaypointDisplayLabel = (waypoint, index, total) => {
-  if (index === 0) return "Start Point";
-  if (index === total - 1) return "End Point";
-  return waypoint.label ?? `Stop ${index}`;
-};
-
-const getRouteEndpoints = (waypoints) => {
-  const start = waypoints[0];
-  const end = waypoints[waypoints.length - 1];
-
-  return {
-    start: start && hasWaypointCoordinates(start) ? formatWaypointReadout(start, 0, waypoints.length) : "Not selected",
-    end: end && hasWaypointCoordinates(end) ? formatWaypointReadout(end, waypoints.length - 1, waypoints.length) : "Not selected"
-  };
-};
-
-const formatWaypointReadout = (waypoint, index, total) => (
-  <span className="location-readout">
-    <span>{getWaypointDisplayLabel(waypoint, index, total)}</span>
-    <small>{Number(waypoint.latitude).toFixed(5)}, {Number(waypoint.longitude).toFixed(5)}</small>
-  </span>
-);
 
 const getRouteSummary = (waypoints) => {
   const selectedPoints = waypoints.filter(hasWaypointCoordinates).length;
@@ -832,17 +1036,173 @@ const toWaypointRows = (waypoints) => {
 };
 
 const getStatusLabel = (status) => {
+  if (status === "AWAITING_AUTHORITY_APPROVAL") return "Awaiting Authority Approval";
   if (status === "PLANNED") return "Awaiting Approval";
   if (status === "RISK_ASSESSMENT_COMPLETED") return "Risk Assessment Completed";
   return status;
 };
 
 const getMissionDroneIds = (mission) => {
+  const canonicalIds = mission.drones?.map((drone) => drone.id).filter(Boolean) ?? [];
   const assignmentIds = mission.droneAssignments?.map((assignment) => assignment.drone?.id ?? assignment.droneId).filter(Boolean) ?? [];
-  return [...new Set([mission.drone?.id, mission.droneId, ...assignmentIds].filter(Boolean))];
+  return [...new Set([...canonicalIds, mission.droneRecord?.id, mission.drone?.id, mission.droneId, ...assignmentIds].filter(Boolean))];
 };
 
-const formatAuthorityReadout = (operatingLocation, geofenceConfig) => {
+const getMissionExternalDeviceId = (mission) => {
+  const canonicalDeviceIds = mission.drones
+    ?.map((drone) => drone.externalDeviceId)
+    .filter(Boolean) ?? [];
+  const assignmentDeviceIds = mission.droneAssignments
+    ?.map((assignment) => assignment.drone?.externalDeviceId ?? assignment.externalDeviceId)
+    .filter(Boolean) ?? [];
+  const assignedDroneDeviceIds = mission.assignedDroneRecords
+    ?.map((drone) => drone.externalDeviceId)
+    .filter(Boolean) ?? [];
+  return canonicalDeviceIds[0]
+    ?? mission.droneRecord?.externalDeviceId
+    ?? mission.drone?.externalDeviceId
+    ?? mission.externalDeviceId
+    ?? assignmentDeviceIds[0]
+    ?? assignedDroneDeviceIds[0]
+    ?? "";
+};
+
+const getMissionDroneRouteId = (mission) => (
+  mission.drones?.find((drone) => drone.id)?.id
+  ?? mission.droneRecord?.id
+  ?? mission.drone?.id
+  ?? mission.droneId
+  ?? mission.droneAssignments?.find((assignment) => assignment.drone?.id || assignment.droneId)?.drone?.id
+  ?? mission.droneAssignments?.find((assignment) => assignment.drone?.id || assignment.droneId)?.droneId
+  ?? ""
+);
+
+const getTelemetryMatchText = (mission) => {
+  const deviceId = getMissionExternalDeviceId(mission);
+  if (!mission.synctegralMissionId && !deviceId) {
+    return "Telemetry will appear after this mission has a Synctegral mission_id and an assigned drone with a Vendor Device ID.";
+  }
+  if (!mission.synctegralMissionId) {
+    return `Waiting for Synctegral mission_id. Telemetry from ${deviceId} will not be attached until the mission is linked.`;
+  }
+  if (!deviceId) {
+    return `Mission ${mission.synctegralMissionId} is linked. Assign a drone Vendor Device ID so telemetry can be matched.`;
+  }
+  return `Accept telemetry only when Synctegral sends drone_id ${deviceId} and mission_id ${mission.synctegralMissionId}.`;
+};
+
+const getLiveTelemetryIntegrationMessage = ({ hasTelemetry, isCompleted, synctegralMissionId, externalDeviceId }) => {
+  if (hasTelemetry) return "";
+  if (isCompleted) return "No recorded telemetry was stored for this mission yet.";
+  if (!synctegralMissionId && !externalDeviceId) {
+    return "Waiting for Synctegral mission_id and a drone Vendor Device ID before live telemetry can be matched.";
+  }
+  if (!synctegralMissionId) {
+    return `Waiting for Synctegral mission_id before live telemetry from ${externalDeviceId} can be attached.`;
+  }
+  if (!externalDeviceId) {
+    return `Mission ${synctegralMissionId} is linked, but the assigned drone has no Vendor Device ID.`;
+  }
+  return `Waiting for Synctegral telemetry where drone_id is ${externalDeviceId} and mission_id is ${synctegralMissionId}.`;
+};
+
+const normalizeSyncStatus = (status) => {
+  const normalized = String(status ?? "").toUpperCase();
+  if (["SYNCED", "FAILED", "SKIPPED"].includes(normalized)) return normalized;
+  return "PENDING";
+};
+
+const AuthorityApprovalReadout = ({ operatingLocation, geofenceConfig, authorityAnalysis, approvalState, approvals = {}, editable = false, isSaving = false, saveMessage = "", onApprovalChange, onSave }) => {
+  if (approvalState.items.length) {
+    const confirmedCount = approvalState.items.length - approvalState.pendingCount;
+    return (
+      <div className="mission-authority-readout">
+        <div className={`mission-authority-summary-card ${approvalState.ready ? "ready" : "pending"}`}>
+          <div>
+            <span>{approvalState.ready ? "Ready for flight approval" : "Permission required before flight"}</span>
+            <strong>{approvalState.ready ? "All council permissions confirmed" : `${approvalState.pendingCount} pending`}</strong>
+            <small>{confirmedCount}/{approvalState.items.length} councils confirmed for this mission route.</small>
+          </div>
+          <ShieldCheck size={22} />
+        </div>
+        <div className={editable ? "mission-authority-checklist" : ""}>
+          {approvalState.items.map((authority) => (
+            editable ? (
+              <label className="mission-authority-checkbox" key={authority.key}>
+                <input
+                  type="checkbox"
+                  checked={approvals[authority.key] === true}
+                  onChange={(event) => onApprovalChange?.(authority.key, event.target.checked)}
+                />
+                <span>
+                  <strong>{authority.name}</strong>
+                  <small>{approvals[authority.key] ? "Permission received" : "Permission pending"}</small>
+                </span>
+              </label>
+            ) : (
+              <small className={authority.approved ? "approved" : "pending"} key={authority.key}>
+                {authority.name}: {authority.approved ? "confirmed" : "pending"}
+              </small>
+            )
+          ))}
+        </div>
+        {editable && (
+          <button className="mission-authority-save" type="button" onClick={onSave} disabled={isSaving}>
+            <ShieldCheck size={15} />
+            <span>{isSaving ? "Saving Permissions" : "Save Permission Updates"}</span>
+          </button>
+        )}
+        {saveMessage && <p className="mission-authority-save-message">{saveMessage}</p>}
+      </div>
+    );
+  }
+
+  return formatAuthorityReadout(operatingLocation, geofenceConfig, authorityAnalysis);
+};
+
+const getCouncilApprovalState = (geofenceConfig, authorityAnalysis, approvalDraft = null) => {
+  const authorities = [
+    ...(Array.isArray(geofenceConfig?.approvalRequirements) ? geofenceConfig.approvalRequirements : []),
+    ...(Array.isArray(authorityAnalysis?.authorities) ? authorityAnalysis.authorities : [])
+  ];
+  const authoritiesByKey = new Map();
+
+  authorities.forEach((authority) => {
+    const key = getAuthorityKey(authority);
+    if (!key || authoritiesByKey.has(key)) return;
+    const approvalStatus = String(authority.approvalStatus ?? "").toUpperCase();
+    authoritiesByKey.set(key, {
+      key,
+      name: authority.authorityName ?? authority.lgaName ?? "Council authority",
+      approved: approvalDraft?.[key] ?? ["APPROVED", "GRANTED", "CONFIRMED"].includes(approvalStatus)
+    });
+  });
+
+  const items = [...authoritiesByKey.values()];
+  const pendingCount = items.filter((item) => !item.approved).length;
+  return {
+    items,
+    pendingCount,
+    ready: items.length === 0 || pendingCount === 0
+  };
+};
+
+const getAuthorityKey = (authority) => String(authority?.reference ?? authority?.absCode ?? authority?.authorityName ?? authority?.lgaName ?? "");
+
+const createAuthorityApprovalDraft = (geofenceConfig, authorityAnalysis) => {
+  const approvalState = getCouncilApprovalState(geofenceConfig, authorityAnalysis);
+  return approvalState.items.reduce((draft, authority) => ({
+    ...draft,
+    [authority.key]: authority.approved
+  }), {});
+};
+
+const formatAuthorityReadout = (operatingLocation, geofenceConfig, authorityAnalysis) => {
+  const authorities = Array.isArray(authorityAnalysis?.authorities) ? authorityAnalysis.authorities : [];
+  if (authorities.length) {
+    return authorities.map((authority) => authority.authorityName ?? authority.lgaName).filter(Boolean).join(", ");
+  }
+  if (authorityAnalysis?.message) return authorityAnalysis.message;
   const configuredCouncil = geofenceConfig?.councilName ?? geofenceConfig?.authorityName;
   if (configuredCouncil) return configuredCouncil;
   if (operatingLocation?.label && operatingLocation.label !== "Operating area") return operatingLocation.label;
@@ -972,6 +1332,10 @@ const parseRiskLines = (text, primaryKey, secondaryKey) => {
 };
 
 const getWorkflowDescription = (status, isSystemAdministrator) => {
+  if (status === "AWAITING_AUTHORITY_APPROVAL") {
+    return "This mission is saved, but required council/authority permissions must be confirmed before approval and pre-flight checks.";
+  }
+
   if (status === "PLANNED") {
     return isSystemAdministrator
       ? "This mission is waiting for approval. Approve it before the team can move it forward."

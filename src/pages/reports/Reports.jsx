@@ -108,7 +108,7 @@ const Reports = ({ user, searchValue = "" }) => {
         ...reports,
         ...current.filter((item) => !reports.some((report) => item.id === report.id))
       ]);
-      await refresh();
+      refresh();
       if (firstReport?.id) navigate(`/reports/${encodeURIComponent(firstReport.id)}`);
       setIsGenerateOpen(false);
       setToast({
@@ -235,6 +235,7 @@ const Reports = ({ user, searchValue = "" }) => {
             window.setTimeout(() => setToast(null), 4500);
           }}
           onDeleted={() => {
+            setReportRecords((current) => current.filter((item) => getReportIdentity(item) !== getReportIdentity(selectedReport)));
             refresh();
             navigate(profileReturnPath);
             setToast({ title: "Report deleted", message: `${selectedReport.name} was removed.` });

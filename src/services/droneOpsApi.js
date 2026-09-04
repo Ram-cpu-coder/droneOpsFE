@@ -1,6 +1,10 @@
 import { apiClient } from "./apiClient";
 
 export const droneOpsApi = {
+  pilots: {
+    list: () => apiClient.get("/pilots"),
+    updateCredentials: (id, payload) => apiClient.put(`/pilots/${id}/credentials`, payload)
+  },
   dashboard: {
     overview: () => apiClient.get("/dashboard/overview")
   },
@@ -21,12 +25,16 @@ export const droneOpsApi = {
   },
   missions: {
     list: () => apiClient.get("/missions"),
+    analyseRoute: (payload) => apiClient.post("/missions/analyse-route", payload),
     create: (payload) => apiClient.post("/missions", payload),
     update: (id, payload) => apiClient.put(`/missions/${id}`, payload),
+    updateAuthorityApprovals: (id, payload) => apiClient.patch(`/missions/${id}/authority-approvals`, payload),
+    syncSynctegral: (id) => apiClient.post(`/missions/${id}/sync-synctegral`, {}),
     approve: (id) => apiClient.post(`/missions/${id}/approve`, {}),
     saveRiskAssessment: (id, payload) => apiClient.post(`/missions/${id}/risk-assessment`, payload),
     start: (id) => apiClient.post(`/missions/${id}/start`, {}),
     complete: (id) => apiClient.post(`/missions/${id}/complete`, {}),
+    remove: (id) => apiClient.delete(`/missions/${id}`),
     replay: (id) => apiClient.get(`/missions/${id}/replay`)
   },
   telemetry: {
@@ -64,6 +72,7 @@ export const droneOpsApi = {
   },
   geofences: {
     list: () => apiClient.get("/geofences"),
+    update: (id, payload) => apiClient.put(`/geofences/${id}`, payload),
     create: (payload) => apiClient.post("/geofences", payload)
   },
   users: {

@@ -23,7 +23,7 @@ const UserManagement = ({ user, searchValue = "" }) => {
   const [deletingUser, setDeletingUser] = useState(null);
   const [toast, setToast] = useState(null);
   const loadUsers = useCallback(() => droneOpsApi.users.list(), []);
-  const { data: apiUsers, error, isLoading, isFallback, setData } = useApiResource(loadUsers, [], { cacheKey: "users:list", staleMs: 30000 });
+  const { data: apiUsers, error, isLoading, isFallback, refresh, setData } = useApiResource(loadUsers, [], { cacheKey: "users:list", staleMs: 30000 });
   const users = useMemo(() => apiUsers.map((item, index) => normalizeUser(item, index)), [apiUsers]);
   const filteredUsers = useFleetSearch(users, searchValue);
   const routeUserId = useMemo(() => getDetailId(location.pathname, "/users"), [location.pathname]);
@@ -69,6 +69,7 @@ const UserManagement = ({ user, searchValue = "" }) => {
         isVerified: Boolean(rowDraft.isVerified)
       });
       setData((current) => current.map((item) => (item.id === updatedUser.id ? updatedUser : item)));
+      refresh();
       setSelectedUser((current) => (current?.id === updatedUser.id ? normalizeUser(updatedUser) : current));
       setEditingUserId("");
       setRowDraft({ role: "", isVerified: false });
@@ -92,6 +93,7 @@ const UserManagement = ({ user, searchValue = "" }) => {
     try {
       await droneOpsApi.users.remove(deletingUser.id);
       setData((current) => current.filter((item) => item.id !== deletingUser.id));
+      refresh();
       if (selectedUser?.id === deletingUser.id) navigate(profileReturnPath);
       showToast({ type: "success", title: "User deleted", message: `${deletingUser.name} was removed from the organisation.` });
       setDeletingUser(null);
@@ -228,10 +230,12 @@ const UserManagement = ({ user, searchValue = "" }) => {
           onUpdated={(updatedUser) => {
             const normalized = normalizeUser(updatedUser);
             setData((current) => current.map((item) => (item.id === updatedUser.id ? updatedUser : item)));
+            refresh();
             setSelectedUser(normalized);
           }}
           onDeleted={(deletedUser) => {
             setData((current) => current.filter((item) => item.id !== deletedUser.id));
+            refresh();
             navigate(profileReturnPath);
           }}
           onClose={() => navigate(profileReturnPath)}

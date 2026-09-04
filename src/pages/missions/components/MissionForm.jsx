@@ -1,21 +1,21 @@
-import { AlertTriangle, CalendarClock, CheckCircle2, ChevronDown, MapPinned, Route, Save, Search, UserRound, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, CalendarClock, CheckCircle2, ChevronDown, LoaderCircle, Lock, MapPinned, Route, Save, Search, ShieldCheck, Unlock, UserRound, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ActionButton from "../../../components/common/ActionButton";
+import HeaderDockedTabs from "../../../components/common/HeaderDockedTabs";
 import { useApiResource } from "../../../hooks/useApiResource";
 import { droneOpsApi } from "../../../services/droneOpsApi";
+import { showFeedback } from "../../../services/feedbackBus";
 import RoutePointMapPicker from "./RoutePointMapPicker";
 
 const missionTypes = ["Mapping", "Inspection", "Security", "Delivery", "Training", "Emergency Response"];
-const missionStatuses = ["PLANNED", "APPROVED", "RISK_ASSESSMENT_COMPLETED", "ACTIVE", "COMPLETED", "ABORTED", "CANCELLED"];
+const missionStatuses = ["AWAITING_AUTHORITY_APPROVAL", "PLANNED", "APPROVED", "RISK_ASSESSMENT_COMPLETED", "ACTIVE", "COMPLETED", "ABORTED", "CANCELLED"];
 
 const initialForm = {
   missionCode: "",
   name: "",
   type: "",
-  droneId: "",
   droneIds: [],
-  pilotId: "",
   pilotIds: [],
   launchSite: "",
   operatingArea: "",
@@ -28,6 +28,10 @@ const initialForm = {
   endTime: "",
   status: "PLANNED",
   waypointNotes: "",
+  routeAccepted: false,
+  routeAuthorityAnalysis: null,
+  authorityApprovals: {},
+  permissionsReviewed: false,
   routeTrackingEnabled: true,
   waypoints: [
     { label: "Start point", latitude: "", longitude: "", altitude: "" },
@@ -35,10 +39,15 @@ const initialForm = {
   ]
 };
 
+const routeAnalysisFeedbackId = "mission-route-analysis";
+const missionSaveFeedbackId = "mission-save";
+
 const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, onCreated, onUpdated, onCancel }) => {
   const [form, setForm] = useState(() => toFormState(mission));
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isAnalysingRoute, setIsAnalysingRoute] = useState(false);
+  const [activeStepId, setActiveStepId] = useState("details");
   const errorRef = useRef(null);
   const loadDrones = useCallback(() => droneOpsApi.drones.list(), []);
   const loadUsers = useCallback(() => droneOpsApi.users.list(), []);
@@ -54,6 +63,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
 
   useEffect(() => {
     setForm(toFormState(mission));
+    setActiveStepId("details");
   }, [mission]);
 
   useEffect(() => {
@@ -109,12 +119,20 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
 
   const scheduleError = getScheduleError(form);
   const hasLaunchSite = hasCoordinates(form.locationPlan.launchSite);
-  const hasOperatingArea = hasCoordinates(form.locationPlan.operatingArea);
+  const derivedOperatingArea = form.routeAuthorityAnalysis?.operatingArea ?? null;
+  const hasOperatingArea = hasCoordinates(form.locationPlan.operatingArea) || hasCoordinates(derivedOperatingArea);
   const routeStart = form.waypoints[0];
   const routeEnd = form.waypoints[form.waypoints.length - 1];
   const hasRouteStart = hasCoordinates(routeStart);
   const hasRouteEnd = hasCoordinates(routeEnd);
-  const operatingAreaError = getOperatingAreaCoverageError(form.locationPlan.operatingArea, routeStart, routeEnd);
+  const operatingAreaError = form.locationPlan.operatingArea ? getOperatingAreaCoverageError(form.locationPlan.operatingArea, routeStart, routeEnd) : "";
+  const routeAuthorities = useMemo(() => getRouteAuthorities(form.routeAuthorityAnalysis), [form.routeAuthorityAnalysis]);
+  const authorityPermissionsComplete = routeAuthorities.every((authority) => form.authorityApprovals[getAuthorityKey(authority)] === true);
+  const authorityPermissionDetail = routeAuthorities.length
+    ? authorityPermissionsComplete
+      ? `${routeAuthorities.length} council permission${routeAuthorities.length === 1 ? "" : "s"} confirmed`
+      : `${routeAuthorities.filter((authority) => form.authorityApprovals[getAuthorityKey(authority)] === true).length}/${routeAuthorities.length} council permissions confirmed`
+    : "No council permissions required yet";
   const readinessItems = [
     { label: "Mission name", complete: Boolean(form.name.trim()), detail: form.name.trim() || "Required" },
     { label: "Mission type", complete: Boolean(form.type), detail: form.type || "Required" },
@@ -122,10 +140,42 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
     { label: "Drone", complete: form.droneIds.length > 0, detail: selectedDrones.length ? `${selectedDrones.length} drone(s) selected` : "Required" },
     { label: "Remote pilot", complete: form.pilotIds.length > 0, detail: selectedPilots.length ? `${selectedPilots.length} pilot(s) selected` : "Required" },
     { label: "Launch site", complete: hasLaunchSite, detail: hasLaunchSite ? "Selected on map" : "Required" },
-    { label: "Operating area", complete: hasOperatingArea && !operatingAreaError, detail: operatingAreaError || (hasOperatingArea ? "Covers route start and end" : "Required") },
-    { label: "Route path", complete: hasRouteStart && hasRouteEnd, detail: hasRouteStart && hasRouteEnd ? `${form.waypoints.filter(hasCoordinates).length} point(s) selected` : "Start and end required" }
+    { label: "Operating area", complete: hasOperatingArea && !operatingAreaError, detail: operatingAreaError || (hasOperatingArea ? "Derived from route envelope" : "Derived by backend after route analysis") },
+    { label: "Route path", complete: hasRouteStart && hasRouteEnd, detail: hasRouteStart && hasRouteEnd ? `${form.waypoints.filter(hasCoordinates).length} point(s) selected` : "Start and end required" },
+    { label: "Council permissions", complete: form.routeAccepted && form.permissionsReviewed, detail: form.routeAccepted ? authorityPermissionDetail : "Analyse route first" }
   ];
   const isMissionReady = readinessItems.every((item) => item.complete);
+  const canAnalyseRoute = hasLaunchSite && hasRouteStart && hasRouteEnd && !operatingAreaError;
+  const routeAnalysis = useMemo(() => createRouteAnalysis(form), [form]);
+  const formSteps = useMemo(() => {
+    const detailsComplete = Boolean(form.name.trim() && form.type);
+    const assignmentComplete = form.droneIds.length > 0 && form.pilotIds.length > 0;
+    const scheduleComplete = Boolean(form.plannedDate && form.startTime && form.endTime && !scheduleError);
+    const routeComplete = canAnalyseRoute && form.routeAccepted;
+    const permissionsComplete = routeComplete && form.permissionsReviewed;
+
+    return [
+      { id: "details", label: "Mission Details", helper: "Name and type", complete: detailsComplete, unlocked: true },
+      { id: "assignment", label: "Assignment", helper: "Drone and pilot", complete: assignmentComplete, unlocked: detailsComplete },
+      { id: "schedule", label: "Schedule & Notes", helper: "Time window and notes", complete: scheduleComplete, unlocked: detailsComplete && assignmentComplete },
+      { id: "planning", label: "Mission Map", helper: "Launch, area, and route", complete: routeComplete, unlocked: detailsComplete && assignmentComplete && scheduleComplete },
+      { id: "permissions", label: "Council Permissions", helper: "Required before flight", complete: permissionsComplete, unlocked: detailsComplete && assignmentComplete && scheduleComplete && routeComplete }
+    ];
+  }, [canAnalyseRoute, form.droneIds.length, form.endTime, form.name, form.permissionsReviewed, form.pilotIds.length, form.plannedDate, form.routeAccepted, form.startTime, form.type, scheduleError]);
+  const activeStepIndex = Math.max(formSteps.findIndex((step) => step.id === activeStepId), 0);
+  const activeStep = formSteps[activeStepIndex] ?? formSteps[0];
+  const previousStep = formSteps[activeStepIndex - 1] ?? null;
+  const nextStep = formSteps[activeStepIndex + 1] ?? null;
+  const isCompactTabs = useMediaQuery("(max-width: 720px)");
+  const visibleTabCount = isCompactTabs ? 2 : 4;
+
+  useEffect(() => {
+    const currentStep = formSteps.find((step) => step.id === activeStepId);
+    if (currentStep?.unlocked) return;
+
+    const lastUnlockedStep = [...formSteps].reverse().find((step) => step.unlocked);
+    setActiveStepId(lastUnlockedStep?.id ?? "details");
+  }, [activeStepId, formSteps]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -145,12 +195,113 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
     setForm((current) => ({ ...current, [field]: value }));
   };
 
+  const updateRouteField = (field, value) => {
+    setForm((current) => ({ ...current, [field]: value, routeAccepted: false, routeAuthorityAnalysis: null, authorityApprovals: {}, permissionsReviewed: false }));
+  };
+
+  const acceptRouteAnalysis = async () => {
+    if (!canAnalyseRoute) {
+      const message = operatingAreaError || "Select launch site, start point, and end point before analysing the route.";
+      setError(message);
+      showFeedback({ type: "error", title: "Route is not ready for analysis", message });
+      return;
+    }
+
+    setIsAnalysingRoute(true);
+    setError("");
+    showFeedback({
+      id: routeAnalysisFeedbackId,
+      type: "loading",
+      title: "Analysing mission route",
+      message: "Checking the selected flight path against council boundary data and calculating the operating area.",
+      blocking: true
+    });
+
+    try {
+      const authorityPlan = await droneOpsApi.missions.analyseRoute({ plannedRoute: buildPlannedRoute({ includeRouteAnalysis: false }) });
+      const authorityAnalysis = authorityPlan?.geofenceConfig?.authorityAnalysis ?? authorityPlan?.plannedRoute?.routeAnalysis?.authorityAnalysis ?? null;
+
+      if (authorityAnalysis?.status !== "READY") {
+        const message = authorityAnalysis?.message || "Council boundary analysis could not be completed from the official authority dataset.";
+        setError(message);
+        showFeedback({
+          id: routeAnalysisFeedbackId,
+          type: "error",
+          title: "Route analysis failed",
+          message
+        });
+        return;
+      }
+
+      const backendOperatingArea = authorityPlan?.plannedRoute?.operatingArea ?? authorityAnalysis?.operatingArea ?? null;
+      setForm((current) => ({
+        ...current,
+        routeAccepted: true,
+        routeAuthorityAnalysis: authorityAnalysis,
+        authorityApprovals: buildInitialAuthorityApprovals(authorityAnalysis),
+        permissionsReviewed: false,
+        locationPlan: {
+          ...current.locationPlan,
+          ...(backendOperatingArea ? { operatingArea: backendOperatingArea } : {})
+        }
+      }));
+      showFeedback({
+        id: routeAnalysisFeedbackId,
+        type: "success",
+        title: "Route analysed and accepted",
+        message: getRouteAnalysisSuccessMessage(authorityAnalysis),
+        actionLabel: "Review permissions"
+      });
+    } catch (requestError) {
+      const message = requestError.message;
+      setError(message);
+      showFeedback({
+        id: routeAnalysisFeedbackId,
+        type: "error",
+        title: "Route analysis failed",
+        message
+      });
+    } finally {
+      setIsAnalysingRoute(false);
+    }
+  };
+
+  const unlockAcceptedRoute = () => {
+    setForm((current) => ({ ...current, routeAccepted: false, routeAuthorityAnalysis: null, authorityApprovals: {}, permissionsReviewed: false }));
+  };
+
+  const updateAuthorityApproval = (authority, isApproved) => {
+    const authorityKey = getAuthorityKey(authority);
+    setForm((current) => ({
+      ...current,
+      authorityApprovals: {
+        ...current.authorityApprovals,
+        [authorityKey]: isApproved
+      },
+      permissionsReviewed: false
+    }));
+  };
+
+  const updatePermissionsReviewed = (isReviewed) => {
+    setForm((current) => ({ ...current, permissionsReviewed: isReviewed }));
+  };
+
+  const goToNextStep = () => {
+    if (!activeStep?.complete || !nextStep?.unlocked) return;
+    setActiveStepId(nextStep.id);
+  };
+
+  const goToPreviousStep = () => {
+    if (!previousStep) return;
+    setActiveStepId(previousStep.id);
+  };
+
   const buildDateTime = (date, time) => {
     if (!date || !time) return undefined;
     return new Date(`${date}T${time}`).toISOString();
   };
 
-  const buildPlannedRoute = () => {
+  const buildPlannedRoute = ({ includeRouteAnalysis = form.routeAccepted } = {}) => {
     const waypoints = form.routeTrackingEnabled ? form.waypoints
       .map((waypoint) => ({
         label: waypoint.label?.trim() || undefined,
@@ -164,7 +315,21 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
       ...(form.waypointNotes ? { notes: form.waypointNotes } : {}),
       ...(form.locationPlan.launchSite ? { launchSite: form.locationPlan.launchSite } : {}),
       ...(form.locationPlan.operatingArea ? { operatingArea: form.locationPlan.operatingArea } : {}),
-      ...(waypoints.length ? { waypoints, arrivalRadiusMeters: 50 } : {})
+      ...(waypoints.length ? { waypoints, arrivalRadiusMeters: 50 } : {}),
+      ...(includeRouteAnalysis ? {
+        routeAnalysis: {
+          accepted: true,
+          acceptedAt: new Date().toISOString(),
+          pointCount: routeAnalysis.pointCount,
+          distanceMeters: routeAnalysis.distanceMeters,
+          altitudeRange: routeAnalysis.altitudeRange,
+          councilCount: routeAnalysis.councilCount,
+          councilSummary: routeAnalysis.councilSummary,
+          authorityAnalysis: sanitiseAuthorityAnalysis(form.routeAuthorityAnalysis, form.authorityApprovals),
+          authorityApprovals: form.authorityApprovals,
+          analysisModel: "DRONEOPS_ROUTE_ENVELOPE_V1"
+        }
+      } : {})
     };
 
     return Object.keys(route).length ? route : undefined;
@@ -180,32 +345,59 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
       const firstIncompleteItem = readinessItems.find((item) => !item.complete);
 
       if (firstIncompleteItem) {
-        setError(`${firstIncompleteItem.label} is required before creating the mission.`);
+        const message = `${firstIncompleteItem.label} is required before creating the mission.`;
+        setError(message);
+        showFeedback({ type: "error", title: "Mission plan is incomplete", message });
         return;
       }
 
       if (scheduleError) {
         setError(scheduleError);
+        showFeedback({ type: "error", title: "Fix the mission schedule", message: scheduleError });
         return;
       }
 
       if ((plannedRoute?.waypoints?.length ?? 0) < 2) {
-        setError("Add at least a start point and an end point on the mission planning map.");
+        const message = "Add at least a start point and an end point on the mission planning map.";
+        setError(message);
+        showFeedback({ type: "error", title: "Route points missing", message });
         return;
       }
 
       if (operatingAreaError) {
         setError(operatingAreaError);
+        showFeedback({ type: "error", title: "Operating area is not valid", message: operatingAreaError });
         return;
       }
+
+      if (!form.routeAccepted) {
+        const message = "Analyse and accept the flight path before creating this mission.";
+        setError(message);
+        showFeedback({ type: "error", title: "Route analysis required", message });
+        return;
+      }
+
+      if (!form.permissionsReviewed) {
+        const message = "Review the council permission requirements before saving this mission.";
+        setError(message);
+        showFeedback({ type: "error", title: "Council permission review required", message });
+        setActiveStepId("permissions");
+        return;
+      }
+
+      showFeedback({
+        id: missionSaveFeedbackId,
+        type: "loading",
+        title: mode === "edit" ? "Updating mission" : "Creating mission",
+        message: "Saving the mission plan, assignments, route analysis, and council permission state.",
+        blocking: true
+      });
 
       const payload = {
         ...(mode === "edit" && form.missionCode ? { missionCode: form.missionCode } : {}),
         name: form.name,
         type: form.type,
-        droneId: form.droneIds[0] || undefined,
         droneIds: form.droneIds,
-        pilotId: form.pilotIds[0] || undefined,
         pilotIds: form.pilotIds,
         launchSite: formatLocationLabel(form.locationPlan.launchSite),
         operatingArea: formatLocationLabel(form.locationPlan.operatingArea),
@@ -221,18 +413,37 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
 
       setForm(initialForm);
       if (mode === "edit") {
+        showFeedback({
+          id: missionSaveFeedbackId,
+          type: "success",
+          title: "Mission updated",
+          message: `${savedMission.missionCode ?? form.missionCode ?? "Mission"} has been saved successfully.`
+        });
         onUpdated?.({
           ...savedMission,
           missionCode: savedMission.missionCode ?? form.missionCode
         });
       } else {
+        showFeedback({
+          id: missionSaveFeedbackId,
+          type: "success",
+          title: "Mission created",
+          message: `${savedMission.missionCode ?? "Mission"} has been saved successfully.`
+        });
         onCreated?.({
           ...savedMission,
           missionCode: savedMission.missionCode ?? form.missionCode
         });
       }
     } catch (requestError) {
-      setError(getMissionSubmitErrorMessage(requestError.message));
+      const message = getMissionSubmitErrorMessage(requestError.message);
+      setError(message);
+      showFeedback({
+        id: missionSaveFeedbackId,
+        type: "error",
+        title: mode === "edit" ? "Mission update failed" : "Mission creation failed",
+        message
+      });
     } finally {
       setIsSaving(false);
     }
@@ -240,7 +451,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
 
   const dialog = (
     <div className="modal-backdrop" role="presentation">
-      <form className="modal-dialog registration-dialog" role="dialog" aria-modal="true" aria-labelledby="create-mission-title" onSubmit={handleSubmit}>
+      <form className="modal-dialog registration-dialog mission-dialog" role="dialog" aria-modal="true" aria-labelledby="create-mission-title" onSubmit={handleSubmit}>
         <div className="modal-header">
           <div>
             <p className="eyebrow">Mission Planning</p>
@@ -255,13 +466,18 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
         <div className="modal-body">
           {error && <div className="auth-alert" ref={errorRef}>{error}</div>}
 
-          <div className="form-layout modal-form-layout">
-            <FormSection icon={Route} title="Mission Details">
+          <MissionFormTabs steps={formSteps} activeStepId={activeStepId} onChange={setActiveStepId} visibleCount={visibleTabCount} />
+
+          <div className="form-layout modal-form-layout mission-form-step-layout">
+            {activeStepId === "details" && (
+            <FormSection icon={Route} title="Mission Details" className="mission-form-step-panel">
               <Field label="Mission Name" value={form.name} onChange={(value) => updateField("name", value)} placeholder="North Ridge Inspection" required />
               <SelectField label="Mission Type" value={form.type} onChange={(value) => updateField("type", value)} options={missionTypes} required />
             </FormSection>
+            )}
 
-            <FormSection icon={UserRound} title="Assignment" className="mission-assignment-section">
+            {activeStepId === "assignment" && (
+            <FormSection icon={UserRound} title="Assignment" className="mission-assignment-section mission-form-step-panel">
               <div className="assignment-picker-row">
                 <div className="assignment-picker-copy">
                   <span>Assigned Drones</span>
@@ -272,14 +488,14 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
                   dataCy="mission-drone-picker"
                   className="assignment-picker-search"
                   value={form.droneIds}
-                  onChange={(value) => setForm((current) => ({ ...current, droneIds: value, droneId: value[0] ?? "" }))}
+                  onChange={(value) => setForm((current) => ({ ...current, droneIds: value }))}
                   options={droneOptions}
                   placeholder="Search drones"
                 />
               </div>
               <SelectedAssignmentList type="drone" items={selectedDrones} onRemove={(id) => setForm((current) => {
                 const nextIds = current.droneIds.filter((droneId) => droneId !== id);
-                return { ...current, droneIds: nextIds, droneId: nextIds[0] ?? "" };
+                return { ...current, droneIds: nextIds };
               })} />
               <div className="assignment-picker-row">
                 <div className="assignment-picker-copy">
@@ -291,28 +507,29 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
                   dataCy="mission-pilot-picker"
                   className="assignment-picker-search"
                   value={form.pilotIds}
-                  onChange={(value) => setForm((current) => ({ ...current, pilotIds: value, pilotId: value[0] ?? "" }))}
+                  onChange={(value) => setForm((current) => ({ ...current, pilotIds: value }))}
                   options={pilotOptions}
                   placeholder="Search pilots"
                 />
               </div>
               <SelectedAssignmentList type="pilot" items={selectedPilots} onRemove={(id) => setForm((current) => {
                 const nextIds = current.pilotIds.filter((pilotId) => pilotId !== id);
-                return { ...current, pilotIds: nextIds, pilotId: nextIds[0] ?? "" };
+                return { ...current, pilotIds: nextIds };
               })} />
             </FormSection>
+            )}
 
-            <FormSection icon={CalendarClock} title="Schedule">
-              <Field label="Planned Date" type="date" value={form.plannedDate} onChange={(value) => updateField("plannedDate", value)} />
-              <Field label="Start Time" type="time" value={form.startTime} onChange={(value) => updateField("startTime", value)} />
-              <Field label="End Time" type="time" value={form.endTime} onChange={(value) => updateField("endTime", value)} />
+            {activeStepId === "schedule" && (
+            <FormSection icon={CalendarClock} title="Schedule & Route Notes" className="mission-form-step-panel">
+              <div className="mission-schedule-grid">
+                <Field label="Planned Date" type="date" value={form.plannedDate} onChange={(value) => updateField("plannedDate", value)} />
+                <Field label="Start Time" type="time" value={form.startTime} onChange={(value) => updateField("startTime", value)} />
+                <Field label="End Time" type="time" value={form.endTime} onChange={(value) => updateField("endTime", value)} />
+                {canEditStatus && mode === "edit" && (
+                  <SelectField label="Mission Status" value={form.status} onChange={(value) => updateField("status", value)} options={missionStatuses} />
+                )}
+              </div>
               {scheduleError && <InlineFormAlert message={scheduleError} />}
-              {canEditStatus && mode === "edit" && (
-                <SelectField label="Mission Status" value={form.status} onChange={(value) => updateField("status", value)} options={missionStatuses} />
-              )}
-            </FormSection>
-
-            <FormSection icon={MapPinned} title="Route Notes">
               <TextareaField
                 label="Route / Waypoint Notes"
                 value={form.waypointNotes}
@@ -320,31 +537,75 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
                 placeholder="Add route notes, key waypoints, or site instructions."
               />
             </FormSection>
+            )}
 
-            <FormSection icon={MapPinned} title="Mission Planning Map" className="wide-form-section">
+            {activeStepId === "planning" && (
+            <FormSection icon={MapPinned} title="Mission Planning Map" className="wide-form-section mission-form-step-panel">
               <div className="route-tracking-panel">
+                <RouteAnalysisPanel
+                  analysis={routeAnalysis}
+                  isAccepted={form.routeAccepted}
+                  isAnalysing={isAnalysingRoute}
+                  approvals={form.authorityApprovals}
+                  onApprovalChange={updateAuthorityApproval}
+                  showPermissions={false}
+                />
                 <RoutePointMapPicker
                   value={form.waypoints}
-                  onChange={(waypoints) => updateField("waypoints", waypoints)}
+                  onChange={(waypoints) => updateRouteField("waypoints", waypoints)}
                   locationPlan={form.locationPlan}
-                  onLocationPlanChange={(locationPlan) => updateField("locationPlan", locationPlan)}
+                  onLocationPlanChange={(locationPlan) => updateRouteField("locationPlan", locationPlan)}
+                  locked={form.routeAccepted}
+                  analysis={routeAnalysis}
+                />
+                <RoutePlanningAction
+                  canAnalyse={canAnalyseRoute}
+                  isAccepted={form.routeAccepted}
+                  isAnalysing={isAnalysingRoute}
+                  onAnalyse={acceptRouteAnalysis}
+                  onUnlock={unlockAcceptedRoute}
+                  detail={canAnalyseRoute ? "Route is ready for the official council/LGA boundary check. The backend will derive the operating area from the accepted route." : operatingAreaError || "Finish the launch site, start point, and end point before analysis."}
                 />
                 <ReadinessChecklist items={readinessItems} />
               </div>
             </FormSection>
+            )}
+
+            {activeStepId === "permissions" && (
+            <FormSection icon={ShieldCheck} title="Council Permissions Required Before Flight" className="wide-form-section mission-form-step-panel">
+              <CouncilPermissionsStep
+                analysis={routeAnalysis}
+                isAccepted={form.routeAccepted}
+                approvals={form.authorityApprovals}
+                reviewed={form.permissionsReviewed}
+                onApprovalChange={updateAuthorityApproval}
+                onReviewedChange={updatePermissionsReviewed}
+              />
+              <ReadinessChecklist items={readinessItems} />
+            </FormSection>
+            )}
           </div>
         </div>
 
         <div className="modal-footer">
           <div className={`mission-readiness-footer ${isMissionReady ? "ready" : ""}`}>
             {isMissionReady ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
-            <span>{isMissionReady ? "Mission plan is ready to create." : "Complete the readiness checklist before creating this mission."}</span>
+            <span>{getStepFooterMessage(activeStep, isMissionReady, form.routeAccepted)}</span>
           </div>
           <div className="form-actions">
+            {previousStep && (
+              <ActionButton icon={ArrowLeft} onClick={goToPreviousStep} type="button">Back</ActionButton>
+            )}
             <ActionButton onClick={onCancel}>Cancel</ActionButton>
-            <ActionButton icon={Save} variant="primary" type="submit" disabled={isSaving || !isMissionReady}>
-              {isSaving ? (mode === "edit" ? "Saving" : "Creating") : (mode === "edit" ? "Save Mission" : "Create Mission")}
-            </ActionButton>
+            {nextStep ? (
+              <ActionButton icon={ArrowRight} variant="primary" type="button" onClick={goToNextStep} disabled={!activeStep?.complete || !nextStep.unlocked}>
+                {nextStep.id === "permissions" ? "Review Council Permissions" : "Next"}
+              </ActionButton>
+            ) : (
+              <ActionButton icon={Save} variant="primary" type="submit" disabled={isSaving || !isMissionReady || !form.routeAccepted}>
+                {isSaving ? (mode === "edit" ? "Saving" : "Creating") : getSubmitLabel(mode, authorityPermissionsComplete, routeAuthorities.length)}
+              </ActionButton>
+            )}
           </div>
         </div>
       </form>
@@ -353,6 +614,99 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
 
   return createPortal(dialog, document.body);
 };
+
+const MissionFormTabs = ({ steps, activeStepId, onChange, visibleCount = 4 }) => {
+  const activeIndex = steps.findIndex((step) => step.id === activeStepId);
+  const visibleSteps = steps.slice(0, visibleCount);
+  const hiddenSteps = steps.slice(visibleCount);
+  const activeHiddenStep = activeIndex >= visibleCount ? steps[activeIndex] : null;
+  const displayedSteps = activeHiddenStep
+    ? [...visibleSteps.slice(0, Math.max(visibleCount - 1, 0)), activeHiddenStep]
+    : visibleSteps;
+  const hiddenCount = activeHiddenStep ? Math.max(hiddenSteps.length - 1, 0) : hiddenSteps.length;
+
+  const columnCount = displayedSteps.length + (!activeHiddenStep && hiddenCount > 0 ? 1 : 0);
+
+  return (
+    <HeaderDockedTabs>
+    <div className="mission-form-tabs" role="tablist" aria-label="Mission creation steps" style={{ "--mission-tab-count": columnCount }}>
+      {displayedSteps.map((step) => (
+        <MissionFormTabButton
+          key={step.id}
+          step={step}
+          index={steps.findIndex((candidate) => candidate.id === step.id)}
+          activeStepId={activeStepId}
+          onChange={onChange}
+        />
+      ))}
+      {!activeHiddenStep && hiddenCount > 0 && (
+        <button className="mission-form-more-tab" type="button" disabled aria-label={`${hiddenCount} more mission step${hiddenCount === 1 ? "" : "s"}`}>
+          <span>+{hiddenCount}</span>
+          <strong>{hiddenCount} more</strong>
+          <small>Unlock next</small>
+        </button>
+      )}
+    </div>
+    </HeaderDockedTabs>
+  );
+};
+
+const MissionFormTabButton = ({ step, index, activeStepId, onChange }) => (
+  <button
+    type="button"
+    role="tab"
+    aria-selected={activeStepId === step.id}
+    className={`${activeStepId === step.id ? "active" : ""} ${step.complete ? "complete" : ""} ${step.unlocked ? "" : "locked"}`}
+    onClick={() => {
+      if (step.unlocked) onChange(step.id);
+    }}
+    disabled={!step.unlocked}
+  >
+    <span>{step.complete ? <CheckCircle2 size={16} /> : step.unlocked ? index + 1 : <Lock size={15} />}</span>
+    <strong>{step.label}</strong>
+    <small>{step.helper}</small>
+  </button>
+);
+
+const useMediaQuery = (query) => {
+  const getMatches = useCallback(() => (
+    typeof window !== "undefined" && window.matchMedia(query).matches
+  ), [query]);
+  const [matches, setMatches] = useState(getMatches);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const mediaQuery = window.matchMedia(query);
+    const handleChange = () => setMatches(mediaQuery.matches);
+    handleChange();
+    mediaQuery.addEventListener("change", handleChange);
+
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, [query]);
+
+  return matches;
+};
+
+const RoutePlanningAction = ({ canAnalyse, isAccepted, isAnalysing, onAnalyse, onUnlock, detail }) => (
+  <div className={`route-planning-action ${isAccepted ? "accepted" : ""}`}>
+    <div>
+      <strong>{isAccepted ? "Route accepted" : "Analyse and accept this route"}</strong>
+      <span>{isAccepted ? "This route is locked for mission creation. Edit it if the path changes." : detail}</span>
+    </div>
+    {isAccepted ? (
+      <button type="button" onClick={onUnlock}>
+        <Unlock size={16} />
+        Edit Accepted Route
+      </button>
+    ) : (
+      <button type="button" onClick={onAnalyse} disabled={!canAnalyse || isAnalysing}>
+        {isAnalysing ? <LoaderCircle size={16} /> : <ShieldCheck size={16} />}
+        {isAnalysing ? "Analysing" : "Analyse & Accept Route"}
+      </button>
+    )}
+  </div>
+);
 
 const FormSection = ({ icon: Icon, title, children, className = "" }) => (
   <section className={`form-section ${className}`}>
@@ -363,6 +717,127 @@ const FormSection = ({ icon: Icon, title, children, className = "" }) => (
     <div className="form-grid">{children}</div>
   </section>
 );
+
+const RouteAnalysisPanel = ({ analysis, isAccepted, isAnalysing, approvals = {}, onApprovalChange, showPermissions = true }) => {
+  const authorities = getRouteAuthorities(analysis.authorityAnalysis);
+  const approvedCount = authorities.filter((authority) => approvals[getAuthorityKey(authority)] === true).length;
+  const statusLabel = isAnalysing
+    ? "Analysing official council boundaries"
+    : isAccepted
+      ? "Council permissions required before flight"
+      : "Route analysis required";
+  const StatusIcon = isAnalysing ? LoaderCircle : isAccepted ? ShieldCheck : AlertTriangle;
+
+  return (
+    <div className={`route-analysis-panel ${isAccepted ? "accepted" : ""} ${isAnalysing ? "analysing" : ""}`}>
+      <div className="route-analysis-status">
+        <StatusIcon size={20} />
+        <div>
+          <span>{statusLabel}</span>
+          <strong>{isAnalysing ? "Checking NSW council/LGA boundaries..." : analysis.summary}</strong>
+          <small>{isAnalysing ? "Please wait while DroneOps asks the backend to check the official NSW boundary service." : isAccepted && authorities.length ? "Tick each council only after permission or approval has been received for this mission." : analysis.detail}</small>
+        </div>
+      </div>
+      <div className="route-analysis-metrics">
+        <span>{analysis.pointCount} points</span>
+        <span>{analysis.altitudeRange}</span>
+        <span>{isAccepted && authorities.length ? `${approvedCount}/${authorities.length} permissions` : analysis.councilSummary}</span>
+      </div>
+      {showPermissions && isAccepted && authorities.length > 0 && (
+        <CouncilPermissionChecklist authorities={authorities} approvals={approvals} onApprovalChange={onApprovalChange} />
+      )}
+    </div>
+  );
+};
+
+const CouncilPermissionsStep = ({ analysis, isAccepted, approvals = {}, reviewed = false, onApprovalChange, onReviewedChange }) => {
+  const authorities = getRouteAuthorities(analysis.authorityAnalysis);
+  const approvedCount = authorities.filter((authority) => approvals[getAuthorityKey(authority)] === true).length;
+
+  if (!isAccepted) {
+    return (
+      <div className="route-permission-empty">
+        <AlertTriangle size={20} />
+        <div>
+          <strong>Analyse and accept the route first</strong>
+          <span>Council permissions are calculated from the accepted mission route.</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!authorities.length) {
+    return (
+      <div className="route-permission-step">
+        <div className="route-permission-empty ready">
+          <ShieldCheck size={20} />
+          <div>
+            <strong>No council permission target returned</strong>
+            <span>The boundary check did not return a council intersection for this route.</span>
+          </div>
+        </div>
+        <PermissionReviewCheckbox reviewed={reviewed} onReviewedChange={onReviewedChange} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="route-permission-step">
+      <div className="route-permission-step-summary">
+        <div>
+          <span>Permission checkpoint</span>
+          <strong>{approvedCount}/{authorities.length} councils confirmed</strong>
+          <small>Tick a council only after permission has been received. Pending items are saved with the mission and block flight start.</small>
+        </div>
+        <ShieldCheck size={24} />
+      </div>
+      <CouncilPermissionChecklist authorities={authorities} approvals={approvals} onApprovalChange={onApprovalChange} />
+      <PermissionReviewCheckbox reviewed={reviewed} onReviewedChange={onReviewedChange} />
+    </div>
+  );
+};
+
+const PermissionReviewCheckbox = ({ reviewed, onReviewedChange }) => (
+  <label className={`route-permission-review ${reviewed ? "checked" : ""}`}>
+    <input
+      type="checkbox"
+      checked={reviewed}
+      onChange={(event) => onReviewedChange?.(event.target.checked)}
+    />
+    <span>
+      <strong>I have reviewed the council permission requirements for this mission.</strong>
+      <small>Pending permissions will be saved with the mission and must be confirmed from the mission profile before flight can start.</small>
+    </span>
+  </label>
+);
+
+const CouncilPermissionChecklist = ({ authorities, approvals = {}, onApprovalChange }) => {
+  const approvedCount = authorities.filter((authority) => approvals[getAuthorityKey(authority)] === true).length;
+
+  return (
+    <div className="route-permission-checklist">
+      <div className="route-permission-heading">
+        <span>Council permission checklist</span>
+        <strong>{approvedCount === authorities.length ? "All confirmed" : `${authorities.length - approvedCount} pending`}</strong>
+      </div>
+      <div className="route-permission-items">
+        {authorities.map((authority) => (
+          <label className="route-permission-item" key={getAuthorityKey(authority)}>
+            <input
+              type="checkbox"
+              checked={approvals[getAuthorityKey(authority)] === true}
+              onChange={(event) => onApprovalChange?.(authority, event.target.checked)}
+            />
+            <span>
+              <strong>{authority.authorityName ?? authority.lgaName}</strong>
+              <small>{[authority.lgaName, authority.absCode ? `ABS ${authority.absCode}` : ""].filter(Boolean).join(" | ") || "Council authority"}</small>
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const Field = ({ label, type = "text", placeholder = "", value, onChange, required = false }) => (
   <label className="field">
@@ -565,20 +1040,36 @@ const ReadinessChecklist = ({ items }) => (
   </div>
 );
 
+const getStepFooterMessage = (step, isMissionReady, routeAccepted) => {
+  if (step?.id === "planning" && routeAccepted) return "Route accepted. Review council permissions before saving.";
+  if (step?.id === "permissions" && !step.complete) return "Confirm that you reviewed the council permission requirements.";
+  if (isMissionReady && routeAccepted) return "Mission plan is ready to create.";
+  if (!step) return "Complete the mission form before creating this mission.";
+  if (step.complete) return `${step.label} is complete. Continue to the next step.`;
+  return `Complete ${step.label.toLowerCase()} to unlock the next step.`;
+};
+
+const getSubmitLabel = (mode, authorityPermissionsComplete, authorityCount) => {
+  if (mode === "edit") return "Save Mission";
+  if (authorityCount > 0 && !authorityPermissionsComplete) return "Save and Await Permissions";
+  return "Create Mission";
+};
+
 const toFormState = (mission) => {
   if (!mission) return initialForm;
 
   const plannedStart = mission.plannedStartAt ? new Date(mission.plannedStartAt) : null;
   const plannedEnd = mission.plannedEndAt ? new Date(mission.plannedEndAt) : null;
+  const droneIds = getMissionDroneIds(mission);
+  const pilotIds = getMissionPilotIds(mission);
+  const waypoints = toWaypointRows(mission.plannedRoute?.waypoints ?? mission.plannedRoute?.coordinates ?? mission.routeWaypoints);
 
   return {
     missionCode: mission.missionCode ?? mission.id ?? "",
     name: mission.name ?? "",
     type: mission.type ?? "",
-    droneId: mission.drone?.id ?? mission.droneId ?? "",
-    droneIds: getMissionDroneIds(mission),
-    pilotId: mission.pilot?.id ?? mission.pilotId ?? "",
-    pilotIds: getMissionPilotIds(mission),
+    droneIds,
+    pilotIds,
     launchSite: mission.launchSite ?? "",
     operatingArea: mission.operatingArea ?? "",
     locationPlan: {
@@ -590,19 +1081,25 @@ const toFormState = (mission) => {
     endTime: plannedEnd ? plannedEnd.toTimeString().slice(0, 5) : "",
     status: mission.rawStatus ?? mission.status ?? "PLANNED",
     waypointNotes: mission.plannedRoute?.notes ?? mission.routeNotes ?? "",
-    routeTrackingEnabled: toWaypointRows(mission.plannedRoute?.waypoints ?? mission.plannedRoute?.coordinates ?? mission.routeWaypoints).length >= 2,
-    waypoints: toWaypointRows(mission.plannedRoute?.waypoints ?? mission.plannedRoute?.coordinates ?? mission.routeWaypoints)
+    routeAccepted: Boolean(mission.plannedRoute?.routeAnalysis?.accepted),
+    routeAuthorityAnalysis: mission.plannedRoute?.routeAnalysis?.authorityAnalysis ?? mission.geofenceConfig?.authorityAnalysis ?? null,
+    authorityApprovals: buildInitialAuthorityApprovals(mission.plannedRoute?.routeAnalysis?.authorityAnalysis ?? mission.geofenceConfig?.authorityAnalysis ?? null),
+    permissionsReviewed: Boolean(mission.plannedRoute?.routeAnalysis?.accepted),
+    routeTrackingEnabled: waypoints.length >= 2,
+    waypoints
   };
 };
 
 const getMissionDroneIds = (mission) => {
+  const canonicalIds = mission.drones?.map((drone) => drone.id).filter(Boolean) ?? [];
   const assignmentIds = mission.droneAssignments?.map((assignment) => assignment.drone?.id ?? assignment.droneId).filter(Boolean) ?? [];
-  return [...new Set([mission.drone?.id ?? mission.droneId, ...assignmentIds].filter(Boolean))];
+  return [...new Set([...canonicalIds, mission.drone?.id ?? mission.droneId, ...assignmentIds].filter(Boolean))];
 };
 
 const getMissionPilotIds = (mission) => {
+  const canonicalIds = mission.pilots?.map((pilot) => pilot.id).filter(Boolean) ?? [];
   const assignmentIds = mission.pilotAssignments?.map((assignment) => assignment.pilot?.id ?? assignment.pilotId).filter(Boolean) ?? [];
-  return [...new Set([mission.pilot?.id ?? mission.pilotId, ...assignmentIds].filter(Boolean))];
+  return [...new Set([...canonicalIds, mission.pilot?.id ?? mission.pilotId, ...assignmentIds].filter(Boolean))];
 };
 
 const formatLocationLabel = (location) => {
@@ -610,6 +1107,91 @@ const formatLocationLabel = (location) => {
   const label = location.label || "Selected on map";
   return `${label} (${Number(location.latitude).toFixed(5)}, ${Number(location.longitude).toFixed(5)})`;
 };
+
+const createRouteAnalysis = (form) => {
+  const points = form.waypoints.filter(hasCoordinates);
+  const altitudes = points.map((point) => Number(point.altitude || 0)).filter(Number.isFinite);
+  const minAltitude = altitudes.length ? Math.min(...altitudes) : 0;
+  const maxAltitude = altitudes.length ? Math.max(...altitudes) : 0;
+  const distanceMeters = points.length >= 2 ? getRouteDistanceMeters(points) : 0;
+  const authorityAnalysis = form.routeAuthorityAnalysis;
+  const councils = Array.isArray(authorityAnalysis?.authorities) ? authorityAnalysis.authorities : [];
+  const councilCount = authorityAnalysis?.status === "READY" ? councils.length : 0;
+
+  return {
+    pointCount: points.length,
+    distanceMeters,
+    altitudeRange: `${Math.round(minAltitude)}-${Math.round(maxAltitude)} m AGL`,
+    councilCount,
+    councilSummary: authorityAnalysis?.status === "READY"
+      ? councilCount === 1 ? councils[0]?.authorityName ?? "1 council area" : `${councilCount} council areas`
+      : "Official council lookup required",
+    authorityAnalysis,
+    summary: points.length >= 2 ? `${formatDistance(distanceMeters)} editable route` : "Route needs start and end points",
+    detail: points.length >= 2
+      ? authorityAnalysis?.status === "READY"
+        ? authorityAnalysis.message
+        : "Use Analyse & Accept Route to check official NSW council/LGA boundary intersections."
+      : "Select launch site, start point, and end point before creating the accepted mission path."
+  };
+};
+
+const sanitiseAuthorityAnalysis = (authorityAnalysis, approvals = {}) => {
+  if (!authorityAnalysis || typeof authorityAnalysis !== "object") return null;
+
+  return {
+    status: authorityAnalysis.status,
+    message: authorityAnalysis.message,
+    source: authorityAnalysis.source,
+    sourceUrl: authorityAnalysis.sourceUrl,
+    sourceFeatureCount: authorityAnalysis.sourceFeatureCount,
+    analysedAt: authorityAnalysis.analysedAt,
+    authorities: Array.isArray(authorityAnalysis.authorities)
+      ? authorityAnalysis.authorities.map((authority) => ({
+          authorityType: authority.authorityType,
+          authorityName: authority.authorityName,
+          lgaName: authority.lgaName,
+          absCode: authority.absCode,
+          reference: authority.reference,
+          approvalRequired: authority.approvalRequired ?? true,
+          approvalStatus: approvals[getAuthorityKey(authority)] ? "APPROVED" : "PENDING",
+          source: authority.source
+        }))
+      : []
+  };
+};
+
+const getRouteAuthorities = (authorityAnalysis) => (
+  Array.isArray(authorityAnalysis?.authorities) ? authorityAnalysis.authorities : []
+);
+
+const getRouteAnalysisSuccessMessage = (authorityAnalysis) => {
+  const authorities = getRouteAuthorities(authorityAnalysis);
+  if (!authorities.length) {
+    return "The route has been accepted. No council permission areas were found for this flight path.";
+  }
+
+  return `${authorities.length} council permission ${authorities.length === 1 ? "area was" : "areas were"} found. Review and confirm permissions before the mission can be started.`;
+};
+
+const getAuthorityKey = (authority) => String(authority?.reference ?? authority?.absCode ?? authority?.authorityName ?? authority?.lgaName ?? "");
+
+const buildInitialAuthorityApprovals = (authorityAnalysis) => (
+  getRouteAuthorities(authorityAnalysis).reduce((approvals, authority) => ({
+    ...approvals,
+    [getAuthorityKey(authority)]: authority.approvalStatus === "APPROVED" || authority.approvalStatus === "GRANTED"
+  }), {})
+);
+
+const formatDistance = (meters) => {
+  if (!Number.isFinite(meters) || meters <= 0) return "0 m";
+  return meters >= 1000 ? `${(meters / 1000).toFixed(2)} km` : `${Math.round(meters)} m`;
+};
+
+const getRouteDistanceMeters = (points) => points.reduce((total, point, index) => {
+  if (index === 0) return total;
+  return total + getDistanceMeters(points[index - 1], point);
+}, 0);
 
 const getScheduleError = (form) => {
   if (!form.plannedDate && !form.startTime && !form.endTime) return "";

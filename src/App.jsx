@@ -1,7 +1,8 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useLocation, useNavigate } from "react-router-dom";
 import LoadingLogo from "./components/common/LoadingLogo";
+import SystemFeedbackDialog from "./components/common/SystemFeedbackDialog";
 import {
   canAccessRoute,
   firstAccessibleRoute,
@@ -25,6 +26,7 @@ import {
   uiReset,
 } from "./features/ui/uiSlice";
 import { appRoutes } from "./routes/appRoutes";
+import { feedbackEvents } from "./services/feedbackBus";
 
 // Lazy load main app/auth components.
 const AppLayout = lazy(() => import("./components/layouts/AppLayout"));
@@ -87,6 +89,7 @@ const App = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
+  const [systemFeedback, setSystemFeedback] = useState(null);
 
   // Prevent repeated restored-session redirects.
   const restoredRouteHandledRef = useRef(false);
@@ -159,6 +162,29 @@ const App = () => {
         handleSessionExpired,
       );
   }, [dispatch, navigate]);
+
+  useEffect(() => {
+    const handleFeedback = (event) => {
+      const feedback = event.detail ?? {};
+      if (feedback.clear) {
+        setSystemFeedback((current) => (feedback.id && current?.id !== feedback.id ? current : null));
+        return;
+      }
+
+      setSystemFeedback({
+        id: feedback.id ?? `${Date.now()}`,
+        type: feedback.type ?? "info",
+        title: feedback.title,
+        message: feedback.message,
+        details: feedback.details,
+        actionLabel: feedback.actionLabel,
+        blocking: feedback.blocking
+      });
+    };
+
+    window.addEventListener(feedbackEvents.name, handleFeedback);
+    return () => window.removeEventListener(feedbackEvents.name, handleFeedback);
+  }, []);
 
   // Main auth/app routing logic.
   useEffect(() => {
@@ -368,6 +394,7 @@ const App = () => {
   if (!session?.user) {
     return (
       <Suspense fallback={<AuthFallback />}>
+        <SystemFeedbackDialog feedback={systemFeedback} onClose={() => setSystemFeedback(null)} />
         <AuthShell
           themeMode={themeMode}
           onThemeModeChange={(mode) => dispatch(themeModeChanged(mode))}
@@ -446,6 +473,7 @@ const App = () => {
         </div>
       }
     >
+      <SystemFeedbackDialog feedback={systemFeedback} onClose={() => setSystemFeedback(null)} />
       <AppLayout
         activeRoute={resolvedActiveRoute}
         routes={accessibleRoutes}
