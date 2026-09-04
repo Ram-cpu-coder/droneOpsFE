@@ -4,10 +4,13 @@ import MapWorkspace, { MapDataDetails } from "../../../components/maps/MapWorksp
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useOperationalGeofences } from "../../../hooks/useOperationalGeofences";
 
 const defaultCenter = { latitude: -33.8679, longitude: 151.2073 };
 
-const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = null, authorityAnalysis = null, telemetry = null, telemetryTrail = [], telemetryMode = "planned", incidentLocation = null, context = null, geofences = [], onMapClick, showEmptyMap = false }) => {
+const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = null, authorityAnalysis = null, telemetry = null, telemetryTrail = [], telemetryMode = "planned", incidentLocation = null, context = null, geofences: suppliedGeofences, onMapClick, showEmptyMap = false }) => {
+  const operationalGeofences = useOperationalGeofences(suppliedGeofences === undefined);
+  const geofences = suppliedGeofences ?? operationalGeofences.zones;
   const clickRef = useRef(onMapClick);
   clickRef.current = onMapClick;
   const mapContainerRef = useRef(null);
@@ -99,7 +102,12 @@ const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = nu
   }, [geofences,mapReady,mapPoints]);
 
   useEffect(() => {
-    if (!mapReady || !mapRef.current || !layersRef.current || mapPoints.length === 0) return;
+    if (!mapReady || !mapRef.current || !layersRef.current) return;
+    if (mapPoints.length === 0) {
+      Object.entries(layersRef.current).forEach(([name, layer]) => { if (name !== "geofences") layer.clearLayers(); });
+      hasFittedRef.current = false;
+      return;
+    }
 
     renderMapLayers({
       layers: layersRef.current,
@@ -131,6 +139,8 @@ const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = nu
   return (
     <MapWorkspace overlayControls title={incidentLocation ? "Incident map" : telemetry ? "Aircraft map" : "Mission route"} details={<>
       <MapDataDetails title="Details" value={context} />
+      <MapDataDetails title="Geofences" value={geofences.filter(zone => zone.isActive !== false).map(zone => zone.name)} />
+      {operationalGeofences.error && <p role="status">{operationalGeofences.error}</p>}
       <MapDataDetails title="Route summary" value={{ waypoints: routePoints.length, telemetryRecords: telemetryPoints.length, mode: telemetryMode }} />
       <MapDataDetails title="Council areas" value={authorityAnalysis?.authorities?.map((item) => item.authorityName ?? item.name)} />
       <MapDataDetails title="Launch site" value={launchSite} />

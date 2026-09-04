@@ -9,6 +9,7 @@ import {
   Settings,
   Users
 } from "lucide-react";
+import { MapPinned, Wrench, UserRoundCheck } from "lucide-react";
 import PlaceholderPage from "../pages/PlaceholderPage";
 
 const Dashboard = lazy(() => import("../pages/dashboard/Dashboard"));
@@ -18,6 +19,9 @@ const Incidents = lazy(() => import("../pages/incidents/Incidents"));
 const Reports = lazy(() => import("../pages/reports/Reports"));
 const UserManagement = lazy(() => import("../pages/users/UserManagement"));
 const SettingsPage = lazy(() => import("../pages/settings/Settings"));
+const LiveOperations = lazy(() => import("../pages/operations/LiveOperations"));
+const Maintenance = lazy(() => import("../pages/operations/Maintenance"));
+const Pilots = lazy(() => import("../pages/operations/Pilots"));
 
 const createPlaceholder = (route) => function PlaceholderRoute() {
   return createElement(PlaceholderPage, { route });
@@ -32,6 +36,9 @@ const routes = [
     icon: Grid2X2,
     requiredPermission: "dashboard"
   },
+  { id:"live-operations", path:"/live-operations", label:"Telemetry & Geofences", description:"Live tracking, mission replay and operational zones.", icon:MapPinned, requiredPermission:"telemetry:read" },
+  { id:"maintenance", path:"/maintenance", label:"Maintenance", description:"Aircraft maintenance schedules and service history.", icon:Wrench, requiredPermission:"maintenance:read" },
+  { id:"pilots", path:"/pilots", label:"Pilots", description:"Remote pilots and recorded licence details.", icon:UserRoundCheck, requiredPermission:"pilots:read" },
   {
     id: "fleet",
     path: "/fleet",
@@ -85,7 +92,7 @@ const routes = [
 
 export const appRoutes = routes.map((route) => ({
   ...route,
-  component: route.id === "dashboard"
+  component: route.id === "live-operations" ? LiveOperations : route.id === "maintenance" ? Maintenance : route.id === "pilots" ? Pilots : route.id === "dashboard"
     ? Dashboard
     : route.id === "fleet"
       ? Fleet

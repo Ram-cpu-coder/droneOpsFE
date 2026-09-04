@@ -39,7 +39,7 @@ export const droneOpsApi = {
   },
   telemetry: {
     live: () => apiClient.get("/telemetry/live"),
-    byDrone: (droneId) => apiClient.get(`/telemetry/${droneId}`),
+    byDrone: (droneId, limit = 100) => apiClient.get(`/telemetry/${droneId}?limit=${encodeURIComponent(limit)}`),
     ingest: (payload) => apiClient.post("/telemetry", payload),
     syncSynctegral: () => apiClient.post("/telemetry/synctegral/sync", {})
   },
@@ -52,6 +52,7 @@ export const droneOpsApi = {
     remove: (id) => apiClient.delete(`/incidents/${id}`)
   },
   maintenance: {
+    release: (id) => apiClient.post(`/maintenance/${id}/release`, {}),
     list: () => apiClient.get("/maintenance"),
     create: (payload) => apiClient.post("/maintenance", payload),
     update: (id, payload) => apiClient.put(`/maintenance/${id}`, payload)
