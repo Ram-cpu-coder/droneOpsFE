@@ -4,8 +4,8 @@ import {
   BarChart3,
   ClipboardList,
   Grid2X2,
-  MapPin,
   Plane,
+  Route,
   Settings,
   Users
 } from "lucide-react";
@@ -45,7 +45,7 @@ const routes = [
     path: "/missions",
     label: "Missions",
     description: "Mission planning, route progress, assigned drones, and scheduled work.",
-    icon: MapPin,
+    icon: Route,
     requiredPermission: "missions"
   },
   {
@@ -103,7 +103,7 @@ export const appRoutes = routes.map((route) => ({
 }));
 
 export const quickActions = [
-  { label: "Create Mission", icon: MapPin, target: "missions" },
+  { label: "Create Mission", icon: Route, target: "missions" },
   { label: "Fleet Report", icon: BarChart3, target: "reports" },
   { label: "Register Drone", icon: Plane, target: "fleet" }
 ];

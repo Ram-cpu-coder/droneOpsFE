@@ -37,6 +37,7 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
   const [isNotificationLoading, setIsNotificationLoading] = useState(false);
   const lastLoadedAtRef = useRef(0);
   const notificationRequestRef = useRef(0);
+  const notificationRefreshTimerRef = useRef(null);
   const searchRequestRef = useRef(0);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [globalResults, setGlobalResults] = useState([]);
@@ -76,6 +77,15 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
     }
   }, []);
 
+  const scheduleNotificationRefresh = useCallback(() => {
+    if (notificationRefreshTimerRef.current) return;
+
+    notificationRefreshTimerRef.current = window.setTimeout(() => {
+      notificationRefreshTimerRef.current = null;
+      loadNotifications({ force: true });
+    }, 1200);
+  }, [loadNotifications]);
+
   useEffect(() => {
     loadNotifications();
     const intervalId = window.setInterval(() => loadNotifications({ force: true }), 60000);
@@ -84,7 +94,7 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
 
   useEffect(() => {
     const socket = getRealtimeSocket();
-    const handleTrackedChange = () => loadNotifications({ force: true });
+    const handleTrackedChange = () => scheduleNotificationRefresh();
 
     socket.on("operations:activity", handleTrackedChange);
     socket.on("operations:alert", handleTrackedChange);
@@ -94,8 +104,12 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
       socket.off("operations:activity", handleTrackedChange);
       socket.off("operations:alert", handleTrackedChange);
       window.removeEventListener("droneops:activity-changed", handleTrackedChange);
+      if (notificationRefreshTimerRef.current) {
+        window.clearTimeout(notificationRefreshTimerRef.current);
+        notificationRefreshTimerRef.current = null;
+      }
     };
-  }, [loadNotifications]);
+  }, [scheduleNotificationRefresh]);
 
   useEffect(() => {
     const handlePointerDown = (event) => {
@@ -406,6 +420,18 @@ const loadCachedSearchRows = async (key, loader) => {
   return rows;
 };
 
+const getMissionDroneLabel = (mission) => (
+  mission.drones?.map((drone) => drone.droneCode ?? drone.id).filter(Boolean).join(", ")
+  || mission.drone?.droneCode
+  || (typeof mission.drone === "string" ? mission.drone : "")
+);
+
+const getMissionPilotLabel = (mission) => (
+  mission.pilots?.map((pilot) => pilot.name ?? pilot.id).filter(Boolean).join(", ")
+  || mission.pilot?.name
+  || (typeof mission.pilot === "string" ? mission.pilot : "")
+);
+
 const loadGlobalSearchResults = async ({ query, routes, canRead }) => {
   const routeResults = routes
     .filter((route) => itemMatches([route.label, route.description, route.path], query))
@@ -443,10 +469,10 @@ const loadGlobalSearchResults = async ({ query, routes, canRead }) => {
       map: (mission) => ({
         id: mission.id,
         title: mission.missionCode ?? mission.title ?? mission.id,
-        subtitle: [mission.title, mission.type, mission.status, mission.drone?.droneCode, mission.pilot?.name].filter(Boolean).join(" / "),
+        subtitle: [mission.title, mission.type, mission.status, getMissionDroneLabel(mission), getMissionPilotLabel(mission)].filter(Boolean).join(" / "),
         path: `/missions/${encodeURIComponent(mission.id)}`
       }),
-      values: (mission) => [mission.missionCode, mission.title, mission.type, mission.status, mission.drone?.droneCode, mission.pilot?.name]
+      values: (mission) => [mission.missionCode, mission.title, mission.type, mission.status, getMissionDroneLabel(mission), getMissionPilotLabel(mission)]
     },
     {
       enabled: canRead("incidents"),

@@ -35,7 +35,6 @@ const getStoredDashboardSplit = () => {
 const Dashboard = ({ searchValue, user, onNavigate }) => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
-  const [showLivePanels, setShowLivePanels] = useState(false);
   const [dashboardSplit, setDashboardSplit] = useState(getStoredDashboardSplit);
   const canRead = useCallback((permission) => hasClientPermission(user, permission), [user]);
   const loadDrones = useCallback(() => droneOpsApi.drones.list(), []);
@@ -43,17 +42,17 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
   const loadIncidents = useCallback(() => droneOpsApi.incidents.list(), []);
   const loadAudit = useCallback(() => droneOpsApi.audit.list({ limit: 8 }), []);
   const loadTelemetry = useCallback(() => {
-    if (!showLivePanels || !canRead("telemetry:read")) return Promise.resolve([]);
+    if (!canRead("telemetry:read")) return Promise.resolve([]);
     return droneOpsApi.telemetry.live();
-  }, [canRead, showLivePanels]);
-  const { data: apiDrones, isLoading: isDronesLoading, isFallback: isDronesFallback } = useApiResource(loadDrones, [], { enabled: canRead("drones:read") });
-  const { data: apiMissions, isLoading: isMissionsLoading, isFallback: isMissionsFallback } = useApiResource(loadMissions, [], { enabled: canRead("missions:read") });
-  const { data: apiIncidents, isLoading: isIncidentsLoading, isFallback: isIncidentsFallback } = useApiResource(loadIncidents, [], { enabled: canRead("incidents:read") });
-  const { data: auditLogs, isLoading: isActivityLoading } = useApiResource(loadAudit, [], { enabled: canRead("audit:read") });
+  }, [canRead]);
+  const { data: apiDrones, isLoading: isDronesLoading, isFallback: isDronesFallback } = useApiResource(loadDrones, [], { cacheKey: "drones:list", staleMs: 10000, enabled: canRead("drones:read") });
+  const { data: apiMissions, isLoading: isMissionsLoading, isFallback: isMissionsFallback } = useApiResource(loadMissions, [], { cacheKey: "missions:list", staleMs: 10000, enabled: canRead("missions:read") });
+  const { data: apiIncidents, isLoading: isIncidentsLoading, isFallback: isIncidentsFallback } = useApiResource(loadIncidents, [], { cacheKey: "incidents:list", staleMs: 10000, enabled: canRead("incidents:read") });
+  const { data: auditLogs, isLoading: isActivityLoading } = useApiResource(loadAudit, [], { cacheKey: "audit:recent", staleMs: 10000, enabled: canRead("audit:read") });
   const { data: telemetryRows } = useApiResource(
     loadTelemetry,
     [],
-    { cacheKey: `telemetry-live:${user?.organisationId ?? "unknown"}`, staleMs: 5000, enabled: showLivePanels && canRead("telemetry:read") }
+    { cacheKey: `telemetry-live:${user?.organisationId ?? "unknown"}`, staleMs: 5000, enabled: canRead("telemetry:read") }
   );
   const activeMissions = apiMissions.filter((mission) => ["In Progress", "ACTIVE"].includes(mission.status));
   const openIncidents = apiIncidents.filter((incident) => !["CLOSED", "Closed", "RESOLVED", "Resolved"].includes(incident.status));
@@ -171,7 +170,7 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
             <span aria-hidden="true" />
           </button>
           <div className="dashboard-resizable-pane">
-            {showLivePanels && canRead("telemetry:read") ? (
+            {canRead("telemetry:read") ? (
               <Suspense fallback={<div className="panel map-panel map-loading"><LoadingLogo label="Loading telemetry map" /></div>}>
                 <GeospatialMap />
               </Suspense>
@@ -179,15 +178,7 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
               <div className="panel map-panel map-loading map-deferred">
                 <div>
                   <span className="eyebrow">Telemetry Map</span>
-                  <h3>Live map loads on demand</h3>
-                  <p>Open live operations view when you need current drone positions, replay tracks, and geofence overlays.</p>
-                  {canRead("telemetry:read") ? (
-                    <button className="primary-btn compact" type="button" onClick={() => setShowLivePanels(true)}>
-                      Open Live Map
-                    </button>
-                  ) : (
-                    <span>Telemetry access is not enabled for this role.</span>
-                  )}
+                  <span>Telemetry access is not enabled for this role.</span>
                 </div>
               </div>
             )}
@@ -237,11 +228,17 @@ const normalizeMissionCard = (mission) => ({
   id: mission.id,
   uuid: mission.uuid ?? mission.id,
   name: mission.name ?? mission.missionCode ?? "Untitled mission",
-  drone: mission.drone?.droneCode ?? mission.drone ?? "Unassigned drone",
+  drone: getMissionDroneLabel(mission) || "Unassigned drone",
   eta: mission.eta ?? (mission.plannedStartAt ? new Date(mission.plannedStartAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Not scheduled"),
   progress: Number(mission.progress ?? (mission.status === "COMPLETED" ? 100 : mission.status === "ACTIVE" ? 55 : 0)),
   risk: mission.riskAssessment?.level ?? mission.risk ?? "Pending"
 });
+
+const getMissionDroneLabel = (mission) => (
+  mission.drones?.map((drone) => drone.droneCode ?? drone.id).filter(Boolean).join(", ")
+  || mission.drone?.droneCode
+  || (typeof mission.drone === "string" ? mission.drone : "")
+);
 
 const normalizeIncidentCard = (incident) => ({
   id: incident.id,

@@ -11,6 +11,10 @@ export const clearApiResourceCache = (cacheKey) => {
   resourceCache.clear();
 };
 
+if (typeof window !== "undefined") {
+  window.addEventListener("droneops:session-expired", () => clearApiResourceCache());
+}
+
 export const useApiResource = (loader, fallbackData = [], options = {}) => {
   const { cacheKey, staleMs = 0, enabled = true } = options;
   const cachedEntry = cacheKey ? resourceCache.get(cacheKey) : null;
@@ -34,6 +38,20 @@ export const useApiResource = (loader, fallbackData = [], options = {}) => {
       return loader();
     }
   }, [loader]);
+
+  const updateData = useCallback((nextDataOrUpdater) => {
+    setData((currentData) => {
+      const nextData = typeof nextDataOrUpdater === "function"
+        ? nextDataOrUpdater(currentData)
+        : nextDataOrUpdater;
+
+      if (cacheKey) {
+        resourceCache.set(cacheKey, { data: nextData, timestamp: Date.now() });
+      }
+
+      return nextData;
+    });
+  }, [cacheKey]);
 
   useEffect(() => {
     fallbackRef.current = fallbackData;
@@ -74,5 +92,5 @@ export const useApiResource = (loader, fallbackData = [], options = {}) => {
     refresh();
   }, [isCacheFresh, refresh]);
 
-  return { data, error, isLoading, isFallback, refresh, setData };
+  return { data, error, isLoading, isFallback, refresh, setData: updateData };
 };

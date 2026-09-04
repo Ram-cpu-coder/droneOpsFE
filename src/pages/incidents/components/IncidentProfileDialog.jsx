@@ -1,17 +1,30 @@
 import { Activity, AlertTriangle, ChevronLeft, ChevronRight, ExternalLink, FileImage, FileText, MapPinned, Pencil, ShieldCheck, Trash2, UserRoundCheck, Video, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import "mapbox-gl/dist/mapbox-gl.css";
 import ActionButton from "../../../components/common/ActionButton";
+import HeaderDockedTabs from "../../../components/common/HeaderDockedTabs";
 import CopyableId from "../../../components/common/CopyableId";
 import StatusBadge from "../../../components/common/StatusBadge";
 import { droneOpsApi } from "../../../services/droneOpsApi";
 import IncidentForm from "./IncidentForm";
+import MissionRouteMap from "../../missions/components/MissionRouteMap";
 
 const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
+const profileTabs = [
+  { id: "overview", label: "Overview" },
+  { id: "location", label: "Location" },
+  { id: "narrative", label: "Narrative" },
+  { id: "evidence", label: "Evidence" }
+];
 
 const IncidentProfileDialog = ({ incident, canManage = false, onUpdated, onDeleted, onClose }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [activeTab, setActiveTab] = useState("overview");
+  const bodyRef = useRef(null);
+  const selectTab = (id) => {
+    setActiveTab(id);
+    bodyRef.current?.scrollTo({ top: 0 });
+  };
   const [error, setError] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -107,7 +120,7 @@ const IncidentProfileDialog = ({ incident, canManage = false, onUpdated, onDelet
 
   const dialog = (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose?.()}>
-      <div className="modal-dialog profile-dialog" role="dialog" aria-modal="true" aria-labelledby="incident-profile-title">
+      <div className="modal-dialog profile-dialog incident-profile-dialog" role="dialog" aria-modal="true" aria-labelledby="incident-profile-title">
         <div className="modal-header">
           <div>
             <p className="eyebrow">Incident Profile</p>
@@ -128,9 +141,39 @@ const IncidentProfileDialog = ({ incident, canManage = false, onUpdated, onDelet
           </div>
         </div>
 
-        <div className="modal-body">
+        <div className="modal-body" ref={bodyRef}>
+          <HeaderDockedTabs>
+          <div className="mission-profile-tabs incident-profile-tabs" role="tablist" aria-label="Incident profile sections">
+            {profileTabs.map((tab, index) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                id={`incident-tab-${tab.id}`}
+                aria-controls={`incident-panel-${tab.id}`}
+                aria-selected={activeTab === tab.id}
+                tabIndex={activeTab === tab.id ? 0 : -1}
+                className={activeTab === tab.id ? "active" : ""}
+                onClick={() => selectTab(tab.id)}
+                onKeyDown={(event) => {
+                  const nextIndex = event.key === "ArrowRight" ? (index + 1) % profileTabs.length
+                    : event.key === "ArrowLeft" ? (index + profileTabs.length - 1) % profileTabs.length
+                      : event.key === "Home" ? 0 : event.key === "End" ? profileTabs.length - 1 : null;
+                  if (nextIndex === null) return;
+                  event.preventDefault();
+                  selectTab(profileTabs[nextIndex].id);
+                  event.currentTarget.parentElement.children[nextIndex].focus();
+                }}
+              >
+                <strong>{tab.label}</strong>
+              </button>
+            ))}
+          </div>
+          </HeaderDockedTabs>
           {error && <div className="auth-alert">{error}</div>}
 
+          {activeTab === "overview" && (
+          <div role="tabpanel" id="incident-panel-overview" aria-labelledby="incident-tab-overview" tabIndex={0}>
           <div className="profile-metrics">
             <ProfileMetric icon={ShieldCheck} label="Status" value={incident.status} />
             <ProfileMetric icon={UserRoundCheck} label="Owner" value={incident.owner} />
@@ -160,8 +203,16 @@ const IncidentProfileDialog = ({ incident, canManage = false, onUpdated, onDelet
             </ProfileSection>
           </div>
 
-          <IncidentLocationMap location={incidentLocation} address={displayLocation} fallback={incident.place} />
+          </div>
+          )}
+          {activeTab === "location" && (
+          <div role="tabpanel" id="incident-panel-location" aria-labelledby="incident-tab-location" tabIndex={0}>
+          <IncidentLocationMap incident={incident} location={incidentLocation} address={displayLocation} fallback={incident.place} />
+          </div>
+          )}
 
+          {activeTab === "narrative" && (
+          <div role="tabpanel" id="incident-panel-narrative" aria-labelledby="incident-tab-narrative" tabIndex={0}>
           <section className="profile-location-card">
             <div className="profile-location-header">
               <div>
@@ -174,8 +225,14 @@ const IncidentProfileDialog = ({ incident, canManage = false, onUpdated, onDelet
               <p>{incident.details}</p>
             </div>
           </section>
+          </div>
+          )}
 
+          {activeTab === "evidence" && (
+          <div role="tabpanel" id="incident-panel-evidence" aria-labelledby="incident-tab-evidence" tabIndex={0}>
           <IncidentEvidenceCapture incident={incident} evidenceRecord={evidenceRecord} isLoading={isEvidenceLoading} error={evidenceError} />
+          </div>
+          )}
         </div>
 
         <div className="modal-footer profile-footer">
@@ -464,58 +521,8 @@ const formatDateTime = (value, fallback) => {
   return fallback || "Not provided";
 };
 
-const IncidentLocationMap = ({ location, address, fallback }) => {
-  const mapContainerRef = useRef(null);
-  const mapRef = useRef(null);
-  const markerRef = useRef(null);
-  const [mapReady, setMapReady] = useState(false);
-  const [mapError, setMapError] = useState("");
-
-  useEffect(() => {
-    if (!mapboxToken || !location || mapRef.current || !mapContainerRef.current) return;
-    let isMounted = true;
-
-    const setupMap = async () => {
-      try {
-        const mapboxModule = await import("mapbox-gl");
-        if (!isMounted) return;
-
-        const mapboxgl = mapboxModule.default;
-        mapboxgl.accessToken = mapboxToken;
-        mapRef.current = new mapboxgl.Map({
-          container: mapContainerRef.current,
-          style: "mapbox://styles/mapbox/navigation-night-v1",
-          center: [location.longitude, location.latitude],
-          zoom: 14,
-          pitch: 18
-        });
-        mapRef.current.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "top-right");
-        mapRef.current.on("load", () => {
-          if (!isMounted) return;
-          setMapReady(true);
-
-          const markerElement = document.createElement("div");
-          markerElement.className = "incident-profile-map-marker";
-          markerElement.innerHTML = "<span>!</span>";
-          markerRef.current = new mapboxgl.Marker({ element: markerElement, anchor: "center" })
-            .setLngLat([location.longitude, location.latitude])
-            .addTo(mapRef.current);
-        });
-      } catch (setupError) {
-        if (isMounted) setMapError(setupError.message);
-      }
-    };
-
-    setupMap();
-
-    return () => {
-      isMounted = false;
-      markerRef.current?.remove();
-      markerRef.current = null;
-      mapRef.current?.remove();
-      mapRef.current = null;
-    };
-  }, [location]);
+const IncidentLocationMap = ({ incident, location, address, fallback }) => {
+  const missionRoute = getIncidentMissionRoute(incident);
 
   return (
     <section className="profile-location-card incident-profile-map-card">
@@ -526,16 +533,22 @@ const IncidentLocationMap = ({ location, address, fallback }) => {
         </div>
         <span className={location ? "online" : "offline"}>{location ? "Mapped" : "No GPS"}</span>
       </div>
-      {mapboxToken && location ? (
-        <div className="incident-profile-map" ref={mapContainerRef}>
-          {!mapReady && !mapError && <div className="mission-profile-map-status">Loading incident map...</div>}
-          {mapError && <div className="mission-profile-map-status error">{mapError}</div>}
+      {missionRoute.hasRoute || location ? (
+        <div className="incident-profile-route-map">
+          <MissionRouteMap
+            context={{ incident: incident.id, title: incident.title, status: incident.status, severity: incident.severity, owner: incident.owner, narrative: incident.details }}
+            waypoints={missionRoute.waypoints}
+            launchSite={missionRoute.launchSite}
+            operatingArea={missionRoute.operatingArea}
+            authorityAnalysis={missionRoute.authorityAnalysis}
+            incidentLocation={location ? { ...location, label: "Incident Location" } : null}
+          />
         </div>
       ) : (
         <div className="incident-profile-map-empty">
           <MapPinned size={24} />
           <strong>Map unavailable</strong>
-          <span>{location ? "Mapbox token is not configured." : "This incident does not have saved coordinates."}</span>
+          <span>{fallback || "This incident does not have saved coordinates."}</span>
         </div>
       )}
       {location && (
@@ -585,6 +598,28 @@ const formatEvidencePoint = (location) => {
   const longitude = Number(location.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return "Not available";
   return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+};
+
+const getIncidentMissionRoute = (incident) => {
+  const route = incident?.mission?.plannedRoute ?? incident?.plannedRoute ?? {};
+  const waypoints = Array.isArray(route.waypoints)
+    ? route.waypoints
+    : Array.isArray(route.coordinates)
+      ? route.coordinates.map(([longitude, latitude], index) => ({ label: `Waypoint ${index + 1}`, longitude, latitude }))
+      : [];
+
+  return {
+    hasRoute: waypoints.filter(hasCoordinates).length >= 2,
+    waypoints,
+    launchSite: route.launchSite,
+    operatingArea: route.operatingArea,
+    authorityAnalysis: route.routeAnalysis?.authorityAnalysis ?? incident?.mission?.geofenceConfig?.authorityAnalysis ?? null
+  };
+};
+
+const hasCoordinates = (point) => {
+  if (!point) return false;
+  return Number.isFinite(Number(point.latitude ?? point.lat)) && Number.isFinite(Number(point.longitude ?? point.lng ?? point.lon));
 };
 
 const formatNumber = (value) => {

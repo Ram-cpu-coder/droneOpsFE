@@ -1,5 +1,6 @@
 import { apiClient, SESSION_KEY } from "../../services/apiClient";
 import { userRoles } from "../../data/authData";
+import { clearApiResourceCache } from "../../hooks/useApiResource";
 
 /*
   Backend sends roles like:
@@ -128,6 +129,7 @@ const toPersistableUser = (user = {}) => {
 */
 const clearSession = () => {
     localStorage.removeItem(SESSION_KEY);
+    clearApiResourceCache();
 };
 
 /*
@@ -443,7 +445,7 @@ export const authService = {
     },
 
     /*
-      Upload profile image before or during signup.
+      Upload profile image for an authenticated user profile.
     */
     async uploadProfileImage(file) {
         const formData = new FormData();

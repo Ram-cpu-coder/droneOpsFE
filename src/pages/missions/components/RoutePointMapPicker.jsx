@@ -1,139 +1,174 @@
 /* oxlint-disable react-hooks/exhaustive-deps */
-import { Crosshair, Map as MapIcon, MapPin, Plus, Route, Trash2 } from "lucide-react";
+import { CheckCircle2, Crosshair, Loader2, MapPin, Route, Search, Trash2, X } from "lucide-react";
+import L from "leaflet";
+import MapWorkspace, { MapDataDetails } from "../../../components/maps/MapWorkspace";
+import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useRef, useState } from "react";
-import "mapbox-gl/dist/mapbox-gl.css";
 
 const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
-const defaultCenter = [151.2073, -33.8679];
+const defaultCenter = { latitude: -33.8679, longitude: 151.2073 };
 const defaultOperatingAreaRadiusMeters = 500;
 
 const toolOptions = [
-  { id: "launchSite", label: "Launch Site", icon: MapPin },
-  { id: "operatingArea", label: "Operating Area", icon: MapIcon },
-  { id: "routePath", label: "Route Path", icon: Route }
+  { id: "launchSite", label: "Launch", icon: MapPin, marker: "L" },
+  { id: "routePath", label: "Route", icon: Route, marker: "S" }
 ];
 
-const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocationPlanChange }) => {
+const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocationPlanChange, locked = false, analysis = null }) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
-  const mapboxRef = useRef(null);
-  const markersRef = useRef(new Map());
-  const locationMarkersRef = useRef(new Map());
+  const layersRef = useRef(null);
+  const resizeObserverRef = useRef(null);
+  const toolbarRef = useRef(null);
+  const searchRef = useRef(null);
+  const helpRef = useRef(null);
+  const pointsPanelRef = useRef(null);
   const activeIndexRef = useRef(0);
   const activeToolRef = useRef("routePath");
+  const lockedRef = useRef(locked);
+  const routeFinishedRef = useRef(false);
   const locationPlanRef = useRef({});
   const routePointsRef = useRef([]);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState("");
   const [activeTool, setActiveTool] = useState("routePath");
   const [activeIndex, setActiveIndex] = useState(() => getFirstEmptyIndex(value));
+  const [routeFinished, setRouteFinished] = useState(() => normalizeRoutePoints(value).filter(hasCoordinates).length >= 2);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
   const routePoints = useMemo(() => normalizeRoutePoints(value), [value]);
   const activePoint = routePoints[activeIndex] ?? routePoints[0];
   const launchSite = normalizeLocation(locationPlan.launchSite);
   const operatingArea = normalizeLocation(locationPlan.operatingArea);
+  const councilOverlay = useMemo(() => createCouncilOverlay(analysis?.authorityAnalysis), [analysis]);
+  const showRouteSearch = activeTool === "routePath" && isStartOrEndPoint(activeIndex, routePoints.length) && !locked;
+  const canFinishRoute = routePoints.filter(hasCoordinates).length >= 2;
 
-  // oxlint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     activeIndexRef.current = activeIndex;
     activeToolRef.current = activeTool;
+    lockedRef.current = locked;
+    routeFinishedRef.current = routeFinished;
     locationPlanRef.current = { launchSite, operatingArea };
     routePointsRef.current = routePoints;
-  }, [activeIndex, activeTool, launchSite, operatingArea, routePoints]);
+  }, [activeIndex, activeTool, launchSite, locked, operatingArea, routeFinished, routePoints]);
 
-  // oxlint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!mapboxToken || mapRef.current || !mapContainerRef.current) return;
+    if (mapRef.current || !mapContainerRef.current) return;
 
-    let isMounted = true;
+    try {
+      const map = L.map(mapContainerRef.current, {
+        center: toLatLng(getInitialCenter(routePoints, launchSite, operatingArea)),
+        zoom: 11,
+        zoomControl: false,
+        attributionControl: true
+      });
 
-    const setupMap = async () => {
-      try {
-        const mapboxModule = await import("mapbox-gl");
-        if (!isMounted) return;
+      L.control.zoom({ position: "bottomleft" }).addTo(map);
+      L.control.scale({ position: "bottomleft", imperial: true, metric: true }).addTo(map);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(map);
 
-        const mapboxgl = mapboxModule.default;
-        mapboxgl.accessToken = mapboxToken;
-        mapboxRef.current = mapboxgl;
+      layersRef.current = {
+        route: L.layerGroup().addTo(map),
+        locations: L.layerGroup().addTo(map),
+        operatingArea: L.layerGroup().addTo(map),
+        councils: L.layerGroup().addTo(map)
+      };
 
-        mapRef.current = new mapboxgl.Map({
-          container: mapContainerRef.current,
-          style: "mapbox://styles/mapbox/navigation-night-v1",
-          center: getInitialCenter(routePoints),
-          zoom: 12.5,
-          pitch: 24,
-          bearing: -10
-        });
+      map.on("click", (event) => {
+        if (lockedRef.current) return;
+        const coordinates = {
+          latitude: event.latlng.lat,
+          longitude: event.latlng.lng
+        };
 
-        mapRef.current.addControl(new mapboxgl.NavigationControl({ showCompass: true }), "top-right");
-        mapRef.current.on("load", () => {
-          if (!isMounted) return;
-          setMapReady(true);
-        });
-        mapRef.current.on("click", (event) => {
-          if (!isMounted) return;
-          const coordinates = {
-            longitude: event.lngLat.lng,
-            latitude: event.lngLat.lat
-          };
+        if (activeToolRef.current === "launchSite") {
+          setLocationPoint("launchSite", coordinates);
+          return;
+        }
 
-          if (activeToolRef.current === "launchSite") {
-            setLocationPoint("launchSite", coordinates);
-            return;
-          }
+        setPoint(activeIndexRef.current, coordinates, { continueRoute: true });
+      });
 
-          if (activeToolRef.current === "operatingArea") {
-            setLocationPoint("operatingArea", coordinates);
-            return;
-          }
-
-          setPoint(activeIndexRef.current, coordinates);
-        });
-
-        const resizeObserver = new ResizeObserver(() => {
-          mapRef.current?.resize();
-        });
-        resizeObserver.observe(mapContainerRef.current);
-        mapRef.current.once("remove", () => resizeObserver.disconnect());
-      } catch (error) {
-        if (isMounted) setMapError(error.message);
-      }
-    };
-
-    setupMap();
+      resizeObserverRef.current = new ResizeObserver(() => map.invalidateSize());
+      resizeObserverRef.current.observe(mapContainerRef.current);
+      mapRef.current = map;
+      setMapReady(true);
+    } catch (error) {
+      setMapError(error.message || "Route map failed to load.");
+    }
 
     return () => {
-      isMounted = false;
-      markersRef.current.forEach((marker) => marker.remove());
-      markersRef.current.clear();
-      locationMarkersRef.current.forEach((marker) => marker.remove());
-      locationMarkersRef.current.clear();
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
       mapRef.current?.remove();
       mapRef.current = null;
+      layersRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    if (!mapReady || !mapRef.current || !mapboxRef.current) return;
+    if (!mapReady || !mapRef.current || !layersRef.current) return;
 
-    mapRef.current.resize();
-    syncRouteLayer(mapRef.current, routePoints);
-    syncOperatingAreaLayer(mapRef.current, operatingArea);
-    syncLocationMarkers();
-    syncMarkers();
-  }, [activeIndex, activeTool, launchSite, mapReady, operatingArea, routePoints]);
+    renderRouteLayers({
+      layers: layersRef.current,
+      routePoints,
+      activeIndex,
+      activeTool,
+      locked,
+      launchSite,
+      operatingArea,
+      councilOverlay,
+      onPointMove: setPoint,
+      onLocationMove: setLocationPoint,
+      onPointFocus: focusPoint,
+      onToolFocus: setActiveTool
+    });
+  }, [activeIndex, activeTool, councilOverlay, launchSite, locked, mapReady, operatingArea, routePoints]);
 
-  const setPoint = (index, coordinates) => {
-    const nextPoints = routePointsRef.current.map((point, pointIndex) => (
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    const bounds = getRouteBounds(routePoints, launchSite, operatingArea);
+    if (bounds) {
+      mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+    }
+  }, [mapReady]);
+
+  const setPoint = (index, coordinates, options = {}) => {
+    if (lockedRef.current) return;
+    const currentPoints = routePointsRef.current;
+    const nextPoints = currentPoints.map((point, pointIndex) => (
       pointIndex === index
         ? { ...point, latitude: coordinates.latitude, longitude: coordinates.longitude }
         : point
     ));
 
+    if (options.continueRoute && activeToolRef.current === "routePath" && !routeFinishedRef.current && index === currentPoints.length - 1) {
+      const drawingPoints = renumberStops([
+        ...nextPoints,
+        { label: "End point", latitude: "", longitude: "", altitude: "" }
+      ]);
+
+      routePointsRef.current = drawingPoints;
+      onChange?.(drawingPoints);
+      setActiveIndex(drawingPoints.length - 1);
+      setRouteFinished(false);
+      return;
+    }
+
+    routePointsRef.current = nextPoints;
     onChange?.(nextPoints);
+    setRouteFinished(false);
     setActiveIndex(getNextEmptyIndex(nextPoints, index));
   };
 
   const setLocationPoint = (field, coordinates) => {
+    if (lockedRef.current) return;
     const label = field === "launchSite" ? "Launch site" : "Operating area";
     const existingLocation = locationPlanRef.current[field];
     const nextPlan = {
@@ -150,203 +185,160 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
     onLocationPlanChange?.(nextPlan);
   };
 
-  const updateOperatingAreaRadius = (radiusMeters) => {
-    if (!locationPlanRef.current.operatingArea) return;
-
+  const clearLocationPoint = (field) => {
+    if (lockedRef.current) return;
     onLocationPlanChange?.({
       ...locationPlanRef.current,
-      operatingArea: {
-        ...locationPlanRef.current.operatingArea,
-        radiusMeters
-      }
+      [field]: null
     });
   };
 
-  const clearLocationPoint = (field) => {
-    const nextPlan = {
-      ...locationPlanRef.current,
-      [field]: null
-    };
-
-    onLocationPlanChange?.(nextPlan);
-  };
-
-  const addStop = () => {
-    const currentPoints = routePointsRef.current;
-    const insertIndex = Math.max(currentPoints.length - 1, 1);
-    const nextPoints = [
-      ...currentPoints.slice(0, insertIndex),
-      { label: `Stop ${insertIndex}`, latitude: "", longitude: "", altitude: "" },
-      ...currentPoints.slice(insertIndex)
-    ];
-
-    onChange?.(renumberStops(nextPoints));
-    setActiveIndex(insertIndex);
-  };
-
   const removeStop = (index) => {
+    if (lockedRef.current) return;
     const nextPoints = renumberStops(routePoints.filter((_, pointIndex) => pointIndex !== index));
+    routePointsRef.current = nextPoints;
     onChange?.(nextPoints);
+    setRouteFinished(nextPoints.filter(hasCoordinates).length >= 2 && !nextPoints.some((point) => !hasCoordinates(point)));
     setActiveIndex(Math.min(index, nextPoints.length - 1));
   };
 
   const clearRoute = () => {
+    if (lockedRef.current) return;
     const nextPoints = [
       { label: "Start point", latitude: "", longitude: "", altitude: "" },
       { label: "End point", latitude: "", longitude: "", altitude: "" }
     ];
 
+    routePointsRef.current = nextPoints;
     onChange?.(nextPoints);
+    setRouteFinished(false);
     setActiveIndex(0);
   };
 
-  const focusPoint = (index) => {
-    setActiveIndex(index);
-    const point = routePoints[index];
-    if (hasCoordinates(point) && mapRef.current) {
-      mapRef.current.flyTo({
-        center: [Number(point.longitude), Number(point.latitude)],
-        zoom: Math.max(mapRef.current.getZoom(), 14),
-        speed: 0.9
-      });
+  const finishRoute = () => {
+    if (lockedRef.current) return;
+    const filledPoints = routePointsRef.current.filter(hasCoordinates);
+    if (filledPoints.length < 2) return;
+
+    const nextPoints = renumberStops(filledPoints);
+
+    routePointsRef.current = nextPoints;
+    onChange?.(nextPoints);
+    setActiveIndex(nextPoints.length - 1);
+    setActiveTool("routePath");
+    setRouteFinished(true);
+  };
+
+  const startRouteAgain = () => {
+    if (lockedRef.current) return;
+    const filledPoints = routePointsRef.current.filter(hasCoordinates);
+
+    if (!filledPoints.length) {
+      setRouteFinished(false);
+      setActiveTool("routePath");
+      setActiveIndex(0);
+      return;
+    }
+
+    const drawingPoints = renumberStops([
+      ...filledPoints,
+      { label: "End point", latitude: "", longitude: "", altitude: "" }
+    ]);
+
+    routePointsRef.current = drawingPoints;
+    onChange?.(drawingPoints);
+    setRouteFinished(false);
+    setActiveTool("routePath");
+    setActiveIndex(drawingPoints.length - 1);
+  };
+
+  const searchRouteLocation = async (event) => {
+    event?.preventDefault();
+    if (lockedRef.current) return;
+    const query = searchQuery.trim();
+    if (!query) {
+      setSearchResults([]);
+      setSearchError("");
+      return;
+    }
+
+    if (!mapboxToken) {
+      setSearchError("Location search needs the Mapbox token already used by DroneOps.");
+      return;
+    }
+
+    setIsSearching(true);
+    setSearchError("");
+
+    try {
+      const response = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?` +
+          new URLSearchParams({
+            access_token: mapboxToken,
+            country: "AU",
+            limit: "5",
+            proximity: `${defaultCenter.longitude},${defaultCenter.latitude}`
+          })
+      );
+
+      if (!response.ok) throw new Error("Location search failed");
+      const payload = await response.json();
+      const results = Array.isArray(payload.features) ? payload.features : [];
+      setSearchResults(results);
+      if (!results.length) setSearchError("No matching locations found.");
+    } catch (error) {
+      setSearchResults([]);
+      setSearchError(error.message || "Location search failed.");
+    } finally {
+      setIsSearching(false);
     }
   };
 
-  const syncMarkers = () => {
-    const mapboxgl = mapboxRef.current;
-    const map = mapRef.current;
-    if (!mapboxgl || !map) return;
+  const applySearchResult = (result) => {
+    if (lockedRef.current) return;
+    const [longitude, latitude] = Array.isArray(result.center) ? result.center : [];
+    if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) return;
 
-    const visibleKeys = new Set();
-
-    routePoints.forEach((point, index) => {
-      if (!hasCoordinates(point)) return;
-
-      const key = String(index);
-      visibleKeys.add(key);
-      const lngLat = [Number(point.longitude), Number(point.latitude)];
-      const existingMarker = markersRef.current.get(key);
-
-      if (existingMarker) {
-        existingMarker.setLngLat(lngLat);
-        existingMarker.getElement().dataset.active = String(index === activeIndex);
-        return;
-      }
-
-      const markerElement = document.createElement("button");
-      markerElement.type = "button";
-      markerElement.className = "route-picker-marker";
-      markerElement.dataset.active = String(index === activeIndex);
-      markerElement.textContent = getMarkerLabel(index, routePoints.length);
-      markerElement.addEventListener("click", (event) => {
-        event.stopPropagation();
-        focusPoint(index);
-      });
-
-      const marker = new mapboxgl.Marker({ element: markerElement, draggable: true, anchor: "center" })
-        .setLngLat(lngLat)
-        .addTo(map);
-
-      marker.on("dragend", () => {
-        const coordinates = marker.getLngLat();
-        setPoint(index, {
-          longitude: coordinates.lng,
-          latitude: coordinates.lat
-        });
-      });
-
-      markersRef.current.set(key, marker);
-    });
-
-    markersRef.current.forEach((marker, key) => {
-      if (!visibleKeys.has(key)) {
-        marker.remove();
-        markersRef.current.delete(key);
-      }
-    });
+    setPoint(activeIndexRef.current, { latitude, longitude }, { continueRoute: true });
+    setSearchQuery(result.place_name || result.text || "");
+    setSearchResults([]);
+    mapRef.current?.flyTo([Number(latitude), Number(longitude)], Math.max(mapRef.current.getZoom(), 14), { duration: 0.6 });
   };
 
-  const syncLocationMarkers = () => {
-    const mapboxgl = mapboxRef.current;
-    const map = mapRef.current;
-    if (!mapboxgl || !map) return;
-
-    const locations = [
-      { key: "launchSite", point: launchSite, label: "L" },
-      { key: "operatingArea", point: operatingArea, label: "A" }
-    ];
-    const visibleKeys = new Set();
-
-    locations.forEach(({ key, point, label }) => {
-      if (!hasCoordinates(point)) return;
-
-      visibleKeys.add(key);
-      const lngLat = [Number(point.longitude), Number(point.latitude)];
-      const existingMarker = locationMarkersRef.current.get(key);
-
-      if (existingMarker) {
-        existingMarker.setLngLat(lngLat);
-        existingMarker.getElement().dataset.active = String(activeTool === key);
-        return;
-      }
-
-      const markerElement = document.createElement("button");
-      markerElement.type = "button";
-      markerElement.className = `route-picker-marker location-marker ${key}`;
-      markerElement.dataset.active = String(activeTool === key);
-      markerElement.textContent = label;
-      markerElement.addEventListener("click", (event) => {
-        event.stopPropagation();
-        setActiveTool(key);
-      });
-
-      const marker = new mapboxgl.Marker({ element: markerElement, draggable: true, anchor: "center" })
-        .setLngLat(lngLat)
-        .addTo(map);
-
-      marker.on("dragend", () => {
-        const coordinates = marker.getLngLat();
-        setLocationPoint(key, {
-          longitude: coordinates.lng,
-          latitude: coordinates.lat
-        });
-      });
-
-      locationMarkersRef.current.set(key, marker);
-    });
-
-    locationMarkersRef.current.forEach((marker, key) => {
-      if (!visibleKeys.has(key)) {
-        marker.remove();
-        locationMarkersRef.current.delete(key);
-      }
-    });
+  const clearSearch = () => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearchError("");
   };
 
-  if (!mapboxToken) {
-    return (
-      <div className="route-picker-empty">
-        <MapPin size={22} />
-        <div>
-          <strong>Map route selection is unavailable</strong>
-          <p>Map-based route selection is currently unavailable. Manual route details can still be entered in the mission form.</p>
-        </div>
-      </div>
-    );
+  function focusPoint(index) {
+    setActiveTool("routePath");
+    setActiveIndex(index);
+    const point = routePointsRef.current[index];
+    if (hasCoordinates(point)) {
+      mapRef.current?.flyTo(toLatLng(point), Math.max(mapRef.current.getZoom(), 14), { duration: 0.6 });
+    }
   }
 
   return (
-    <div className="route-map-picker">
-      <div className="route-picker-sidebar">
-        <div className="route-picker-heading">
-          <Crosshair size={18} />
-          <div>
-            <strong>Plan mission locations</strong>
-            <span>{getToolHelp(activeTool, activePoint)}</span>
-          </div>
-        </div>
+    <MapWorkspace title="Mission planning" details={<>
+      <MapDataDetails title="Planning status" value={{ route: routeFinished ? "Finished" : "Editing", accepted: locked ? "Yes" : "No", points: routePoints.length }} />
+      <MapDataDetails title="Launch site" value={launchSite} />
+      <MapDataDetails title="Route points" value={routePoints} />
+    </>}>
+    <div className="route-map-picker leaflet-route-picker">
+      <div className="route-picker-map-shell">
+        <div className="route-picker-map leaflet-route-map" ref={mapContainerRef} data-cy="mission-route-map" />
 
-        <div className="map-tool-selector" role="group" aria-label="Mission map tools">
+        <div
+          className="route-picker-toolbar"
+          ref={toolbarRef}
+          role="group"
+          aria-label="Mission map tools"
+          onClick={stopMapOverlayEvent}
+          onDoubleClick={stopMapOverlayEvent}
+          onMouseDown={stopMapOverlayEvent}
+        >
           {toolOptions.map((tool) => {
             const Icon = tool.icon;
             return (
@@ -355,138 +347,262 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
                 type="button"
                 className={activeTool === tool.id ? "active" : ""}
                 onClick={() => setActiveTool(tool.id)}
+                disabled={locked}
+                title={tool.label}
               >
                 <Icon size={15} />
-                <span>{tool.label}</span>
               </button>
             );
           })}
-        </div>
-
-        <div className="location-selection-list">
-          <LocationSummary label="Launch Site" value={launchSite} active={activeTool === "launchSite"} onSelect={() => setActiveTool("launchSite")} onClear={() => clearLocationPoint("launchSite")} />
-          <LocationSummary label="Operating Area" value={operatingArea} active={activeTool === "operatingArea"} onSelect={() => setActiveTool("operatingArea")} onClear={() => clearLocationPoint("operatingArea")} />
-          {hasCoordinates(operatingArea) && (
-            <label className="operating-radius-control">
-              <span>Area Radius</span>
-              <input
-                type="range"
-                min="100"
-                max="2000"
-                step="50"
-                value={Number(operatingArea.radiusMeters) || defaultOperatingAreaRadiusMeters}
-                onChange={(event) => updateOperatingAreaRadius(Number(event.target.value))}
-              />
-              <strong>{formatRadius(Number(operatingArea.radiusMeters) || defaultOperatingAreaRadiusMeters)}</strong>
-            </label>
+          {routeFinished ? (
+            <button type="button" onClick={startRouteAgain} disabled={locked} title="Extend route">
+              <Route size={15} />
+            </button>
+          ) : (
+            <button type="button" onClick={finishRoute} disabled={locked || !canFinishRoute || routeFinished} title="Finish route">
+              <CheckCircle2 size={15} />
+            </button>
           )}
+          <button type="button" onClick={clearRoute} disabled={locked} title="Clear route">
+            <Trash2 size={15} />
+          </button>
         </div>
 
-        <div className="route-point-list">
-          {routePoints.map((point, index) => (
-            <div
-              className={`route-point-item ${index === activeIndex ? "active" : ""}`}
-              key={`${point.label}-${index}`}
-            >
-              <button className="route-point-select" type="button" onClick={() => focusPoint(index)}>
-                <span>{getMarkerLabel(index, routePoints.length)}</span>
-                <div>
-                  <strong>{point.label || getPointLabel(index, routePoints.length)}</strong>
-                  <small>{formatPoint(point)}</small>
-                </div>
-              </button>
-              {isStop(index, routePoints.length) && (
-                <button
-                  className="route-point-remove"
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    removeStop(index);
-                  }}
-                  aria-label={`Remove ${point.label}`}
-                >
-                  <Trash2 size={14} />
+        {showRouteSearch && (
+          <form
+            className="route-picker-search"
+            ref={searchRef}
+            onClick={stopMapOverlayEvent}
+            onDoubleClick={stopMapOverlayEvent}
+            onMouseDown={stopMapOverlayEvent}
+            onSubmit={searchRouteLocation}
+          >
+            <div className="route-picker-search-row">
+              <Search size={16} />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={`Search ${getPointLabel(activeIndex, routePoints.length).toLowerCase()}`}
+                aria-label={`Search ${getPointLabel(activeIndex, routePoints.length)}`}
+              />
+              {searchQuery && (
+                <button type="button" onClick={clearSearch} aria-label="Clear location search">
+                  <X size={15} />
                 </button>
               )}
+              <button type="submit" disabled={isSearching}>
+                {isSearching ? <Loader2 size={15} className="spin-icon" /> : "Find"}
+              </button>
             </div>
-          ))}
+            {(searchResults.length > 0 || searchError) && (
+              <div className="route-picker-search-results">
+                {searchError && <span>{searchError}</span>}
+                {searchResults.map((result) => (
+                  <button key={result.id} type="button" onClick={() => applySearchResult(result)}>
+                    <strong>{result.text}</strong>
+                    <small>{result.place_name}</small>
+                  </button>
+                ))}
+              </div>
+            )}
+          </form>
+        )}
+
+        <div className="route-picker-help" ref={helpRef} onClick={stopMapOverlayEvent} onDoubleClick={stopMapOverlayEvent} onMouseDown={stopMapOverlayEvent}>
+          <Crosshair size={15} />
+          <div>
+            <strong>{getActiveToolLabel(activeTool, activePoint)}</strong>
+            <span>{locked ? "Accepted route is locked. Use Edit accepted route to change it." : getToolHelp(activeTool, activePoint)}</span>
+          </div>
         </div>
 
-        <button className="secondary-inline-action" type="button" onClick={addStop}>
-          <Plus size={16} />
-          <span>Add stop</span>
-        </button>
-        <button className="secondary-inline-action muted" type="button" onClick={clearRoute}>
-          <Trash2 size={16} />
-          <span>Clear route</span>
-        </button>
-      </div>
-
-      <div className="route-picker-map-shell">
-        <div className="route-picker-map" ref={mapContainerRef} />
-        <div className="route-picker-help">
-          <strong>{getActiveToolLabel(activeTool, activePoint)}</strong>
-          <span>Click anywhere on the map to place the selected item. Drag markers to adjust.</span>
+        <div className="route-picker-legend" aria-label="Mission map legend">
+          <span><i className="route-dot route" /> Route point</span>
+          <span><i className="route-dot location" /> Launch / area</span>
+          <span><i className="route-dot council" /> Council area</span>
+          <span><i className="route-line" /> Planned path</span>
         </div>
+
+        <div
+          className="route-picker-points-panel"
+          ref={pointsPanelRef}
+          onClick={stopMapOverlayEvent}
+          onDoubleClick={stopMapOverlayEvent}
+          onMouseDown={stopMapOverlayEvent}
+        >
+          <LocationSummary label="Launch Site" value={launchSite} active={activeTool === "launchSite"} locked={locked} onSelect={() => setActiveTool("launchSite")} onClear={() => clearLocationPoint("launchSite")} />
+          <LocationSummary label="Operating Area" value={operatingArea} active={false} locked onSelect={null} onClear={null} />
+          {hasCoordinates(operatingArea) && (
+            <div className="operating-radius-control readonly">
+              <span>Backend calculated radius</span>
+              <strong>{formatRadius(Number(operatingArea.radiusMeters) || defaultOperatingAreaRadiusMeters)}</strong>
+            </div>
+          )}
+          {routeFinished ? (
+            <button className="route-picker-finish-button" type="button" onClick={startRouteAgain} disabled={locked}>
+              <Route size={15} />
+              <span>Start Route Again</span>
+            </button>
+          ) : (
+            <button className="route-picker-finish-button" type="button" onClick={finishRoute} disabled={locked || !canFinishRoute || routeFinished}>
+              <CheckCircle2 size={15} />
+              <span>Finish Route</span>
+            </button>
+          )}
+          <div className="route-point-list compact">
+            {routePoints.map((point, index) => (
+              <div className={`route-point-item ${index === activeIndex && activeTool === "routePath" ? "active" : ""}`} key={`${point.label}-${index}`}>
+                <button className="route-point-select" type="button" onClick={() => focusPoint(index)}>
+                  <span>{getMarkerLabel(index, routePoints.length)}</span>
+                  <div>
+                    <strong>{point.label || getPointLabel(index, routePoints.length)}</strong>
+                    <small>{formatPoint(point)}</small>
+                  </div>
+                </button>
+                {isStop(index, routePoints.length) && (
+                  <button
+                    className="route-point-remove"
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      removeStop(index);
+                    }}
+                    disabled={locked}
+                    aria-label={`Remove ${point.label}`}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
         {!mapReady && !mapError && <div className="route-picker-map-status">Loading route map...</div>}
         {mapError && <div className="route-picker-map-status error">{mapError}</div>}
       </div>
     </div>
+    </MapWorkspace>
   );
 };
 
-const LocationSummary = ({ label, value, active, onSelect, onClear }) => (
+const LocationSummary = ({ label, value, active, locked, onSelect, onClear }) => (
   <div className={`location-summary ${active ? "active" : ""}`}>
-    <button type="button" onClick={onSelect}>
+    <button type="button" onClick={() => onSelect?.()} disabled={locked || !onSelect}>
       <span>{label}</span>
       <strong>{formatPoint(value)}</strong>
     </button>
-    {hasCoordinates(value) && (
-      <button className="location-summary-clear" type="button" onClick={onClear} aria-label={`Clear ${label}`}>
+    {hasCoordinates(value) && onClear && (
+      <button className="location-summary-clear" type="button" onClick={onClear} disabled={locked} aria-label={`Clear ${label}`}>
         <Trash2 size={13} />
       </button>
     )}
   </div>
 );
 
-const syncRouteLayer = (map, routePoints) => {
-  const coordinates = routePoints
-    .filter(hasCoordinates)
-    .map((point) => [Number(point.longitude), Number(point.latitude)]);
-  const routeData = coordinates.length >= 2
-    ? {
-        type: "Feature",
-        geometry: {
-          type: "LineString",
-          coordinates
-        },
-        properties: {}
-      }
-    : {
-        type: "FeatureCollection",
-        features: []
-      };
+const renderRouteLayers = ({ layers, routePoints, activeIndex, activeTool, locked, launchSite, operatingArea, councilOverlay, onPointMove, onLocationMove, onPointFocus, onToolFocus }) => {
+  Object.values(layers).forEach((layer) => layer.clearLayers());
 
-  if (!map.getSource("mission-route-picker-line")) {
-    map.addSource("mission-route-picker-line", {
-      type: "geojson",
-      data: routeData
-    });
-    map.addLayer({
-      id: "mission-route-picker-line",
-      type: "line",
-      source: "mission-route-picker-line",
-      paint: {
-        "line-color": "#5b96ff",
-        "line-width": 4,
-        "line-opacity": 0.9,
-        "line-dasharray": [1, 1.3]
-      }
-    });
-    return;
+  const routeLatLngs = routePoints.filter(hasCoordinates).map(toLatLng);
+  if (routeLatLngs.length >= 2) {
+    L.polyline(routeLatLngs, {
+      color: "#2563eb",
+      weight: 4,
+      opacity: 0.9,
+      dashArray: "8 6"
+    }).addTo(layers.route);
   }
 
-  map.getSource("mission-route-picker-line")?.setData(routeData);
+  if (hasCoordinates(operatingArea)) {
+    L.circle(toLatLng(operatingArea), {
+      radius: Number(operatingArea.radiusMeters) || defaultOperatingAreaRadiusMeters,
+      color: "#2563eb",
+      weight: 1.5,
+      opacity: 0.48,
+      dashArray: "6 8",
+      fillColor: "#93c5fd",
+      fillOpacity: 0.05,
+      interactive: false
+    }).addTo(layers.operatingArea);
+  }
+
+  if (councilOverlay?.features?.length) {
+    L.geoJSON(councilOverlay, {
+      style: {
+        color: "#7c3aed",
+        weight: 2,
+        opacity: 0.65,
+        fillColor: "#8b5cf6",
+        fillOpacity: 0.12
+      }
+    }).addTo(layers.councils);
+  }
+
+  [
+    { key: "launchSite", point: launchSite, label: "L", title: "Launch site" },
+    { key: "operatingArea", point: operatingArea, label: "A", title: "Operating area" }
+  ].forEach(({ key, point, label, title }) => {
+    if (!hasCoordinates(point)) return;
+    const isServerDerivedOperatingArea = key === "operatingArea";
+
+    const marker = L.marker(toLatLng(point), {
+      draggable: !locked && !isServerDerivedOperatingArea,
+      icon: createMarkerIcon(label, `location ${key} ${activeTool === key ? "active" : ""}`, title)
+    }).addTo(layers.locations);
+
+    if (!isServerDerivedOperatingArea) {
+      marker.on("click", () => onToolFocus(key));
+      marker.on("dragend", () => {
+        const nextPosition = marker.getLatLng();
+        onLocationMove(key, { latitude: nextPosition.lat, longitude: nextPosition.lng });
+      });
+    }
+  });
+
+  routePoints.forEach((point, index) => {
+    if (!hasCoordinates(point)) return;
+
+    const marker = L.marker(toLatLng(point), {
+      draggable: !locked,
+      icon: createMarkerIcon(
+        "",
+        `route ${index === activeIndex && activeTool === "routePath" ? "active" : ""}`,
+        getMarkerCalloutLabel(index, routePoints.length, point)
+      )
+    }).addTo(layers.route);
+
+    marker.on("click", () => onPointFocus(index));
+    marker.on("dragend", () => {
+      const nextPosition = marker.getLatLng();
+      onPointMove(index, { latitude: nextPosition.lat, longitude: nextPosition.lng });
+    });
+  });
+};
+
+const createMarkerIcon = (label, className, title) => L.divIcon({
+  className: "leaflet-route-marker-wrapper",
+  html: `<button type="button" class="route-picker-marker ${className}" aria-label="${escapeAttribute(title)}"><span class="route-picker-marker-bubble">${escapeHtml(label)}</span><span class="route-picker-marker-tag">${escapeHtml(title)}</span></button>`,
+  iconSize: [28, 28],
+  iconAnchor: [14, 14]
+});
+
+const createCouncilOverlay = (authorityAnalysis) => {
+  const features = Array.isArray(authorityAnalysis?.authorities)
+    ? authorityAnalysis.authorities
+      .filter((authority) => authority.geometry)
+      .map((authority) => ({
+        type: "Feature",
+        geometry: authority.geometry,
+        properties: {
+          authorityName: authority.authorityName,
+          lgaName: authority.lgaName,
+          source: authority.source
+        }
+      }))
+    : [];
+
+  return features.length ? { type: "FeatureCollection", features } : null;
 };
 
 const normalizeRoutePoints = (points) => {
@@ -503,81 +619,6 @@ const normalizeRoutePoints = (points) => {
     { label: "End point", latitude: "", longitude: "", altitude: "" }
   ];
 };
-
-const syncOperatingAreaLayer = (map, operatingArea) => {
-  const areaData = hasCoordinates(operatingArea)
-    ? createCircleFeature(
-        [Number(operatingArea.longitude), Number(operatingArea.latitude)],
-        Number(operatingArea.radiusMeters) || defaultOperatingAreaRadiusMeters
-      )
-    : {
-        type: "FeatureCollection",
-        features: []
-      };
-
-  if (!map.getSource("mission-operating-area-picker")) {
-    map.addSource("mission-operating-area-picker", {
-      type: "geojson",
-      data: areaData
-    });
-    map.addLayer({
-      id: "mission-operating-area-picker-fill",
-      type: "fill",
-      source: "mission-operating-area-picker",
-      paint: {
-        "fill-color": "#8d6bff",
-        "fill-opacity": 0.18
-      }
-    });
-    map.addLayer({
-      id: "mission-operating-area-picker-outline",
-      type: "line",
-      source: "mission-operating-area-picker",
-      paint: {
-        "line-color": "#f7c85f",
-        "line-width": 2,
-        "line-opacity": 0.85
-      }
-    });
-    return;
-  }
-
-  map.getSource("mission-operating-area-picker")?.setData(areaData);
-};
-
-const createCircleFeature = (center, radiusMeters, steps = 72) => {
-  const earthRadiusMeters = 6371008.8;
-  const coordinates = [];
-  const distance = radiusMeters / earthRadiusMeters;
-  const centerLongitude = toRadians(center[0]);
-  const centerLatitude = toRadians(center[1]);
-
-  for (let index = 0; index <= steps; index += 1) {
-    const bearing = 2 * Math.PI * (index / steps);
-    const latitude = Math.asin(
-      Math.sin(centerLatitude) * Math.cos(distance) +
-      Math.cos(centerLatitude) * Math.sin(distance) * Math.cos(bearing)
-    );
-    const longitude = centerLongitude + Math.atan2(
-      Math.sin(bearing) * Math.sin(distance) * Math.cos(centerLatitude),
-      Math.cos(distance) - Math.sin(centerLatitude) * Math.sin(latitude)
-    );
-
-    coordinates.push([toDegrees(longitude), toDegrees(latitude)]);
-  }
-
-  return {
-    type: "Feature",
-    geometry: {
-      type: "Polygon",
-      coordinates: [coordinates]
-    },
-    properties: {}
-  };
-};
-
-const toRadians = (degrees) => degrees * Math.PI / 180;
-const toDegrees = (radians) => radians * 180 / Math.PI;
 
 const normalizeLocation = (location) => {
   if (!location || typeof location !== "object") return null;
@@ -608,12 +649,40 @@ const getMarkerLabel = (index, total) => {
   return String(index);
 };
 
+const isStartOrEndPoint = (index, total) => index === 0 || index === total - 1;
+
+const stopMapOverlayEvent = (event) => {
+  event.stopPropagation();
+};
+
+const getMarkerCalloutLabel = (index, total, point) => {
+  const altitude = point.altitude ? `${point.altitude} m AGL` : "0 m AGL";
+  return `${getMarkerLabel(index, total)} - ${altitude}`;
+};
+
 const isStop = (index, total) => index > 0 && index < total - 1;
 
 const hasCoordinates = (point) => {
   if (!point) return false;
   if (point.latitude === "" || point.longitude === "" || point.latitude == null || point.longitude == null) return false;
   return Number.isFinite(Number(point.latitude)) && Number.isFinite(Number(point.longitude));
+};
+
+const toLatLng = (point) => [Number(point.latitude), Number(point.longitude)];
+
+const getInitialCenter = (points, launchSite, operatingArea) => {
+  const point = points.find(hasCoordinates) ?? launchSite ?? operatingArea;
+  return hasCoordinates(point) ? point : defaultCenter;
+};
+
+const getRouteBounds = (points, launchSite, operatingArea) => {
+  const latLngs = [
+    ...points.filter(hasCoordinates).map(toLatLng),
+    ...(hasCoordinates(launchSite) ? [toLatLng(launchSite)] : []),
+    ...(hasCoordinates(operatingArea) ? [toLatLng(operatingArea)] : [])
+  ];
+
+  return latLngs.length ? L.latLngBounds(latLngs) : null;
 };
 
 const formatPoint = (point) => {
@@ -629,19 +698,12 @@ const formatRadius = (radiusMeters) => {
 
 const getToolHelp = (activeTool, activePoint) => {
   if (activeTool === "launchSite") return "Click the map to set the launch site.";
-  if (activeTool === "operatingArea") return "Click the map to set the operating area centre.";
-  return activePoint ? `Click the map to set ${activePoint.label || "selected route point"}.` : "Add route points to continue.";
+  return activePoint ? `Click the map to place ${activePoint.label || "selected route point"}. Each route click prepares the next point. Use Finish Route when done.` : "Click the map to start the route.";
 };
 
 const getActiveToolLabel = (activeTool, activePoint) => {
   if (activeTool === "launchSite") return "Launch Site";
-  if (activeTool === "operatingArea") return "Operating Area";
   return activePoint?.label ?? "Route Path";
-};
-
-const getInitialCenter = (points) => {
-  const point = points.find(hasCoordinates);
-  return point ? [Number(point.longitude), Number(point.latitude)] : defaultCenter;
 };
 
 const getFirstEmptyIndex = (points) => {
@@ -657,5 +719,14 @@ const getNextEmptyIndex = (points, currentIndex) => {
   const firstEmptyIndex = points.findIndex((point) => !hasCoordinates(point));
   return firstEmptyIndex >= 0 ? firstEmptyIndex : currentIndex;
 };
+
+const escapeHtml = (value) => String(value)
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;")
+  .replaceAll("'", "&#39;");
+
+const escapeAttribute = escapeHtml;
 
 export default RoutePointMapPicker;

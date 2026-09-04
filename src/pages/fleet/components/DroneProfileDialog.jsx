@@ -1,19 +1,34 @@
-import { BatteryCharging, CalendarClock, Cpu, MapPin, Navigation, Pencil, Plane, RadioTower, Save, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { BatteryCharging, CalendarClock, Cpu, MapPin, Pencil, Plane, RadioTower, Save, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import ActionButton from "../../../components/common/ActionButton";
+import HeaderDockedTabs from "../../../components/common/HeaderDockedTabs";
 import BatteryMeter from "../../../components/common/BatteryMeter";
 import CopyableId from "../../../components/common/CopyableId";
 import StatusBadge from "../../../components/common/StatusBadge";
 import { droneOpsApi } from "../../../services/droneOpsApi";
+import MissionRouteMap from "../../missions/components/MissionRouteMap";
 
-const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
 const droneStatuses = ["AVAILABLE", "IN_MISSION", "MAINTENANCE", "GROUNDED", "DISCONNECTED", "AWAITING_APPROVAL"];
 const certificationStatuses = ["CERTIFIED", "AWAITING_APPROVAL", "AWAITING_RENEWAL", "EXPIRED", "GROUNDED_PENDING_INSPECTION"];
 const telemetryProviders = ["NONE", "DJI", "AUTEL", "MAVLINK"];
+const profileTabs = [
+  { id: "aircraft", label: "Aircraft" },
+  { id: "maintenance", label: "Maintenance" },
+  { id: "telemetry", label: "Telemetry" },
+  { id: "maps", label: "Maps & Missions" }
+];
 
 const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, onClose }) => {
+  const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
+  const [activeTab, setActiveTab] = useState("aircraft");
+  const bodyRef = useRef(null);
+  const selectTab = (id) => {
+    setActiveTab(id);
+    bodyRef.current?.scrollTo({ top: 0 });
+  };
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -21,7 +36,10 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
   const [form, setForm] = useState(() => toEditableForm(drone));
   const [modelCatalog, setModelCatalog] = useState([]);
   const telemetry = drone.latestTelemetry;
+  const telemetryReadout = useMemo(() => getTelemetryReadout(drone), [drone]);
   const droneUuid = drone.uuid ?? drone.idRaw ?? drone.id;
+  const relatedMission = drone.activeMission ?? drone.lastMission ?? null;
+  const relatedMissionRoute = useMemo(() => getMissionRouteState(relatedMission), [relatedMission]);
   const locationState = useMemo(() => getDroneLocationState(drone), [drone]);
   const manufacturerOptions = modelCatalog.map((entry) => entry.manufacturer);
   const selectedModelOptions = getModelOptions(modelCatalog, form.manufacturer);
@@ -139,15 +157,20 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
 
   const dialog = (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose?.()}>
-      <form className="modal-dialog profile-dialog" role="dialog" aria-modal="true" aria-labelledby="drone-profile-title" onSubmit={handleSave}>
+      <form className="modal-dialog profile-dialog drone-profile-dialog" role="dialog" aria-modal="true" aria-labelledby="drone-profile-title" onSubmit={handleSave}>
         <div className="modal-header">
-          <div>
-            <p className="eyebrow">Drone Profile</p>
-            <div className="profile-title-row">
-              <h2 id="drone-profile-title">{previewDrone.id}</h2>
+          <div className="drone-profile-heading">
+            <div className="profile-aircraft-icon compact">
+              <Plane size={30} />
             </div>
-            <p>{previewDrone.model} {previewDrone.manufacturer ? `by ${previewDrone.manufacturer}` : ""}</p>
-            <ProfileIdentity id={droneUuid} />
+            <div>
+              <p className="eyebrow">Drone Profile</p>
+              <div className="profile-title-row">
+                <h2 id="drone-profile-title">{previewDrone.id}</h2>
+              </div>
+              <p>{previewDrone.model} {previewDrone.manufacturer ? `by ${previewDrone.manufacturer}` : ""}</p>
+              <ProfileIdentity id={droneUuid} />
+            </div>
           </div>
           <div className="profile-header-actions">
             <div className="profile-header-buttons">
@@ -164,22 +187,60 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
           </div>
         </div>
 
-        <div className="modal-body">
+        <div className="modal-body" ref={bodyRef}>
+          {!isEditing && (
+            <HeaderDockedTabs>
+              <div className="mission-profile-tabs drone-profile-tabs" role="tablist" aria-label="Drone profile sections">
+                {profileTabs.map((tab, index) => (
+                  <button key={tab.id} type="button" role="tab" id={`drone-tab-${tab.id}`}
+                    aria-controls={`drone-panel-${tab.id}`} aria-selected={activeTab === tab.id}
+                    tabIndex={activeTab === tab.id ? 0 : -1} className={activeTab === tab.id ? "active" : ""}
+                    onClick={() => selectTab(tab.id)}
+                    onKeyDown={(event) => {
+                      const next = event.key === "ArrowRight" ? (index + 1) % profileTabs.length
+                        : event.key === "ArrowLeft" ? (index + profileTabs.length - 1) % profileTabs.length
+                          : event.key === "Home" ? 0 : event.key === "End" ? profileTabs.length - 1 : null;
+                      if (next === null) return;
+                      event.preventDefault();
+                      selectTab(profileTabs[next].id);
+                      event.currentTarget.parentElement.children[next].focus();
+                    }}>
+                    <strong>{tab.label}</strong>
+                  </button>
+                ))}
+              </div>
+            </HeaderDockedTabs>
+          )}
           {error && <div className="auth-alert">{error}</div>}
 
+          <div className="drone-profile-content" role={isEditing ? undefined : "tabpanel"}
+            id={`drone-panel-${activeTab}`} aria-labelledby={isEditing ? undefined : `drone-tab-${activeTab}`}
+            tabIndex={isEditing ? undefined : 0}>
+          {(isEditing || activeTab === "aircraft") && (
           <div className="profile-metrics">
-            <ProfileMetric icon={BatteryCharging} label="Battery" value={`${drone.battery ?? 0}%`}>
-              <BatteryMeter value={drone.battery ?? 0} />
+            <ProfileMetric icon={BatteryCharging} label="Battery" value={telemetryReadout.battery}>
+              <BatteryMeter value={telemetryReadout.batteryValue} />
             </ProfileMetric>
-            <ProfileMetric icon={RadioTower} label="Signal" value={locationState.isOffline ? "Offline" : `${drone.signal ?? 0}%`} />
+            <ProfileMetric icon={RadioTower} label="Link" value={telemetryReadout.link} />
             <ProfileMetric icon={Plane} label="Flight Hours" value={previewDrone.flightHours} />
           </div>
+          )}
 
-          {!isEditing && (
-            <ProfileLocationMap
-              drone={previewDrone}
-              locationState={locationState}
-            />
+          {!isEditing && activeTab === "maps" && (
+            <>
+              <ProfileLocationMap
+                drone={previewDrone}
+                locationState={locationState}
+              />
+              {relatedMissionRoute.hasRoute && (
+                <MissionPathPreview
+                  mission={relatedMission}
+                  route={relatedMissionRoute}
+                  onOpen={() => navigate(`/missions/${encodeURIComponent(relatedMission.id)}`)}
+                />
+              )}
+              {!relatedMissionRoute.hasRoute && <p className="empty-state">No saved mission route is available.</p>}
+            </>
           )}
 
           {isEditing ? (
@@ -204,7 +265,8 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
               <Field label="Vendor Device ID" value={form.externalDeviceId} onChange={(value) => updateField("externalDeviceId", value)} />
             </div>
           ) : (
-            <div className="profile-grid">
+            <div className="drone-profile-sections">
+              {activeTab === "aircraft" && (
               <ProfileSection icon={Cpu} title="Aircraft Details">
                 <ProfileRow label="Model" value={drone.model} />
                 <ProfileRow label="Manufacturer" value={drone.manufacturer} />
@@ -217,8 +279,22 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
                 <ProfileRow label="Telemetry Provider" value={drone.telemetryProvider} />
                 <ProfileRow label="Vendor Device ID" value={drone.externalDeviceId} />
                 <ProfileRow label="Connector Status" value={drone.connectorStatus} />
+                <ProfileRow
+                  label={drone.activeMission ? "Current Mission" : "Last Mission"}
+                  value={relatedMission ? (
+                    <button
+                      className="link-button strong-link inline-profile-link"
+                      type="button"
+                      onClick={() => navigate(`/missions/${encodeURIComponent(relatedMission.id)}`)}
+                    >
+                      {formatMissionLinkLabel(relatedMission)}
+                    </button>
+                  ) : "No mission history"}
+                />
               </ProfileSection>
+              )}
 
+              {activeTab === "maintenance" && (
               <ProfileSection icon={CalendarClock} title="Lifecycle">
                 <ProfileRow label="Purchased" value={formatDate(drone.purchaseDate)} />
                 <ProfileRow label="Last Maintenance" value={formatDate(drone.lastMaintenanceDate)} />
@@ -227,17 +303,26 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
                 <ProfileRow label="Created" value={formatDate(drone.createdAt)} />
                 <ProfileRow label="Updated" value={formatDate(drone.updatedAt)} />
               </ProfileSection>
+              )}
 
+              {activeTab === "telemetry" && (
               <ProfileSection icon={MapPin} title="Latest Telemetry">
                 <ProfileRow label="Location" value={locationState.hasLocation ? formatCoordinate(locationState.location) : "No location recorded"} />
                 <ProfileRow label="Map Status" value={locationState.isOffline ? "Offline - showing last known location" : locationState.hasLocation ? "Live location" : "Waiting for telemetry"} />
-                <ProfileRow label="Altitude" value={telemetry?.location?.altitude !== undefined ? `${telemetry.location.altitude} m` : "No data"} />
-                <ProfileRow label="Speed" value={telemetry ? `${telemetry.velocity.speed} m/s` : "No data"} />
-                <ProfileRow label="Heading" value={telemetry ? `${telemetry.velocity.heading} deg` : "No data"} />
+                <ProfileRow label="Battery" value={telemetryReadout.battery} />
+                <ProfileRow label="Battery Voltage" value={telemetryReadout.voltage} />
+                <ProfileRow label="Signal" value={telemetryReadout.signal} />
+                <ProfileRow label="Altitude" value={telemetryReadout.altitude} />
+                <ProfileRow label="Speed" value={telemetryReadout.speed} />
+                <ProfileRow label="Heading" value={telemetryReadout.heading} />
+                <ProfileRow label="Flight Status" value={formatOptionLabel(telemetry?.simulator?.flightStatus ?? telemetry?.status ?? "No data")} />
+                <ProfileRow label="Source" value={telemetry?.simulator?.droneId ?? telemetry?.source ?? "No data"} />
                 <ProfileRow label="Last Seen" value={locationState.timestamp ? formatDateTime(locationState.timestamp) : "No data"} />
               </ProfileSection>
+              )}
             </div>
           )}
+          </div>
         </div>
 
         <div className="modal-footer profile-footer">
@@ -311,8 +396,6 @@ const ProfileIdentity = ({ id }) => (
 );
 
 const ProfileLocationMap = ({ drone, locationState }) => {
-  const mapPreviewUrl = locationState.hasLocation ? buildStaticMapPreview(locationState.location) : "";
-
   return (
     <section className={`profile-location-card ${locationState.isOffline ? "is-offline" : ""}`}>
       <div className="profile-location-header">
@@ -325,19 +408,21 @@ const ProfileLocationMap = ({ drone, locationState }) => {
         </span>
       </div>
       <div className="profile-location-map" aria-label={`${drone.id} location map`}>
-        {locationState.hasLocation && mapPreviewUrl ? (
-          <>
-            <img className="profile-location-image" src={mapPreviewUrl} alt={`${drone.id} map location`} />
-            <div className={`profile-drone-marker centered ${locationState.isOffline ? "offline" : "live"}`}>
-              <span />
-              <Navigation size={24} />
-            </div>
-          </>
-        ) : locationState.hasLocation ? (
-          <div className={`profile-drone-marker static ${locationState.isOffline ? "offline" : "live"}`}>
-            <span />
-            <Navigation size={24} />
-          </div>
+        {locationState.hasLocation ? (
+          <MissionRouteMap
+            context={{ drone: drone.id, status: drone.status, model: drone.model }}
+            telemetry={{
+              drone: drone.id,
+              location: {
+                latitude: locationState.location.latitude,
+                longitude: locationState.location.longitude,
+                altitude: locationState.location.altitude
+              },
+              status: locationState.isOffline ? "OFFLINE" : "LIVE",
+              timestamp: locationState.timestamp
+            }}
+            telemetryMode={locationState.isOffline ? "recorded" : "live"}
+          />
         ) : (
           <div className="profile-location-empty">
             <MapPin size={24} />
@@ -358,6 +443,29 @@ const ProfileLocationMap = ({ drone, locationState }) => {
     </section>
   );
 };
+
+const MissionPathPreview = ({ mission, route, onOpen }) => (
+  <section className="profile-location-card drone-mission-path-card">
+    <div className="profile-location-header">
+      <div>
+        <h3>{mission?.status === "ACTIVE" ? "Current Mission Path" : "Last Mission Path"}</h3>
+        <p>{formatMissionLinkLabel(mission)}</p>
+      </div>
+      <button className="link-button strong-link" type="button" onClick={onOpen}>
+        Open mission
+      </button>
+    </div>
+    <div className="drone-profile-route-map">
+      <MissionRouteMap
+        context={{ mission: formatMissionLinkLabel(mission), status: mission?.status }}
+        waypoints={route.waypoints}
+        launchSite={route.launchSite}
+        operatingArea={route.operatingArea}
+        authorityAnalysis={route.authorityAnalysis}
+      />
+    </div>
+  </section>
+);
 
 const ProfileRow = ({ label, value }) => (
   <div>
@@ -421,6 +529,32 @@ const formatOptionLabel = (value = "") => (
   value.toString().toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
 );
 
+const formatMissionLinkLabel = (mission) => (
+  [mission?.missionCode, mission?.name].filter(Boolean).join(" - ") || "Open mission"
+);
+
+const getMissionRouteState = (mission) => {
+  const route = mission?.plannedRoute ?? {};
+  const waypoints = Array.isArray(route.waypoints)
+    ? route.waypoints
+    : Array.isArray(route.coordinates)
+      ? route.coordinates.map(([longitude, latitude], index) => ({ label: `Waypoint ${index + 1}`, longitude, latitude }))
+      : [];
+
+  return {
+    hasRoute: waypoints.filter(hasCoordinates).length >= 2,
+    waypoints,
+    launchSite: route.launchSite ?? parseSavedLocation(mission?.launchSite),
+    operatingArea: route.operatingArea ?? parseSavedLocation(mission?.operatingArea),
+    authorityAnalysis: route.routeAnalysis?.authorityAnalysis ?? mission?.geofenceConfig?.authorityAnalysis ?? null
+  };
+};
+
+const hasCoordinates = (point) => {
+  if (!point) return false;
+  return Number.isFinite(Number(point.latitude ?? point.lat)) && Number.isFinite(Number(point.longitude ?? point.lng ?? point.lon));
+};
+
 const getDroneLocationState = (drone) => {
   const telemetryLocation = drone.latestTelemetry?.location;
   const latestTimestamp = drone.latestTelemetry?.timestamp ?? drone.lastTelemetryAt ?? drone.updatedAt;
@@ -442,6 +576,24 @@ const getDroneLocationState = (drone) => {
       : isOffline
         ? "Showing last known location because the drone is offline."
         : "Showing current live telemetry location."
+  };
+};
+
+const getTelemetryReadout = (drone) => {
+  const telemetry = drone.latestTelemetry;
+  const batteryValue = Number(telemetry?.battery?.level ?? drone.battery ?? 0);
+  const signalValue = Number(telemetry?.signal?.strength ?? drone.signal ?? 0);
+  const linkQuality = telemetry?.signal?.linkQuality;
+
+  return {
+    batteryValue: Number.isFinite(batteryValue) ? batteryValue : 0,
+    battery: telemetry ? `${Number.isFinite(batteryValue) ? batteryValue : 0}%` : `${drone.battery ?? 0}%`,
+    voltage: telemetry?.battery?.voltage != null ? `${Number(telemetry.battery.voltage).toFixed(2)} V` : "No data",
+    signal: telemetry ? `${Number.isFinite(signalValue) ? signalValue : 0}%` : "No data",
+    link: linkQuality ? formatOptionLabel(linkQuality) : telemetry ? `${Number.isFinite(signalValue) ? signalValue : 0}%` : "No telemetry",
+    altitude: telemetry?.location?.altitude !== undefined ? `${telemetry.location.altitude} m` : "No data",
+    speed: telemetry?.velocity?.speed !== undefined ? `${telemetry.velocity.speed} m/s` : "No data",
+    heading: telemetry?.velocity?.heading !== undefined ? `${telemetry.velocity.heading} deg` : "No data"
   };
 };
 
@@ -471,11 +623,16 @@ const normalizeLocation = (location) => {
   return { latitude, longitude, altitude };
 };
 
-const buildStaticMapPreview = ({ latitude, longitude }) => {
-  if (!mapboxToken) return "";
-  const lng = Number(longitude).toFixed(6);
-  const lat = Number(latitude).toFixed(6);
-  return `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${lng},${lat},13,0/720x360?access_token=${mapboxToken}`;
+const parseSavedLocation = (value) => {
+  if (!value || typeof value !== "string") return null;
+  const match = value.match(/\((-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\)/);
+  if (!match) return null;
+
+  return {
+    label: value.replace(/\s*\(.+\)\s*$/, "").trim() || "Saved location",
+    latitude: Number(match[1]),
+    longitude: Number(match[2])
+  };
 };
 
 const formatDate = (value) => {

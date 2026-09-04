@@ -43,7 +43,6 @@ const toRows = (report) => {
     { field: "Status", value: report.status ?? "Ready" },
     { field: "Category", value: report.owner ?? "DroneOps" },
     { field: "Date Scope", value: formatSnapshotScope(snapshot.scope) },
-    { field: "Record Limit", value: snapshot.scope?.limit ?? "No limit stored" },
     { field: "Value", value: report.value ?? "Snapshot" },
     { field: "Change", value: report.change ?? "Stored audit snapshot" },
     ...flattenObject(snapshot, "snapshot")

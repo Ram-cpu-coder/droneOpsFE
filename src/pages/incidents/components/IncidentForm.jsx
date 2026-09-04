@@ -47,9 +47,10 @@ const initialForm = {
   locationPoint: null,
   details: ""
 };
+const emptyInitialValues = {};
 
-const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, onCancel }) => {
-  const [form, setForm] = useState(() => toFormState(incident));
+const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyInitialValues, onCreated, onUpdated, onCancel }) => {
+  const [form, setForm] = useState(() => toFormState(incident, initialValues));
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const [isSaving, setIsSaving] = useState(false);
@@ -60,9 +61,9 @@ const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, 
   const loadDrones = useCallback(() => droneOpsApi.drones.list(), []);
   const loadMissions = useCallback(() => droneOpsApi.missions.list(), []);
   const loadUsers = useCallback(() => droneOpsApi.users.list(), []);
-  const { data: drones } = useApiResource(loadDrones, []);
-  const { data: missions } = useApiResource(loadMissions, []);
-  const { data: users } = useApiResource(loadUsers, []);
+  const { data: drones } = useApiResource(loadDrones, [], { cacheKey: "drones:list", staleMs: 10000 });
+  const { data: missions } = useApiResource(loadMissions, [], { cacheKey: "missions:list", staleMs: 10000 });
+  const { data: users } = useApiResource(loadUsers, [], { cacheKey: "users:list", staleMs: 30000 });
 
   const ownerOptions = useMemo(
     () => users.filter((user) => ["SAFETY_OFFICER", "MAINTENANCE_COORDINATOR", "OPERATIONS_MANAGER", "SYSTEM_ADMINISTRATOR"].includes(user.role)),
@@ -115,10 +116,10 @@ const IncidentForm = ({ incident = null, mode = "create", onCreated, onUpdated, 
   const isIncidentReady = readinessItems.every((item) => item.complete);
 
   useEffect(() => {
-    setForm(toFormState(incident));
+    setForm(toFormState(incident, initialValues));
     setEvidenceFiles([]);
     setEvidenceError("");
-  }, [incident]);
+  }, [incident, initialValues]);
 
   useEffect(() => {
     if (!error) return;
@@ -844,8 +845,13 @@ const validateEvidenceFiles = (files = []) => {
   return "";
 };
 
-const toFormState = (incident) => {
-  if (!incident) return initialForm;
+const toFormState = (incident, initialValues = {}) => {
+  if (!incident) return {
+    ...initialForm,
+    ...initialValues,
+    droneId: initialValues.droneId ?? initialValues.droneIds?.[0] ?? initialForm.droneId,
+    droneIds: initialValues.droneIds ?? initialForm.droneIds
+  };
   const location = incident.location ?? incident.place ?? "";
   return {
     incidentCode: incident.incidentCode ?? incident.id ?? "",

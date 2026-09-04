@@ -348,7 +348,7 @@ const buildBriefItems = (report) => {
     { label: "Current Value", value: report.value ?? summary.value ?? "Snapshot ready" },
     { label: "Change", value: report.change ?? summary.change ?? "No comparison available" },
     { label: "Category", value: report.owner ?? summary.owner ?? "DroneOps" },
-    { label: "Export Scope", value: formatScopeRange(scope), note: scope.limit ? `Maximum ${scope.limit} records included.` : null }
+    { label: "Export Scope", value: formatScopeRange(scope), note: "Generated from the selected report category and date range." }
   ];
 
   if (utilization.totalDrones !== undefined) {

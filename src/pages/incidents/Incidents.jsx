@@ -23,7 +23,7 @@ const Incidents = ({ searchValue, user }) => {
   const canCreateIncident = hasClientPermission(user, "incidents:manage") || hasClientPermission(user, "incidents:create");
   const canManageIncident = hasClientPermission(user, "incidents:manage");
   const loadIncidents = useCallback(() => droneOpsApi.incidents.list(), []);
-  const { data: apiIncidents, error, isLoading, isFallback, refresh } = useApiResource(loadIncidents, []);
+  const { data: apiIncidents, error, isLoading, isFallback, refresh, setData: setIncidentRows } = useApiResource(loadIncidents, [], { cacheKey: "incidents:list", staleMs: 10000 });
   const normalizedIncidents = useMemo(() => apiIncidents.map(normalizeIncident), [apiIncidents]);
   const filteredIncidents = useFleetSearch(normalizedIncidents, searchValue);
   const metricIncidents = isFallback ? [] : normalizedIncidents;
@@ -78,6 +78,25 @@ const Incidents = ({ searchValue, user }) => {
     setShowIncidentForm(true);
   };
 
+  const reconcileIncidentRows = useCallback((incident, action) => {
+    if (!incident) {
+      refresh();
+      return;
+    }
+
+    setIncidentRows((currentRows = []) => {
+      if (action === "delete") {
+        return currentRows.filter((row) => !isSameIncident(row, incident));
+      }
+
+      const existingIndex = currentRows.findIndex((row) => isSameIncident(row, incident));
+      if (existingIndex === -1) return [incident, ...currentRows];
+      return currentRows.map((row, index) => (index === existingIndex ? { ...row, ...incident } : row));
+    });
+
+    refresh();
+  }, [refresh, setIncidentRows]);
+
   return (
     <section className="page-stack">
       {selectedIncident && (
@@ -85,13 +104,13 @@ const Incidents = ({ searchValue, user }) => {
           incident={selectedIncident}
           canManage={canManageIncident}
           onUpdated={(updatedIncident) => {
-            refresh();
+            reconcileIncidentRows(updatedIncident, "update");
             navigate(profileReturnPath);
             setToast({ title: "Incident updated", message: `${updatedIncident?.incidentCode ?? selectedIncident.id} was updated successfully.` });
             window.setTimeout(() => setToast(null), 4500);
           }}
           onDeleted={() => {
-            refresh();
+            reconcileIncidentRows(selectedIncident, "delete");
             navigate(profileReturnPath);
             setToast({ title: "Incident deleted", message: `${selectedIncident.id} was removed from the register.` });
             window.setTimeout(() => setToast(null), 4500);
@@ -145,7 +164,7 @@ const Incidents = ({ searchValue, user }) => {
       {canCreateIncident && showIncidentForm && (
         <IncidentForm
           onCreated={(incident) => {
-            refresh();
+            reconcileIncidentRows(incident, "create");
             setShowIncidentForm(false);
             const evidenceUploadFailures = incident.evidenceUploadFailures?.length ?? 0;
             setToast({
@@ -178,6 +197,12 @@ const normalizeIncident = (incident) => ({
   missionLabel: incident.mission?.missionCode ?? incident.mission?.name ?? incident.mission ?? "",
   typeLabel: incident.type?.toString().toLowerCase().replaceAll("_", " ")
 });
+
+const isSameIncident = (row, incident) => {
+  const rowKeys = [row.id, row.uuid, row.idRaw, row.systemId, row.incidentCode, row.serialNumber].filter(Boolean).map(String);
+  const incidentKeys = [incident.id, incident.uuid, incident.idRaw, incident.systemId, incident.incidentCode, incident.serialNumber].filter(Boolean).map(String);
+  return incidentKeys.some((key) => rowKeys.includes(key));
+};
 
 const getDetailId = (pathname, basePath) => {
   if (pathname === basePath || !pathname.startsWith(`${basePath}/`)) return null;
