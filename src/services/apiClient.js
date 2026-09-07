@@ -45,13 +45,6 @@ const getSession = () => {
   try {
     const session = JSON.parse(rawSession);
 
-    if (session.refreshToken) {
-      const safeSession = { ...session };
-      delete safeSession.refreshToken;
-      localStorage.setItem(SESSION_KEY, JSON.stringify(safeSession));
-      return safeSession;
-    }
-
     return session;
   } catch {
     // Clear broken session data.
@@ -144,7 +137,7 @@ const refreshAccessToken = async () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({}),
+      body: JSON.stringify(session.refreshToken ? { refreshToken: session.refreshToken } : {}),
     });
 
     const payload = await response.json().catch(() => ({}));
@@ -164,6 +157,7 @@ const refreshAccessToken = async () => {
     const nextSession = {
       ...session,
       accessToken: payload.data.accessToken,
+      refreshToken: payload.data.refreshToken ?? session.refreshToken,
       user: payload.data.user ?? session.user,
     };
 

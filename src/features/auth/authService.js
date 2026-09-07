@@ -32,6 +32,7 @@ const roleIdByApiRole = {
   This is needed when sending role data back to the backend.
 */
 const apiRoleByRoleId = {};
+let restoreSessionRequest = null;
 
 Object.entries(roleIdByApiRole).forEach(([apiRole, roleId]) => {
     apiRoleByRoleId[roleId] = apiRole;
@@ -103,7 +104,6 @@ const decorateUser = (user) => {
 */
 const persistSession = (session) => {
     const safeSession = { ...session };
-    delete safeSession.refreshToken;
     const sessionText = JSON.stringify(safeSession);
 
     localStorage.setItem(SESSION_KEY, sessionText);
@@ -238,19 +238,23 @@ export const authService = {
       It uses the HttpOnly refresh cookie to get a new access token.
     */
     async restoreSession() {
+        if (restoreSessionRequest) {
+            return restoreSessionRequest;
+        }
+
         const rawSession = localStorage.getItem(SESSION_KEY);
 
         if (!rawSession) {
             return null;
         }
 
-        try {
+        restoreSessionRequest = (async () => {
             const session = JSON.parse(rawSession);
 
             let result;
 
             try {
-                result = await apiClient.post("/auth/refresh-token", {});
+                result = await apiClient.post("/auth/refresh-token", session.refreshToken ? { refreshToken: session.refreshToken } : {});
             } catch (error) {
                 const shouldRetry = isTransientNetworkError(error);
 
@@ -262,19 +266,26 @@ export const authService = {
                 // Wait shortly and try one more time.
                 await wait(1400);
 
-                result = await apiClient.post("/auth/refresh-token", {});
+                result = await apiClient.post("/auth/refresh-token", session.refreshToken ? { refreshToken: session.refreshToken } : {});
             }
 
             // Save the refreshed session.
             const newSession = {
                 accessToken: result.accessToken,
+                refreshToken: result.refreshToken ?? session.refreshToken,
                 user: decorateUser(result.user || session.user),
             };
 
             return persistSession(newSession);
+        })();
+
+        try {
+            return await restoreSessionRequest;
         } catch {
             clearSession();
             return null;
+        } finally {
+            restoreSessionRequest = null;
         }
     },
 
