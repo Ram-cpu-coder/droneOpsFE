@@ -79,7 +79,7 @@ const GeospatialMap = () => {
   useEffect(() => {
     const socket = getRealtimeSocket();
     const handleTelemetryUpdate = () => {
-      window.dispatchEvent(new CustomEvent("droneops-map-refresh"));
+      window.dispatchEvent(new CustomEvent("droneops-map-live-refresh"));
     };
 
     socket.on("operations:telemetry", handleTelemetryUpdate);
@@ -155,13 +155,19 @@ const GeospatialMap = () => {
       }
     };
 
+    const handleLiveRefresh = () => {
+      loadTelemetry(true);
+    };
+
     loadTelemetry();
-    window.addEventListener("droneops-map-refresh", handleManualRefresh);
+    window.addEventListener("droneops-map-live-refresh", handleLiveRefresh);
+    window.addEventListener("droneops-map-manual-refresh", handleManualRefresh);
 
     return () => {
       isMounted = false;
       window.clearTimeout(telemetryTimerRef.current);
-      window.removeEventListener("droneops-map-refresh", handleManualRefresh);
+      window.removeEventListener("droneops-map-live-refresh", handleLiveRefresh);
+      window.removeEventListener("droneops-map-manual-refresh", handleManualRefresh);
     };
   }, []);
 
@@ -278,21 +284,17 @@ const GeospatialMap = () => {
           </div>
           <p>{mapError || telemetrySyncMessage || geofenceMessage || "Live fleet positions, selected-drone replay, and geofence overlays."}</p>
         </div>
-        <div className="map-toolbar">
-          <div className="map-view-controls" aria-label="Map view controls">
-            <button className="icon-button" type="button" aria-label="Center map on active data" onClick={() => fitMapToData(mapRef.current, liveDrones, liveGeofences, selectedDroneTrack)}>
-              <Crosshair size={17} />
-            </button>
-            <button className="icon-button" type="button" aria-label="Reset map to default view" onClick={() => resetMapView(mapRef.current)}>
-              <Home size={17} />
-            </button>
-          </div>
-        </div>
-        <div className="fleet-map-actions">
-        <button className="icon-button" type="button" aria-label="Refresh telemetry" onClick={() => refreshTelemetryNow(telemetryTimerRef, setIsRefreshing, setMapError)}>
-          {isRefreshing ? <LoadingLogo label="Refreshing telemetry" size="xs" compact /> : <RefreshCw size={17} />}
-        </button>
-        {fullscreenButton}
+        <div className="fleet-map-actions" aria-label="Telemetry map actions">
+          <button className="icon-button" type="button" aria-label="Refresh telemetry" onClick={() => refreshTelemetryNow(telemetryTimerRef, setIsRefreshing, setMapError)}>
+            {isRefreshing ? <LoadingLogo label="Refreshing telemetry" size="xs" compact /> : <RefreshCw size={17} />}
+          </button>
+          {fullscreenButton}
+          <button className="icon-button" type="button" aria-label="Center map on active data" onClick={() => fitMapToData(mapRef.current, liveDrones, liveGeofences, selectedDroneTrack)}>
+            <Crosshair size={17} />
+          </button>
+          <button className="icon-button" type="button" aria-label="Reset map to default view" onClick={() => resetMapView(mapRef.current)}>
+            <Home size={17} />
+          </button>
         </div>
       </div>
       <div className="geospatial-map-canvas leaflet-dashboard-map" ref={mapContainerRef} />
@@ -335,15 +337,17 @@ const renderDashboardMapLayers = ({ layers, liveDrones, liveGeofences, selectedD
     if (!Array.isArray(zone.polygon) || zone.polygon.length < 3) return;
     const restricted = zone.type === "RESTRICTED";
     const warning = zone.type === "WARNING";
+    const isGovernment = zone.source === "GOVERNMENT";
     const color = restricted ? "#c61732" : warning ? "#f5b700" : "#1d6fea";
     L.polygon(zone.polygon.map(toLatLng), {
       color,
-      weight: 2,
+      weight: isGovernment ? 3 : 2,
       opacity: 0.82,
+      dashArray: isGovernment ? "8 6" : undefined,
       fillColor: color,
-      fillOpacity: 0.14
+      fillOpacity: isGovernment ? 0.1 : 0.14
     })
-      .bindTooltip(`<strong>${escapeHtml(zone.name ?? "Geofence")}</strong><br/>Type: ${escapeHtml(formatStatus(zone.type))}`)
+      .bindTooltip(`<strong>${escapeHtml(zone.name ?? "Geofence")}</strong><br/>Type: ${escapeHtml(formatStatus(zone.type))}<br/>Source: ${escapeHtml(isGovernment ? zone.provider ?? "Government" : "DroneOps")}`)
       .addTo(layers.geofences);
   });
 
@@ -496,7 +500,7 @@ const refreshTelemetryNow = async (telemetryTimerRef, setIsRefreshing, setMapErr
   window.clearTimeout(telemetryTimerRef.current);
   setIsRefreshing(true);
   setMapError("");
-  window.dispatchEvent(new CustomEvent("droneops-map-refresh"));
+  window.dispatchEvent(new CustomEvent("droneops-map-manual-refresh"));
 };
 
 const normalizeTelemetryRow = (row) => {

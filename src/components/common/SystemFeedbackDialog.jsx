@@ -24,7 +24,7 @@ const SystemFeedbackDialog = ({ feedback, onClose }) => {
           <Icon size={26} />
         </div>
         <div className="system-feedback-content">
-          <p className="eyebrow">{getFeedbackEyebrow(type)}</p>
+          <p className="eyebrow">{feedback.context ? `${getFeedbackEyebrow(type)} / ${feedback.context}` : getFeedbackEyebrow(type)}</p>
           <h2 id="system-feedback-title">{feedback.title ?? getDefaultTitle(type)}</h2>
           {feedback.message && <p>{feedback.message}</p>}
           {Array.isArray(feedback.details) && feedback.details.length > 0 && (

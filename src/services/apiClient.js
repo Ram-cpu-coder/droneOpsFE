@@ -4,20 +4,29 @@ import { showFeedback } from "./feedbackBus";
 const configuredApiBaseUrl =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5001/api/v1";
 
+const normalizeApiBaseUrl = (url) => {
+  const trimmedUrl = String(url ?? "").trim().replace(/\/+$/, "");
+  if (!trimmedUrl) return "http://localhost:5001/api/v1";
+  if (/\/api\/v\d+$/i.test(trimmedUrl)) return trimmedUrl;
+  return `${trimmedUrl}/api/v1`;
+};
+
 const API_BASE_URL = (() => {
-  if (typeof window === "undefined") return configuredApiBaseUrl;
+  const normalizedApiBaseUrl = normalizeApiBaseUrl(configuredApiBaseUrl);
+
+  if (typeof window === "undefined") return normalizedApiBaseUrl;
 
   const appHost = window.location.hostname;
 
-  if (appHost === "127.0.0.1" && configuredApiBaseUrl.includes("://localhost:")) {
-    return configuredApiBaseUrl.replace("://localhost:", "://127.0.0.1:");
+  if (appHost === "127.0.0.1" && normalizedApiBaseUrl.includes("://localhost:")) {
+    return normalizedApiBaseUrl.replace("://localhost:", "://127.0.0.1:");
   }
 
-  if (appHost === "localhost" && configuredApiBaseUrl.includes("://127.0.0.1:")) {
-    return configuredApiBaseUrl.replace("://127.0.0.1:", "://localhost:");
+  if (appHost === "localhost" && normalizedApiBaseUrl.includes("://127.0.0.1:")) {
+    return normalizedApiBaseUrl.replace("://127.0.0.1:", "://localhost:");
   }
 
-  return configuredApiBaseUrl;
+  return normalizedApiBaseUrl;
 })();
 
 // localStorage key for saved session.
@@ -143,7 +152,11 @@ const refreshAccessToken = async () => {
     // If refresh fails, force logout.
     if (!response.ok) {
       localStorage.removeItem(SESSION_KEY);
-      window.dispatchEvent(new Event("droneops:session-expired"));
+      window.dispatchEvent(new CustomEvent("droneops:session-expired", {
+        detail: {
+          message: "Your session has expired. Please sign in again.",
+        },
+      }));
       return null;
     }
 
@@ -180,6 +193,13 @@ const shouldShowRequestFailure = (path = "") => {
   return !ignoredPaths.some((ignoredPath) => path.startsWith(ignoredPath));
 };
 
+const expireLocalSession = (message = "Your session has expired. Please sign in again.") => {
+  localStorage.removeItem(SESSION_KEY);
+  window.dispatchEvent(new CustomEvent("droneops:session-expired", {
+    detail: { message },
+  }));
+};
+
 // Main request function used by all API methods.
 const request = async (path, options = {}, retry = true) => {
   const headers = new Headers(options.headers);
@@ -188,13 +208,16 @@ const request = async (path, options = {}, retry = true) => {
   const hasRequestBody = Object.prototype.hasOwnProperty.call(options, "body");
   const shouldSendJsonBody = method !== "GET" && method !== "HEAD" && !(options.body instanceof FormData);
   const feedbackId = `api:${method}:${path}`;
+  const requestContext = getRequestContext(path, method);
 
   if (shouldShowOperationFeedback(method, path)) {
     showFeedback({
       id: feedbackId,
       type: "loading",
-      title: getRequestLoadingTitle(method),
-      message: "DroneOps is processing the request. Keep this window open until it finishes.",
+      title: requestContext.loadingTitle,
+      message: requestContext.loadingMessage,
+      context: requestContext.context,
+      details: requestContext.loadingDetails,
       blocking: true
     });
   }
@@ -230,8 +253,9 @@ const request = async (path, options = {}, retry = true) => {
       showFeedback({
         id: feedbackId,
         type: "success",
-        title: getRequestSuccessTitle(method),
-        message: "The operation completed successfully."
+        title: requestContext.successTitle,
+        message: requestContext.successMessage,
+        context: requestContext.context
       });
     }
     return null;
@@ -269,14 +293,22 @@ const request = async (path, options = {}, retry = true) => {
         ? formatValidationDetails(payload.details)
         : "";
 
-    const message = validationMessage || payload.message || `Request failed: ${response.status}`;
+    const message = canRecoverAuth
+      ? "Your session has expired. Please sign in again."
+      : validationMessage || payload.message || `Request failed: ${response.status}`;
 
-    if (shouldShowRequestFailure(path)) {
+    if (canRecoverAuth) {
+      expireLocalSession(message);
+    }
+
+    if (shouldShowRequestFailure(path) && !canRecoverAuth) {
       showFeedback({
         id: feedbackId,
         type: "error",
-        title: getRequestFailureTitle(payload.code, response.status),
-        message
+        title: getRequestFailureTitle(payload.code, response.status, requestContext),
+        message,
+        context: requestContext.context,
+        details: getRequestFailureDetails(payload, response.status, requestContext)
       });
     }
 
@@ -290,8 +322,10 @@ const request = async (path, options = {}, retry = true) => {
     showFeedback({
       id: feedbackId,
       type: "success",
-      title: getRequestSuccessTitle(method),
-      message: payload.message || "The operation completed successfully."
+      title: requestContext.successTitle,
+      message: payload.message || requestContext.successMessage,
+      context: requestContext.context,
+      details: requestContext.successDetails
     });
   }
 
@@ -325,20 +359,6 @@ const get = (path) => {
   return nextRequest;
 };
 
-const getRequestLoadingTitle = (method) => {
-  if (method === "POST") return "Creating or submitting";
-  if (method === "PUT" || method === "PATCH") return "Saving changes";
-  if (method === "DELETE") return "Deleting record";
-  return "Working";
-};
-
-const getRequestSuccessTitle = (method) => {
-  if (method === "POST") return "Submitted successfully";
-  if (method === "PUT" || method === "PATCH") return "Changes saved";
-  if (method === "DELETE") return "Record deleted";
-  return "Completed";
-};
-
 // Reusable API methods.
 export const apiClient = {
   get,
@@ -350,13 +370,102 @@ export const apiClient = {
     request(path, { method: "POST", body: formData }),
 };
 
-const getRequestFailureTitle = (code, status) => {
-  if (code === "VALIDATION_ERROR") return "Review the highlighted details";
-  if (status === 403) return "You do not have permission";
-  if (status === 404) return "Record not found";
-  if (status === 409) return "This action cannot continue";
-  if (status >= 500) return "Backend error";
-  return "Request failed";
+const getRequestContext = (path, method) => {
+  const resource = getRequestResource(path);
+  const action = getRequestAction(method, path);
+  const resourceLabel = resource.label;
+
+  return {
+    context: resource.context,
+    loadingTitle: `${action.loading} ${resourceLabel}`,
+    loadingMessage: action.loadingMessage(resourceLabel),
+    loadingDetails: action.loadingDetails,
+    successTitle: `${resourceLabel} ${action.success}`,
+    successMessage: action.successMessage(resourceLabel),
+    successDetails: action.successDetails
+  };
+};
+
+const getRequestResource = (path) => {
+  if (path.startsWith("/auth/google")) return { label: "Google sign-in", context: "Authentication" };
+  if (path.startsWith("/auth/")) return { label: "Account", context: "Authentication" };
+  if (path.startsWith("/missions/") || path === "/missions") return { label: "Mission", context: "Mission control" };
+  if (path.startsWith("/drones/") || path === "/drones") return { label: "Drone", context: "Fleet management" };
+  if (path.startsWith("/pilots")) return { label: "Pilot credentials", context: "Pilot directory" };
+  if (path.startsWith("/telemetry/synctegral")) return { label: "Synctegral telemetry", context: "Live telemetry" };
+  if (path.startsWith("/telemetry")) return { label: "Telemetry", context: "Live telemetry" };
+  if (path.startsWith("/geofences")) return { label: "Geofence", context: "Operational boundaries" };
+  if (path.startsWith("/incidents")) return { label: "Incident", context: "Incident management" };
+  if (path.startsWith("/maintenance")) return { label: "Maintenance record", context: "Maintenance" };
+  if (path.startsWith("/reports")) return { label: "Report", context: "Reports" };
+  if (path.startsWith("/users")) return { label: "User", context: "User management" };
+  if (path.startsWith("/settings")) return { label: "Settings", context: "System settings" };
+  return { label: "Request", context: "DroneOps" };
+};
+
+const getRequestAction = (method, path) => {
+  if (method === "DELETE") {
+    return {
+      loading: "Deleting",
+      loadingMessage: (resource) => `DroneOps is deleting this ${resource.toLowerCase()} and refreshing related records.`,
+      loadingDetails: ["Linked lists and notifications refresh after the delete succeeds."],
+      success: "deleted",
+      successMessage: (resource) => `${resource} was deleted successfully.`,
+      successDetails: ["The table should update immediately. Refresh only if another browser tab still shows old data."]
+    };
+  }
+
+  if (method === "PUT" || method === "PATCH") {
+    return {
+      loading: "Saving",
+      loadingMessage: (resource) => `DroneOps is saving this ${resource.toLowerCase()} update.`,
+      loadingDetails: ["Validation, permissions, and linked records are checked before the change is saved."],
+      success: "saved",
+      successMessage: (resource) => `${resource} was updated successfully.`,
+      successDetails: ["Related tables and profile panels are being refreshed."]
+    };
+  }
+
+  if (path.includes("/sync-synctegral") || path.includes("/synctegral/sync")) {
+    return {
+      loading: "Syncing",
+      loadingMessage: () => "DroneOps is contacting Synctegral and then reloading the saved telemetry from our database.",
+      loadingDetails: ["If Synctegral is down, existing DroneOps records stay unchanged."],
+      success: "synced",
+      successMessage: () => "Synctegral sync completed. Latest saved telemetry is ready to view.",
+      successDetails: ["Mission replay only shows telemetry that matched the mission and assigned drone."]
+    };
+  }
+
+  return {
+    loading: "Submitting",
+    loadingMessage: (resource) => `DroneOps is submitting this ${resource.toLowerCase()} request.`,
+    loadingDetails: ["Keep this window open until the request finishes."],
+    success: "submitted",
+    successMessage: (resource) => `${resource} was submitted successfully.`,
+    successDetails: ["The relevant list will reload with the latest data."]
+  };
+};
+
+const getRequestFailureTitle = (code, status, context) => {
+  if (code === "VALIDATION_ERROR") return `Review ${context.context.toLowerCase()} details`;
+  if (status === 403) return "Permission required";
+  if (status === 404) return `${context.context} record not found`;
+  if (status === 409) return `${context.context} cannot continue`;
+  if (status >= 500) return "Backend service error";
+  return `${context.context} request failed`;
+};
+
+const getRequestFailureDetails = (payload, status, context) => {
+  if (payload.code === "VALIDATION_ERROR") {
+    return ["One or more fields failed validation.", "Fix the highlighted values and try again."];
+  }
+  if (status === 401) return ["Your session is no longer valid.", "Sign in again before retrying this action."];
+  if (status === 403) return [`Your account does not have permission for ${context.context.toLowerCase()}.`];
+  if (status === 404) return ["The record may have been deleted, or the frontend may be calling an old backend route."];
+  if (status === 409) return ["DroneOps blocked the action because the current workflow state does not allow it."];
+  if (status >= 500) return ["The backend returned an unexpected error.", "Check the backend logs if this keeps happening."];
+  return [];
 };
 
 export { API_BASE_URL, SESSION_KEY };

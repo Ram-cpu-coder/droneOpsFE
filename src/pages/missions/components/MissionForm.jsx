@@ -599,7 +599,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
             <ActionButton onClick={onCancel}>Cancel</ActionButton>
             {nextStep ? (
               <ActionButton icon={ArrowRight} variant="primary" type="button" onClick={goToNextStep} disabled={!activeStep?.complete || !nextStep.unlocked}>
-                {nextStep.id === "permissions" ? "Review Council Permissions" : "Next"}
+                {nextStep.id === "permissions" ? (isCompactTabs ? "Review" : "Review Council Permissions") : "Next"}
               </ActionButton>
             ) : (
               <ActionButton icon={Save} variant="primary" type="submit" disabled={isSaving || !isMissionReady || !form.routeAccepted}>
@@ -656,6 +656,8 @@ const MissionFormTabButton = ({ step, index, activeStepId, onChange }) => (
     type="button"
     role="tab"
     aria-selected={activeStepId === step.id}
+    aria-label={`${step.label}: ${step.helper}`}
+    title={step.label}
     className={`${activeStepId === step.id ? "active" : ""} ${step.complete ? "complete" : ""} ${step.unlocked ? "" : "locked"}`}
     onClick={() => {
       if (step.unlocked) onChange(step.id);

@@ -72,9 +72,17 @@ export const droneOpsApi = {
     remove: (id) => apiClient.delete(`/reports/${id}`)
   },
   geofences: {
-    list: () => apiClient.get("/geofences"),
+    list: (params = {}) => {
+      const query = new URLSearchParams(
+        Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== "")
+      ).toString();
+      return apiClient.get(`/geofences${query ? `?${query}` : ""}`);
+    },
+    governmentStatus: () => apiClient.get("/geofences/government/status"),
+    syncGovernment: () => apiClient.post("/geofences/government/sync", {}),
     update: (id, payload) => apiClient.put(`/geofences/${id}`, payload),
-    create: (payload) => apiClient.post("/geofences", payload)
+    create: (payload) => apiClient.post("/geofences", payload),
+    remove: (id) => apiClient.delete(`/geofences/${id}`)
   },
   users: {
     list: () => apiClient.get("/users"),
