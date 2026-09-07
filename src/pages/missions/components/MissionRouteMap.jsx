@@ -96,8 +96,9 @@ const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = nu
     layer.clearLayers();
     geofences.filter(zone=>zone.isActive!==false&&Array.isArray(zone.polygon)&&zone.polygon.length>=3).forEach(zone=>{
       const color=zone.type==="RESTRICTED"?"#dc2626":zone.type==="WARNING"?"#d97706":"#2563eb";
-      const label=document.createElement("span");label.textContent=`${zone.name} (${zone.type})`;
-      L.polygon(zone.polygon.map(([lng,lat])=>[lat,lng]),{color,weight:2,fillOpacity:0.14}).bindTooltip(label).addTo(layer);
+      const isGovernment=zone.source==="GOVERNMENT";
+      const label=document.createElement("span");label.textContent=`${zone.name} (${zone.type}${isGovernment?` · ${zone.provider||"Government"}`:" · DroneOps"})`;
+      L.polygon(zone.polygon.map(([lng,lat])=>[lat,lng]),{color,weight:isGovernment?3:2,dashArray:isGovernment?"8 6":undefined,fillOpacity:isGovernment?0.1:0.14}).bindTooltip(label).addTo(layer);
     });
   }, [geofences,mapReady,mapPoints]);
 

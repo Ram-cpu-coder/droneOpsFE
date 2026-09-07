@@ -148,19 +148,43 @@ const App = () => {
 
   // Handle expired session event.
   useEffect(() => {
-    const handleSessionExpired = () => {
+    const handleSessionExpired = (event) => {
+      const message = event?.detail?.message ?? "Your session has ended. Please sign in again.";
+
       dispatch(loggedOut());
       dispatch(uiReset());
       navigate("/login", { replace: true });
+      setSystemFeedback({
+        id: "session-expired",
+        type: "error",
+        title: "Session expired",
+        message,
+        context: "Account access",
+        actionLabel: "Sign in",
+      });
+    };
+
+    const handleSessionStorageChange = (event) => {
+      if (event.key !== "droneops_session") return;
+      if (event.newValue !== null) return;
+
+      handleSessionExpired({
+        detail: {
+          message: "You were signed out in another tab. Please sign in again to continue.",
+        },
+      });
     };
 
     window.addEventListener("droneops:session-expired", handleSessionExpired);
+    window.addEventListener("storage", handleSessionStorageChange);
 
-    return () =>
+    return () => {
       window.removeEventListener(
         "droneops:session-expired",
         handleSessionExpired,
       );
+      window.removeEventListener("storage", handleSessionStorageChange);
+    };
   }, [dispatch, navigate]);
 
   useEffect(() => {
@@ -177,6 +201,7 @@ const App = () => {
         title: feedback.title,
         message: feedback.message,
         details: feedback.details,
+        context: feedback.context,
         actionLabel: feedback.actionLabel,
         blocking: feedback.blocking
       });

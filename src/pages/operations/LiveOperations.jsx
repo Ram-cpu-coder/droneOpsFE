@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pause, Play, RotateCcw, Save, Undo2, RefreshCw } from "lucide-react";
+import { Pause, Play, RadioTower, RotateCcw, Save, ShieldCheck, Trash2, Undo2, RefreshCw } from "lucide-react";
 import SectionHeader from "../../components/common/SectionHeader";
 import ActionButton from "../../components/common/ActionButton";
 import GeospatialMap from "../../components/maps/GeospatialMap";
@@ -52,12 +52,23 @@ export default function LiveOperations({user}) {
       setZones(rows=>[saved,...rows.filter(row=>row.id!==saved.id)]);setEditingId(saved.id);setDrawing(false);setMessage("Geofence saved.");
     }catch(e){setError(e.message);}finally{setBusy(false);}
   };
+  const deleteZone=async()=>{if(!editingId)return;setBusy(true);setError("");setMessage("");try{await droneOpsApi.geofences.remove(editingId);setZones(rows=>rows.filter(row=>row.id!==editingId));setZone(blankZone());setEditingId(null);setDrawing(false);setMessage("Geofence deleted.");}catch(e){setError(e.message);}finally{setBusy(false);}};
   const mission=missions.find(m=>m.id===missionId);
+  const manualZones=zones.filter(z=>z.source!=="GOVERNMENT");
+  const governmentZones=zones.filter(z=>z.source==="GOVERNMENT");
+  const editingZone=zones.find(z=>z.id===editingId);
+  const isGovernmentEditing=editingZone?.source==="GOVERNMENT";
   return <div className="page-stack operations-module">
-    <div className="panel"><SectionHeader title="Telemetry & Geofences" />
-    <div className="mission-profile-tabs" role="tablist" aria-label="Map views">{[["live","Live tracking"],["replay","Replay"],["zones","Geofences"]].map(([id,label])=><button type="button" role="tab" className={tab===id?"active":""} aria-selected={tab===id} key={id} onClick={()=>{setTab(id);setPlaying(false);}}>{label}</button>)}</div>
+    <div className="operations-tab-card">
+    <div className="operations-tab-list" role="tablist" aria-label="Telemetry and geofence views">
+      {[
+        ["live","Live tracking","Current aircraft positions",RadioTower],
+        ["replay","Replay","Recorded telemetry",RotateCcw],
+        ["zones","Geofences","Operational boundaries",ShieldCheck]
+      ].map(([id,label,description,Icon])=><button type="button" role="tab" className={tab===id?"active":""} aria-selected={tab===id} key={id} onClick={()=>{setTab(id);setPlaying(false);}}><Icon size={17}/><span><strong>{label}</strong><small>{description}</small></span></button>)}
     </div>
-    {error&&<div role="alert" className="auth-alert">{error}</div>}{message&&<p role="status">{message}</p>}
+    </div>
+    {(error||message)&&<div className="operations-feedback-row">{error&&<div role="alert" className="auth-alert">{error}</div>}{message&&<p role="status" className="operations-success-message">{message}</p>}</div>}
     {tab==="live"&&<GeospatialMap/>}
     {tab==="replay"&&<div className="panel">
       <SectionHeader title="Telemetry Replay" action={<ActionButton icon={RefreshCw} disabled={busy} onClick={()=>setReload(value=>value+1)}>Refresh history</ActionButton>} />
@@ -79,22 +90,30 @@ export default function LiveOperations({user}) {
       <div>
         <MissionRouteMap showEmptyMap geofences={[...zones.filter(z=>z.id!==editingId),...(zone.polygon.length>=3?[{...zone,name:zone.name||"Unsaved geofence",isActive:true}]:[])]}
           waypoints={zone.polygon.map(([longitude,latitude],i)=>({longitude,latitude,label:`Boundary point ${i+1}`}))}
-          onMapClick={drawing&&canManage?point=>setZone(z=>({...z,polygon:[...z.polygon,point]})):undefined}/>
-        <div className="operations-toolbar">{canManage&&<><button className="secondary-button" type="button" onClick={()=>setDrawing(v=>!v)}>{drawing?"Finish boundary":"Draw boundary"}</button><button type="button" className="icon-button" title="Undo boundary point" aria-label="Undo boundary point" disabled={!zone.polygon.length} onClick={()=>setZone(z=>({...z,polygon:z.polygon.slice(0,-1)}))}><Undo2 size={18}/></button></>}<span>{zone.polygon.length} boundary points</span></div>
+          onMapClick={drawing&&canManage&&!isGovernmentEditing?point=>setZone(z=>({...z,polygon:[...z.polygon,point]})):undefined}/>
+        <div className="operations-toolbar geofence-drawing-toolbar">{canManage&&<><button className="secondary-button" type="button" disabled={isGovernmentEditing} onClick={()=>setDrawing(v=>!v)}>{drawing?"Finish boundary":"Draw boundary"}</button><button type="button" className="icon-button" title="Undo boundary point" aria-label="Undo boundary point" disabled={!zone.polygon.length||isGovernmentEditing} onClick={()=>setZone(z=>({...z,polygon:z.polygon.slice(0,-1)}))}><Undo2 size={18}/></button></>}<span>{zone.polygon.length} boundary points</span></div>
       </div>
       <aside>
         {canManage&&<form className="operations-form" onSubmit={saveZone}>
-          <h3>{editingId?"Edit geofence":"New geofence"}</h3>
-          <label className="field">Name<input required maxLength={160} value={zone.name} onChange={e=>setZone(z=>({...z,name:e.target.value}))}/></label>
-          <label className="field">Type<select value={zone.type} onChange={e=>setZone(z=>({...z,type:e.target.value}))}>{["RESTRICTED","WARNING","ADVISORY"].map(v=><option key={v}>{v}</option>)}</select></label>
-          <label className="field"><input type="checkbox" checked={zone.isActive} onChange={e=>setZone(z=>({...z,isActive:e.target.checked}))}/> Active</label>
-          <button className="primary-button" type="submit" disabled={busy||zone.polygon.length<3}><Save size={16}/>{busy?"Saving...":"Save geofence"}</button>
-          <button className="secondary-button" type="button" onClick={()=>{setZone(blankZone());setEditingId(null);setDrawing(false);}}>New boundary</button>
+          <h3>{editingId?isGovernmentEditing?"Government restriction":"Edit manual geofence":"New manual geofence"}</h3>
+          {isGovernmentEditing&&<p className="muted">Government restrictions are read-only. Use provider sync to update them.</p>}
+          <label className="field">Name<input required maxLength={160} value={zone.name} disabled={isGovernmentEditing} onChange={e=>setZone(z=>({...z,name:e.target.value}))}/></label>
+          <label className="field">Type<select value={zone.type} disabled={isGovernmentEditing} onChange={e=>setZone(z=>({...z,type:e.target.value}))}>{["RESTRICTED","WARNING","ADVISORY"].map(v=><option key={v}>{v}</option>)}</select></label>
+          <label className="operations-toggle"><input type="checkbox" checked={zone.isActive} disabled={isGovernmentEditing} onChange={e=>setZone(z=>({...z,isActive:e.target.checked}))}/><span><strong>Active</strong><small>Show this zone on operational maps</small></span></label>
+          <button className="primary-button" type="submit" disabled={busy||zone.polygon.length<3||isGovernmentEditing}><Save size={16}/>{busy?"Saving...":"Save manual geofence"}</button>
+          <button className="secondary-button" type="button" onClick={()=>{setZone(blankZone());setEditingId(null);setDrawing(false);}}>New manual boundary</button>
+          {editingId&&!isGovernmentEditing&&<button className="danger-button" type="button" disabled={busy} onClick={deleteZone}><Trash2 size={16}/>Delete manual geofence</button>}
         </form>}
-        <h3>Organisation geofences</h3>
-        <p className="muted">Source: DroneOps. Live updates reflect your team's changes, not a government airspace feed.</p>
-        {!zones.length&&<p>No geofences saved.</p>}
-        {zones.map(z=><button className="operations-list-item" key={z.id} type="button" onClick={()=>{setZone({name:z.name,type:z.type,isActive:z.isActive,polygon:z.polygon});setEditingId(z.id);setDrawing(false);}}><strong>{z.name}</strong><span>{z.type} · {z.isActive?"Active":"Inactive"}</span></button>)}
+        <h3>Manual geofences</h3>
+        {!manualZones.length&&<p>No manual geofences saved.</p>}
+        {manualZones.map(z=><button className="operations-list-item" key={z.id} type="button" onClick={()=>{setZone({name:z.name,type:z.type,isActive:z.isActive,polygon:z.polygon});setEditingId(z.id);setDrawing(false);}}><strong>{z.name}</strong><span>{z.type} · {z.isActive?"Active":"Inactive"} · DroneOps</span></button>)}
+        <section className="operations-source-card reserved">
+          <h3>Government airspace integration</h3>
+          <p className="muted">Reserved for CASA/Airservices/FIMS or an approved provider feed. Manual geofences work now.</p>
+          <div className="operations-source-stats"><span>{governmentZones.length} synced</span><span>Provider not connected</span></div>
+        </section>
+        {governmentZones.length>0&&<h3>Government restrictions</h3>}
+        {governmentZones.map(z=><button className="operations-list-item government" key={z.id} type="button" onClick={()=>{setZone({name:z.name,type:z.type,isActive:z.isActive,polygon:z.polygon});setEditingId(z.id);setDrawing(false);}}><strong>{z.name}</strong><span>{z.type} · {z.provider||"Government"} · Read-only</span></button>)}
       </aside>
     </div>}
   </div>;
