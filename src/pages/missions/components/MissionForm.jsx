@@ -10,6 +10,7 @@ import RoutePointMapPicker from "./RoutePointMapPicker";
 
 const missionTypes = ["Mapping", "Inspection", "Security", "Delivery", "Training", "Emergency Response"];
 const missionStatuses = ["AWAITING_AUTHORITY_APPROVAL", "PLANNED", "APPROVED", "RISK_ASSESSMENT_COMPLETED", "ACTIVE", "COMPLETED", "ABORTED", "CANCELLED"];
+const assignableDroneStatus = "AVAILABLE";
 
 const initialForm = {
   missionCode: "",
@@ -77,14 +78,14 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
   const droneOptions = useMemo(
     () => drones
       .filter((drone) => (
-        form.droneIds.includes(drone.id) ||
-        (drone.status === "AVAILABLE" && !isResourceBookedForMission(bookingContext, drone.id, "drone"))
+        !getDroneAssignmentBlockReason(drone) &&
+        (form.droneIds.includes(drone.id) || !isResourceBookedForMission(bookingContext, drone.id, "drone"))
       ))
       .map((drone) => ({
         value: drone.id,
         label: drone.droneCode ?? drone.id,
         title: [drone.manufacturer, drone.model].filter(Boolean).join(" ") || "Drone",
-        meta: formatReadableValue(drone.status),
+        meta: "Available for mission assignment",
         searchText: `${drone.droneCode ?? drone.id} ${drone.model ?? ""} ${drone.manufacturer ?? ""} ${drone.serialNumber ?? ""}`.toLowerCase()
       })),
     [bookingContext, drones, form.droneIds]
@@ -112,6 +113,19 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
     [drones, form.droneIds]
   );
 
+  const droneAssignmentIssues = useMemo(
+    () => selectedDrones
+      .map((drone) => {
+        const reason = getDroneAssignmentBlockReason(drone);
+        return reason ? { drone, reason } : null;
+      })
+      .filter(Boolean),
+    [selectedDrones]
+  );
+  const droneAssignmentError = droneAssignmentIssues[0]
+    ? `${droneAssignmentIssues[0].drone.droneCode ?? "Selected drone"} cannot be assigned: ${droneAssignmentIssues[0].reason}`
+    : "";
+
   const selectedPilots = useMemo(
     () => form.pilotIds.map((pilotId) => users.find((user) => user.id === pilotId)).filter(Boolean),
     [users, form.pilotIds]
@@ -137,7 +151,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
     { label: "Mission name", complete: Boolean(form.name.trim()), detail: form.name.trim() || "Required" },
     { label: "Mission type", complete: Boolean(form.type), detail: form.type || "Required" },
     { label: "Schedule", complete: Boolean(form.plannedDate && form.startTime && form.endTime && !scheduleError), detail: scheduleError || "Date and time ready" },
-    { label: "Drone", complete: form.droneIds.length > 0, detail: selectedDrones.length ? `${selectedDrones.length} drone(s) selected` : "Required" },
+    { label: "Drone", complete: form.droneIds.length > 0 && !droneAssignmentError, detail: droneAssignmentError || (selectedDrones.length ? `${selectedDrones.length} drone(s) selected` : "Required") },
     { label: "Remote pilot", complete: form.pilotIds.length > 0, detail: selectedPilots.length ? `${selectedPilots.length} pilot(s) selected` : "Required" },
     { label: "Launch site", complete: hasLaunchSite, detail: hasLaunchSite ? "Selected on map" : "Required" },
     { label: "Operating area", complete: hasOperatingArea && !operatingAreaError, detail: operatingAreaError || (hasOperatingArea ? "Derived from route envelope" : "Derived by backend after route analysis") },
@@ -149,7 +163,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
   const routeAnalysis = useMemo(() => createRouteAnalysis(form), [form]);
   const formSteps = useMemo(() => {
     const detailsComplete = Boolean(form.name.trim() && form.type);
-    const assignmentComplete = form.droneIds.length > 0 && form.pilotIds.length > 0;
+    const assignmentComplete = form.droneIds.length > 0 && !droneAssignmentError && form.pilotIds.length > 0;
     const scheduleComplete = Boolean(form.plannedDate && form.startTime && form.endTime && !scheduleError);
     const routeComplete = canAnalyseRoute && form.routeAccepted;
     const permissionsComplete = routeComplete && form.permissionsReviewed;
@@ -161,7 +175,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
       { id: "planning", label: "Mission Map", helper: "Launch, area, and route", complete: routeComplete, unlocked: detailsComplete && assignmentComplete && scheduleComplete },
       { id: "permissions", label: "Council Permissions", helper: "Required before flight", complete: permissionsComplete, unlocked: detailsComplete && assignmentComplete && scheduleComplete && routeComplete }
     ];
-  }, [canAnalyseRoute, form.droneIds.length, form.endTime, form.name, form.permissionsReviewed, form.pilotIds.length, form.plannedDate, form.routeAccepted, form.startTime, form.type, scheduleError]);
+  }, [canAnalyseRoute, droneAssignmentError, form.droneIds.length, form.endTime, form.name, form.permissionsReviewed, form.pilotIds.length, form.plannedDate, form.routeAccepted, form.startTime, form.type, scheduleError]);
   const activeStepIndex = Math.max(formSteps.findIndex((step) => step.id === activeStepId), 0);
   const activeStep = formSteps[activeStepIndex] ?? formSteps[0];
   const previousStep = formSteps[activeStepIndex - 1] ?? null;
@@ -345,9 +359,18 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
       const firstIncompleteItem = readinessItems.find((item) => !item.complete);
 
       if (firstIncompleteItem) {
-        const message = `${firstIncompleteItem.label} is required before creating the mission.`;
+        const message = firstIncompleteItem.detail && firstIncompleteItem.detail !== "Required"
+          ? firstIncompleteItem.detail
+          : `${firstIncompleteItem.label} is required before creating the mission.`;
         setError(message);
         showFeedback({ type: "error", title: "Mission plan is incomplete", message });
+        return;
+      }
+
+      if (droneAssignmentError) {
+        setError(droneAssignmentError);
+        setActiveStepId("assignment");
+        showFeedback({ type: "error", title: "Drone cannot be assigned", message: droneAssignmentError });
         return;
       }
 
@@ -493,7 +516,11 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
                   placeholder="Search drones"
                 />
               </div>
-              <SelectedAssignmentList type="drone" items={selectedDrones} onRemove={(id) => setForm((current) => {
+              <p className="assignment-guidance">
+                Only available, certified drones are listed for mission assignment.
+              </p>
+              {droneAssignmentError && <InlineWarning message={droneAssignmentError} />}
+              <SelectedAssignmentList type="drone" items={selectedDrones} getItemIssue={getDroneAssignmentBlockReason} onRemove={(id) => setForm((current) => {
                 const nextIds = current.droneIds.filter((droneId) => droneId !== id);
                 return { ...current, droneIds: nextIds };
               })} />
@@ -566,7 +593,6 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
                   onUnlock={unlockAcceptedRoute}
                   detail={canAnalyseRoute ? "Route is ready for the official council/LGA boundary check. The backend will derive the operating area from the accepted route." : operatingAreaError || "Finish the launch site, start point, and end point before analysis."}
                 />
-                <ReadinessChecklist items={readinessItems} />
               </div>
             </FormSection>
             )}
@@ -581,7 +607,6 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
                 onApprovalChange={updateAuthorityApproval}
                 onReviewedChange={updatePermissionsReviewed}
               />
-              <ReadinessChecklist items={readinessItems} />
             </FormSection>
             )}
           </div>
@@ -985,7 +1010,7 @@ const InlineFormAlert = ({ message }) => (
   </div>
 );
 
-const SelectedAssignmentList = ({ type, items = [], onRemove }) => {
+const SelectedAssignmentList = ({ type, items = [], getItemIssue, onRemove }) => {
   if (!items.length) {
     return (
       <div className="selected-assignment-list empty">
@@ -1002,45 +1027,28 @@ const SelectedAssignmentList = ({ type, items = [], onRemove }) => {
         <strong>{items.length}</strong>
       </div>
       <div className="selected-assignment-chips">
-        {items.map((item) => (
-          <div className="selected-assignment-chip" key={item.id}>
+        {items.map((item) => {
+          const issue = getItemIssue?.(item);
+          return (
+          <div className={`selected-assignment-chip${issue ? " invalid" : ""}`} key={item.id}>
             <div>
               <strong>{type === "drone" ? (item.droneCode || [item.manufacturer, item.model].filter(Boolean).join(" ") || "Drone") : item.name}</strong>
               <small>
-                {type === "drone"
+                {issue || (type === "drone"
                   ? [item.manufacturer, item.model].filter(Boolean).join(" ")
-                  : [formatReadableValue(item.role), item.email].filter(Boolean).join(" | ")}
+                  : [formatReadableValue(item.role), item.email].filter(Boolean).join(" | "))}
               </small>
             </div>
             <button type="button" onClick={() => onRemove?.(item.id)} aria-label={`Remove ${type === "drone" ? item.droneCode ?? "drone" : item.name}`}>
               <X size={14} />
             </button>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
 };
-
-const ReadinessChecklist = ({ items }) => (
-  <div className="mission-readiness-checklist">
-    <div className="mission-readiness-heading">
-      <CheckCircle2 size={17} />
-      <strong>Mission readiness</strong>
-    </div>
-    <div className="mission-readiness-grid">
-      {items.map((item) => (
-        <div className={`mission-readiness-item ${item.complete ? "complete" : ""}`} key={item.label}>
-          {item.complete ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
-          <div>
-            <span>{item.label}</span>
-            <small>{item.detail}</small>
-          </div>
-        </div>
-      ))}
-    </div>
-  </div>
-);
 
 const getStepFooterMessage = (step, isMissionReady, routeAccepted) => {
   if (step?.id === "planning" && routeAccepted) return "Route accepted. Review council permissions before saving.";
@@ -1208,6 +1216,33 @@ const getScheduleError = (form) => {
   const plannedStart = new Date(`${form.plannedDate}T${form.startTime}`);
   const plannedEnd = new Date(`${form.plannedDate}T${form.endTime}`);
   if (plannedEnd <= plannedStart) return "End time must be after start time.";
+
+  return "";
+};
+
+const getDroneAssignmentBlockReason = (drone) => {
+  if (!drone) return "Drone record is missing.";
+
+  const status = String(drone.status ?? "").toUpperCase();
+  if (status !== assignableDroneStatus) {
+    return `status is ${formatReadableValue(status || "unknown")}.`;
+  }
+
+  const certificationStatus = String(drone.certificationStatus ?? "").toUpperCase();
+  if (certificationStatus !== "CERTIFIED") {
+    return "certification is not approved.";
+  }
+
+  const certificationExpiry = drone.certificationExpiry ? new Date(drone.certificationExpiry) : null;
+  if (!certificationExpiry || Number.isNaN(certificationExpiry.getTime())) {
+    return "certification expiry is missing.";
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (certificationExpiry < today) {
+    return "certification has expired.";
+  }
 
   return "";
 };

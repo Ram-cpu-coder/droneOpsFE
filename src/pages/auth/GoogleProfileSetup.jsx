@@ -7,6 +7,7 @@ import { authService } from "../../features/auth/authService";
 const selfSelectableRoles = userRoles.filter(
   (role) => role.id !== "system_administrator",
 );
+const ORGANIZATION_CODE_LENGTH = 12;
 
 const GoogleProfileSetup = ({
   pendingGoogleProfile,
@@ -29,12 +30,12 @@ const GoogleProfileSetup = ({
   const submitLabel = form.organizationMode === "create" ? "Create Organisation" : "Join Organisation";
   const trimmedOrganizationName = form.organizationName.trim();
   const trimmedOrganizationCode = form.organizationCode.trim();
+  const isJoinReady = form.organizationMode === "join" && Boolean(resolvedOrganization) && !organizationLookup.isLoading;
+  const isCreateReady = form.organizationMode === "create" && trimmedOrganizationName.length >= 2;
   const canSubmit =
     !isLoading &&
     hasGoogleCredential &&
-    (form.organizationMode === "create"
-      ? trimmedOrganizationName.length >= 2
-      : Boolean(resolvedOrganization));
+    (form.organizationMode === "create" ? isCreateReady : isJoinReady);
 
   useEffect(() => {
     if (form.organizationMode === "create") {
@@ -43,10 +44,10 @@ const GoogleProfileSetup = ({
       return;
     }
 
-    const code = form.organizationCode.trim();
+    const code = normalizeOrganizationCode(form.organizationCode);
     setResolvedOrganization(null);
 
-    if (code.length < 4) {
+    if (code.length !== ORGANIZATION_CODE_LENGTH) {
       setOrganizationLookup({ isLoading: false, error: "" });
       return;
     }
@@ -63,7 +64,7 @@ const GoogleProfileSetup = ({
       } catch (lookupError) {
         if (!isMounted) return;
         setResolvedOrganization(null);
-        setOrganizationLookup({ isLoading: false, error: lookupError.message });
+        setOrganizationLookup({ isLoading: false, error: "Invalid organisation code." });
       }
     }, 350);
 
@@ -100,7 +101,7 @@ const GoogleProfileSetup = ({
   return (
     <form className="auth-form" onSubmit={handleSubmit}>
       <div>
-        <h2>Complete profile</h2>
+        <h2>Set up your workspace</h2>
         <p>
           Join an existing DroneOps workspace or create a new organisation.
         </p>
@@ -148,24 +149,35 @@ const GoogleProfileSetup = ({
               <input
                 value={form.organizationCode}
                 onChange={(event) =>
-                  setForm({ ...form, organizationCode: event.target.value })
+                  setForm({ ...form, organizationCode: normalizeOrganizationCode(event.target.value) })
                 }
-                placeholder="Organization code"
-                required
+                onBlur={() => {
+                  const code = normalizeOrganizationCode(form.organizationCode);
+                  if (code && code.length !== ORGANIZATION_CODE_LENGTH) {
+                    setOrganizationLookup({ isLoading: false, error: "Organisation code must be 12 characters." });
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" || isJoinReady) return;
+                  event.preventDefault();
+                }}
+                maxLength={ORGANIZATION_CODE_LENGTH}
+                placeholder="ORG-XXXXXXXX"
               />
+              {!organizationLookup.isLoading && !resolvedOrganization && !organizationLookup.error && form.organizationCode && form.organizationCode.length < ORGANIZATION_CODE_LENGTH && (
+                <div className="organisation-code-status pending">
+                  <small>Enter all 12 characters before validation starts.</small>
+                </div>
+              )}
               {organizationLookup.isLoading && (
                 <div className="organisation-code-status checking">
                   <small>Checking organisation code...</small>
                 </div>
               )}
               {!organizationLookup.isLoading && resolvedOrganization && (
-                <div className="organisation-code-status verified">
-                  <CheckCircle2 size={14} strokeWidth={2.8} />
-                  <div className="organisation-code-result">
-                    <strong>{resolvedOrganization.name}</strong>
-                    <small>Verified organisation</small>
-                  </div>
-                </div>
+                <small className="organisation-code-inline-confirm">
+                  Joining {resolvedOrganization.name}
+                </small>
               )}
               {!organizationLookup.isLoading && organizationLookup.error && (
                 <div className="organisation-code-status error">
@@ -241,5 +253,9 @@ const GoogleProfileSetup = ({
     </form>
   );
 };
+
+const normalizeOrganizationCode = (value = "") => (
+  value.toString().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, ORGANIZATION_CODE_LENGTH)
+);
 
 export default GoogleProfileSetup;

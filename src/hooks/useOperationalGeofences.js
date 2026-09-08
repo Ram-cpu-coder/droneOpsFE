@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { droneOpsApi } from "../services/droneOpsApi";
 import { getRealtimeSocket } from "../services/realtimeClient";
 
+const GEOFENCE_FALLBACK_REFRESH_MS = 300000;
+
 export function useOperationalGeofences(enabled = true) {
   const [zones, setZones] = useState([]);
   const [error, setError] = useState("");
@@ -20,7 +22,9 @@ export function useOperationalGeofences(enabled = true) {
     const socket = getRealtimeSocket();
     socket.on("geofences:changed", refresh);
     socket.on("connect", refresh);
-    const timer = setInterval(refresh, 15000);
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") refresh();
+    }, GEOFENCE_FALLBACK_REFRESH_MS);
     return () => {
       active = false;
       clearInterval(timer);

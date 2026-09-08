@@ -39,6 +39,7 @@ export const droneOpsApi = {
   },
   telemetry: {
     live: () => apiClient.get("/telemetry/live"),
+    status: () => apiClient.get("/telemetry/status"),
     byDrone: (droneId, limit = 100) => apiClient.get(`/telemetry/${droneId}?limit=${encodeURIComponent(limit)}`),
     ingest: (payload) => apiClient.post("/telemetry", payload),
     syncSynctegral: () => apiClient.post("/telemetry/synctegral/sync", {})

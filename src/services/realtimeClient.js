@@ -12,7 +12,7 @@ export const getRealtimeSocket = () => {
       auth: {
         token: getAccessToken()
       },
-      transports: ["websocket", "polling"]
+      transports: ["websocket"]
     });
 
     socket.io.on("reconnect_attempt", () => {

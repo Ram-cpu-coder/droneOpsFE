@@ -64,6 +64,9 @@ const shouldNotifyActivityChange = (method = "GET", path = "") => {
     return false;
   }
 
+  if (path.startsWith("/reports/generate/preview")) return false;
+  if (path.startsWith("/auth/organisation/resolve-code")) return false;
+
   // Auth requests should not refresh activity data.
   const ignoredPaths = [
     "/auth/login",
@@ -182,6 +185,8 @@ const shouldShowRequestFailure = (path = "") => {
     "/auth/reset-password",
     "/notifications/read",
     "/notifications/read-all",
+    "/reports/generate/preview",
+    "/auth/organisation/resolve-code",
   ];
 
   return !ignoredPaths.some((ignoredPath) => path.startsWith(ignoredPath));
@@ -306,25 +311,37 @@ const request = async (path, options = {}, retry = true) => {
       });
     }
 
-    throw new Error(message);
+    const requestError = new Error(message);
+    requestError.code = payload.code;
+    requestError.details = payload.details;
+    throw requestError;
   }
 
   // Notify app if data changed.
   notifyActivityChanged(path, method);
 
+  const responseData = payload.data ?? payload;
+  const syncStatus = responseData?.synctegralSyncStatus;
+  const hasSyncFailure = path.includes("/sync-synctegral")
+    && ["FAILED", "SKIPPED"].includes(String(syncStatus ?? "").toUpperCase());
+
   if (shouldShowOperationFeedback(method, path)) {
     showFeedback({
       id: feedbackId,
-      type: "success",
-      title: requestContext.successTitle,
-      message: payload.message || requestContext.successMessage,
+      type: hasSyncFailure ? "error" : "success",
+      title: hasSyncFailure ? "Synctegral sync needs attention" : requestContext.successTitle,
+      message: hasSyncFailure
+        ? responseData.synctegralSyncError ?? "Synctegral did not accept the mission synchronization."
+        : payload.message || requestContext.successMessage,
       context: requestContext.context,
-      details: requestContext.successDetails
+      details: hasSyncFailure
+        ? ["The local mission remains saved.", "Fix the integration issue and reconnect Synctegral to retry the route sync."]
+        : requestContext.successDetails
     });
   }
 
   // Return response data.
-  return payload.data ?? payload;
+  return responseData;
 };
 
 // Builds unique key for GET request cache.
@@ -398,6 +415,28 @@ const getRequestResource = (path) => {
 };
 
 const getRequestAction = (method, path) => {
+  if (path === "/reports/generate") {
+    return {
+      loading: "Generating",
+      loadingMessage: () => "DroneOps is generating the report from the selected scope.",
+      loadingDetails: ["The report will appear in the reports list when generation finishes."],
+      success: "generated",
+      successMessage: () => "Report generated successfully.",
+      successDetails: ["The report builder remains open so you can review or create another report."]
+    };
+  }
+
+  if (path === "/missions/analyse-route") {
+    return {
+      loading: "Analysing",
+      loadingMessage: () => "DroneOps is analysing the planned flight path and checking operational boundaries.",
+      loadingDetails: ["Route geometry, council coverage, and approval requirements are being evaluated."],
+      success: "analysed",
+      successMessage: () => "Flight path analysis completed.",
+      successDetails: ["Review the route findings before accepting the path and saving the mission."]
+    };
+  }
+
   if (method === "DELETE") {
     return {
       loading: "Deleting",

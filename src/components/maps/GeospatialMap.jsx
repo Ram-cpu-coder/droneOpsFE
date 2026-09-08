@@ -9,9 +9,14 @@ import { mapCenter } from "../../data/geospatialData";
 import { droneOpsApi } from "../../services/droneOpsApi";
 import { getRealtimeSocket } from "../../services/realtimeClient";
 
-const TELEMETRY_REFRESH_MS = 3000;
+const TELEMETRY_REFRESH_MS = 60000;
+const TELEMETRY_SOCKET_IDLE_REFRESH_MS = 120000;
+const GEOFENCE_FALLBACK_REFRESH_MS = 300000;
 const DRONE_HISTORY_LIMIT = 30;
 const OFFLINE_AFTER_MS = 30000;
+const LIVE_TRAIL_LIMIT = 80;
+const HISTORY_SEGMENT_MAX_GAP_MS = 10 * 60 * 1000;
+const HISTORY_SEGMENT_MAX_JUMP_METERS = 2500;
 
 const GeospatialMap = () => {
   const mapContainerRef = useRef(null);
@@ -21,6 +26,9 @@ const GeospatialMap = () => {
   const telemetryTimerRef = useRef(null);
   const telemetryErrorCountRef = useRef(0);
   const hasAutoFramedRef = useRef(false);
+  const liveDronesRef = useRef([]);
+  const liveTrailsRef = useRef(new Map());
+  const selectedDroneIdRef = useRef("");
   const [mapReady, setMapReady] = useState(false);
   const [liveDrones, setLiveDrones] = useState([]);
   const [liveGeofences, setLiveGeofences] = useState([]);
@@ -41,6 +49,10 @@ const GeospatialMap = () => {
     () => getTelemetryFeedStatus({ mapReady, mapError, liveDrones }),
     [liveDrones, mapError, mapReady]
   );
+
+  useEffect(() => {
+    selectedDroneIdRef.current = selectedDroneId;
+  }, [selectedDroneId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -67,19 +79,64 @@ const GeospatialMap = () => {
     loadGeofences();
     const socket = getRealtimeSocket();
     socket.on("geofences:changed", loadGeofences);
-    const timer = window.setInterval(loadGeofences, 15000);
+    socket.on("connect", loadGeofences);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") loadGeofences();
+    }, GEOFENCE_FALLBACK_REFRESH_MS);
 
     return () => {
       isMounted = false;
       socket.off("geofences:changed", loadGeofences);
+      socket.off("connect", loadGeofences);
       window.clearInterval(timer);
     };
   }, []);
 
   useEffect(() => {
     const socket = getRealtimeSocket();
-    const handleTelemetryUpdate = () => {
-      window.dispatchEvent(new CustomEvent("droneops-map-live-refresh"));
+    const handleTelemetryUpdate = (telemetry) => {
+      if (!telemetry?.droneId || !telemetry?.location) return;
+      const point = normalizeTelemetryPoint(telemetry);
+
+      setLiveDrones((currentDrones) => {
+        const current = currentDrones.find((drone) => drone.droneId === telemetry.droneId || drone.id === telemetry.droneId);
+        const next = normalizeTelemetryRow({
+          drone: current
+            ? {
+                id: current.droneId,
+                droneCode: current.droneCode || current.id,
+                model: current.model,
+                status: current.status,
+                activeMission: current.activeMission
+              }
+            : {
+                id: telemetry.droneId,
+                droneCode: telemetry.simulator?.droneId || telemetry.droneId,
+                status: "UNKNOWN"
+              },
+          telemetry
+        });
+
+        if (!next) return currentDrones;
+        appendLiveTrail(liveTrailsRef.current, next.id, point);
+        appendLiveTrail(liveTrailsRef.current, next.droneId, point);
+        appendLiveTrail(liveTrailsRef.current, next.droneCode, point);
+        const nextDrones = currentDrones.some((drone) => drone.droneId === next.droneId || drone.id === next.id)
+          ? currentDrones.map((drone) => drone.droneId === next.droneId || drone.id === next.id ? { ...drone, ...next } : drone)
+          : [...currentDrones, next];
+
+        liveDronesRef.current = nextDrones;
+        return nextDrones;
+      });
+      setSelectedDroneTrack((currentTrack) => {
+        const selectedDrone = liveDronesRef.current.find((drone) => drone.id === selectedDroneIdRef.current);
+        const selectedKeys = getDroneTrackKeys(selectedDrone);
+        if (!selectedKeys.includes(telemetry.droneId) && !selectedKeys.includes(telemetry.simulator?.droneId)) return currentTrack;
+        return getLiveTrailForDrone(liveTrailsRef.current, selectedDrone);
+      });
+      telemetryErrorCountRef.current = 0;
+      setMapError("");
+      setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
     };
 
     socket.on("operations:telemetry", handleTelemetryUpdate);
@@ -119,6 +176,8 @@ const GeospatialMap = () => {
           });
 
         setLiveDrones(nextDrones);
+        liveDronesRef.current = nextDrones;
+        seedLiveTrailsFromLatestRows(liveTrailsRef.current, nextDrones, telemetryRows);
         setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
         setSelectedDroneId((current) => current && nextDrones.some((drone) => drone.id === current) ? current : nextDrones[0]?.id ?? "");
         scheduleNextTelemetryLoad();
@@ -146,8 +205,8 @@ const GeospatialMap = () => {
       setTelemetrySyncMessage("");
 
       try {
-        await droneOpsApi.telemetry.syncSynctegral();
-        setTelemetrySyncMessage("Synctegral telemetry synced. Reloading latest positions.");
+        const syncResult = await droneOpsApi.telemetry.syncSynctegral();
+        setTelemetrySyncMessage(getSynctegralSyncMessage(syncResult));
         await loadTelemetry(true, { keepSyncMessage: true });
       } catch (error) {
         setMapError(`Synctegral sync failed: ${error.message}`);
@@ -158,14 +217,25 @@ const GeospatialMap = () => {
     const handleLiveRefresh = () => {
       loadTelemetry(true);
     };
+    const handleSocketConnect = () => loadTelemetry(true);
+    const handleSocketTelemetry = () => scheduleNextTelemetryLoad(TELEMETRY_SOCKET_IDLE_REFRESH_MS);
 
     loadTelemetry();
+    const socket = getRealtimeSocket();
+    socket.on("connect", handleSocketConnect);
+    socket.io.on("reconnect", handleSocketConnect);
+    socket.on("operations:telemetry", handleSocketTelemetry);
+    socket.on("telemetry:update", handleSocketTelemetry);
     window.addEventListener("droneops-map-live-refresh", handleLiveRefresh);
     window.addEventListener("droneops-map-manual-refresh", handleManualRefresh);
 
     return () => {
       isMounted = false;
       window.clearTimeout(telemetryTimerRef.current);
+      socket.off("connect", handleSocketConnect);
+      socket.io.off("reconnect", handleSocketConnect);
+      socket.off("operations:telemetry", handleSocketTelemetry);
+      socket.off("telemetry:update", handleSocketTelemetry);
       window.removeEventListener("droneops-map-live-refresh", handleLiveRefresh);
       window.removeEventListener("droneops-map-manual-refresh", handleManualRefresh);
     };
@@ -175,7 +245,12 @@ const GeospatialMap = () => {
     let isMounted = true;
 
     const loadSelectedDroneTrack = async () => {
-      if (!selectedDroneId) {
+      const selectedDroneRecord = liveDronesRef.current.find((drone) => drone.id === selectedDroneId);
+      const droneIdentifier = selectedDroneRecord?.droneCode
+        ?? selectedDroneRecord?.droneId
+        ?? selectedDroneId;
+
+      if (!droneIdentifier || droneIdentifier === "Unknown drone" || !selectedDroneRecord) {
         setSelectedDroneTrack([]);
         return;
       }
@@ -183,15 +258,13 @@ const GeospatialMap = () => {
       setIsHistoryLoading(true);
 
       try {
-        const historyRows = await droneOpsApi.telemetry.byDrone(selectedDroneId);
+        const historyRows = await droneOpsApi.telemetry.byDrone(droneIdentifier);
         if (!isMounted) return;
 
-        const coordinates = historyRows
-          .map((row) => normalizeCoordinate([row.location?.longitude, row.location?.latitude]))
-          .filter(Boolean)
-          .slice(-DRONE_HISTORY_LIMIT);
+        const liveTrail = getLiveTrailForDrone(liveTrailsRef.current, selectedDroneRecord);
+        const historyTrail = normalizeTelemetryHistoryTrail(historyRows, selectedDroneRecord);
 
-        setSelectedDroneTrack(coordinates);
+        setSelectedDroneTrack(liveTrail.length > 1 ? liveTrail : historyTrail);
       } catch {
         if (isMounted) setSelectedDroneTrack([]);
       } finally {
@@ -482,10 +555,11 @@ const MapLegend = () => (
 );
 
 const getReplayStatus = (selectedDrone, isHistoryLoading, selectedDroneTrackLength) => {
-  if (!selectedDrone) return "Select a drone to inspect replay";
+      if (!selectedDrone) return "Select a drone to inspect telemetry";
   if (isHistoryLoading) return `Loading ${selectedDrone.id} history`;
-  if (selectedDroneTrackLength > 1) return `${selectedDrone.id} replay loaded`;
-  return `${selectedDrone.id} has no replay track yet`;
+  if (!selectedDrone.isOffline && selectedDroneTrackLength > 1) return `${selectedDrone.id} live path`;
+  if (selectedDroneTrackLength > 1) return `${selectedDrone.id} last saved path`;
+  return `${selectedDrone.id} last known location`;
 };
 
 const getTelemetryFeedStatus = ({ mapReady, mapError, liveDrones }) => {
@@ -501,6 +575,19 @@ const refreshTelemetryNow = async (telemetryTimerRef, setIsRefreshing, setMapErr
   setIsRefreshing(true);
   setMapError("");
   window.dispatchEvent(new CustomEvent("droneops-map-manual-refresh"));
+};
+
+const getSynctegralSyncMessage = (result = {}) => {
+  if (result.ingested && result.warning) {
+    return `Synctegral packet saved for drone history. Mission replay is pending: ${result.warning}.`;
+  }
+  if (result.ingested) return "Synctegral packet saved. Latest positions and replay history were reloaded.";
+  if (result.skipped && result.warning) {
+    return `Synctegral packet is already saved. Mission replay is pending: ${result.warning}.`;
+  }
+  if (result.skipped) return `Synctegral packet was not saved: ${result.reason ?? "it did not match this workspace"}.`;
+  if (result.telemetry?.id) return "Synctegral packet is already saved. Latest positions were reloaded.";
+  return "Synctegral sync finished. Latest saved telemetry was reloaded.";
 };
 
 const normalizeTelemetryRow = (row) => {
@@ -521,6 +608,8 @@ const normalizeTelemetryRow = (row) => {
 
   return {
     id: row.drone?.droneCode ?? row.drone?.id ?? "Unknown drone",
+    droneId: row.drone?.id ?? "",
+    droneCode: row.drone?.droneCode ?? "",
     model: row.drone?.model ?? "",
     missionLabel: formatMissionLabel(activeMission),
     missionRoute: normalizeMissionRoute(activeMission?.plannedRoute),
@@ -542,6 +631,103 @@ const normalizeTelemetryRow = (row) => {
     isOffline
   };
 };
+
+const normalizeTelemetryPoint = (telemetry) => {
+  const coordinates = normalizeCoordinate([telemetry?.location?.longitude, telemetry?.location?.latitude]);
+  if (!coordinates) return null;
+
+  return {
+    coordinates,
+    timestamp: telemetry.timestamp,
+    missionKey: telemetry.missionId ?? telemetry.simulator?.missionId ?? telemetry.simulator?.raw?.mission_id ?? "",
+    sequence: getTelemetrySequenceFromApi(telemetry)
+  };
+};
+
+const appendLiveTrail = (trailMap, key, point) => {
+  if (!key || !point?.coordinates) return;
+  const currentTrail = trailMap.get(key) ?? [];
+  const previousPoint = currentTrail[currentTrail.length - 1];
+
+  if (previousPoint && isSameCoordinate(previousPoint.coordinates, point.coordinates)) return;
+
+  trailMap.set(key, [...currentTrail, point].slice(-LIVE_TRAIL_LIMIT));
+};
+
+const seedLiveTrailsFromLatestRows = (trailMap, drones, telemetryRows) => {
+  telemetryRows.forEach((row) => {
+    const drone = drones.find((item) => item.droneId === row.drone?.id || item.droneCode === row.drone?.droneCode || item.id === row.drone?.droneCode);
+    const point = normalizeTelemetryPoint(row.telemetry);
+    getDroneTrackKeys(drone).forEach((key) => appendLiveTrail(trailMap, key, point));
+  });
+};
+
+const getLiveTrailForDrone = (trailMap, drone) => {
+  for (const key of getDroneTrackKeys(drone)) {
+    const trail = trailMap.get(key);
+    if (trail?.length) return trail.map((point) => point.coordinates);
+  }
+
+  return [];
+};
+
+const getDroneTrackKeys = (drone) => (
+  [drone?.id, drone?.droneId, drone?.droneCode, drone?.simulatorDroneId].filter(Boolean)
+);
+
+const normalizeTelemetryHistoryTrail = (rows, selectedDrone) => {
+  const points = rows.map(normalizeTelemetryPoint).filter(Boolean);
+  if (!points.length) return [];
+
+  const latestPoint = points[points.length - 1];
+  const latestMissionKey = latestPoint.missionKey;
+  const segment = [latestPoint];
+
+  for (let index = points.length - 2; index >= 0; index -= 1) {
+    const point = points[index];
+    const newerPoint = segment[0];
+    if (latestMissionKey && point.missionKey && point.missionKey !== latestMissionKey) break;
+    if (isLargeTelemetryGap(point, newerPoint)) break;
+    segment.unshift(point);
+  }
+
+  const coordinates = segment.map((point) => point.coordinates).slice(-DRONE_HISTORY_LIMIT);
+  return coordinates.length ? coordinates : [selectedDrone.coordinates].filter(Boolean);
+};
+
+const isLargeTelemetryGap = (olderPoint, newerPoint) => {
+  const olderTime = new Date(olderPoint.timestamp).getTime();
+  const newerTime = new Date(newerPoint.timestamp).getTime();
+  const gapMs = Number.isFinite(olderTime) && Number.isFinite(newerTime) ? newerTime - olderTime : 0;
+  if (gapMs > HISTORY_SEGMENT_MAX_GAP_MS) return true;
+
+  return distanceBetweenCoordinatesMeters(olderPoint.coordinates, newerPoint.coordinates) > HISTORY_SEGMENT_MAX_JUMP_METERS;
+};
+
+const distanceBetweenCoordinatesMeters = (left, right) => {
+  if (!left || !right) return 0;
+  const [leftLon, leftLat] = left.map(Number);
+  const [rightLon, rightLat] = right.map(Number);
+  const radians = (value) => value * Math.PI / 180;
+  const latDelta = radians(rightLat - leftLat);
+  const lonDelta = radians(rightLon - leftLon);
+  const a = Math.sin(latDelta / 2) ** 2
+    + Math.cos(radians(leftLat)) * Math.cos(radians(rightLat)) * Math.sin(lonDelta / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const isSameCoordinate = (left, right) => {
+  if (!left || !right) return false;
+  return Math.abs(Number(left[0]) - Number(right[0])) < 0.000001
+    && Math.abs(Number(left[1]) - Number(right[1])) < 0.000001;
+};
+
+const getTelemetrySequenceFromApi = (telemetry) => Number(
+  telemetry?.simulator?.sequence
+  ?? telemetry?.sequence
+  ?? telemetry?.simulator?.raw?.sequence_no
+  ?? telemetry?.simulator?.raw?.sequence
+);
 
 const formatMissionLabel = (mission) => {
   if (!mission) return "";

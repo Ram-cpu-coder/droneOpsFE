@@ -1,4 +1,4 @@
-import { AlertTriangle, CalendarClock, CheckCircle2, FileWarning, Maximize2, Minimize2, Pencil, Plane, Play, RadioTower, RefreshCw, Route, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, Download, FileWarning, Maximize2, Minimize2, Pencil, Plane, Play, RadioTower, RefreshCw, Route, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
@@ -11,6 +11,8 @@ import { droneOpsApi } from "../../../services/droneOpsApi";
 import IncidentForm from "../../incidents/components/IncidentForm";
 import MissionForm from "./MissionForm";
 import MissionRouteMap from "./MissionRouteMap";
+import { exportMissionRouteCsv } from "../../../utils/missionRouteExport";
+import { getRealtimeSocket } from "../../../services/realtimeClient";
 
 const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onClose }) => {
   const navigate = useNavigate();
@@ -123,6 +125,29 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
     return () => {
       isMounted = false;
       window.clearTimeout(timerId);
+    };
+  }, [mission, workflowStatus]);
+
+  useEffect(() => {
+    if (!["ACTIVE", "COMPLETED"].includes(workflowStatus)) return undefined;
+
+    const missionId = mission.uuid ?? mission.systemId ?? mission.id;
+    const socket = getRealtimeSocket();
+    const handleTelemetryUpdate = (telemetry) => {
+      if (!telemetry?.location || (telemetry.missionId && telemetry.missionId !== missionId)) return;
+
+      setLiveReplay((current) => {
+        const recordKey = telemetry.id ?? telemetry.timestamp;
+        const withoutDuplicate = current.filter((record) => (record.id ?? record.timestamp) !== recordKey);
+        return [...withoutDuplicate, telemetry].sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp));
+      });
+    };
+
+    socket.emit("mission:join", missionId);
+    socket.on("telemetry:update", handleTelemetryUpdate);
+
+    return () => {
+      socket.off("telemetry:update", handleTelemetryUpdate);
     };
   }, [mission, workflowStatus]);
 
@@ -245,7 +270,12 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
                     <h3>Mission Route</h3>
                     <p>{routeSummary}</p>
                   </div>
-                  <strong>{Number(mission.progress ?? 0)}%</strong>
+                  <div className="profile-location-actions">
+                    <strong>{Number(mission.progress ?? 0)}%</strong>
+                    <ActionButton icon={Download} variant="secondary" disabled={!waypoints.length} onClick={() => exportMissionRouteCsv(mission, waypoints)}>
+                      Export CSV
+                    </ActionButton>
+                  </div>
                 </div>
                 <div className="mission-progress-panel">
                   <ProgressBar value={Number(mission.progress ?? 0)} />
@@ -668,6 +698,7 @@ const MissionLiveOperationPanel = ({
   waypoints,
   launchLocation,
   operatingLocation,
+  authorityAnalysis,
   telemetry,
   telemetryTrail = [],
   replayCount,
@@ -1022,6 +1053,7 @@ const toWaypointRows = (waypoints) => {
     if (Array.isArray(waypoint)) {
       return {
         label: `Waypoint ${index + 1}`,
+        sequence: index + 1,
         longitude: waypoint[0],
         latitude: waypoint[1]
       };
@@ -1029,8 +1061,10 @@ const toWaypointRows = (waypoints) => {
 
     return {
       label: waypoint.label ?? waypoint.name ?? `Waypoint ${index + 1}`,
+      sequence: waypoint.sequence ?? waypoint.order ?? index + 1,
       latitude: waypoint.latitude ?? waypoint.lat,
-      longitude: waypoint.longitude ?? waypoint.lng ?? waypoint.lon
+      longitude: waypoint.longitude ?? waypoint.lng ?? waypoint.lon,
+      altitude: waypoint.altitude ?? waypoint.altitudeM ?? waypoint.planned_agl_m
     };
   });
 };
