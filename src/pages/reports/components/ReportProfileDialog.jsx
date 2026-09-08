@@ -15,9 +15,37 @@ const ReportProfileDialog = ({ report, canDelete = false, canManageStatus = fals
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [exportError, setExportError] = useState("");
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [exportMenuPosition, setExportMenuPosition] = useState(null);
   const exportAnchorRef = useRef(null);
   const exportMenuRef = useRef(null);
   const isExportable = exportableStatuses.has(String(report.status ?? "").toUpperCase());
+
+  const updateExportMenuPosition = () => {
+    const anchor = exportAnchorRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const menuWidth = 220;
+    const menuHeight = 212;
+    const viewportPadding = 12;
+    const footerTop = document.querySelector(".modal-footer.profile-footer")?.getBoundingClientRect().top;
+    const left = Math.min(
+      Math.max(rect.right - menuWidth, viewportPadding),
+      window.innerWidth - menuWidth - viewportPadding
+    );
+    const preferredTop = rect.top > menuHeight + viewportPadding
+      ? rect.top - menuHeight - 8
+      : Math.min(rect.bottom + 8, window.innerHeight - menuHeight - viewportPadding);
+    const top = Number.isFinite(footerTop)
+      ? Math.min(preferredTop, footerTop - menuHeight - 12)
+      : preferredTop;
+
+    setExportMenuPosition({
+      left,
+      top: Math.max(viewportPadding, top),
+      width: menuWidth
+    });
+  };
+
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key !== "Escape") return;
@@ -39,6 +67,7 @@ const ReportProfileDialog = ({ report, canDelete = false, canManageStatus = fals
 
   useEffect(() => {
     if (!isExportOpen) return undefined;
+    updateExportMenuPosition();
 
     const handlePointerDown = (event) => {
       const isInsideAnchor = exportAnchorRef.current?.contains(event.target);
@@ -46,8 +75,16 @@ const ReportProfileDialog = ({ report, canDelete = false, canManageStatus = fals
       if (!isInsideAnchor && !isInsideMenu) setIsExportOpen(false);
     };
 
+    const handleLayoutChange = () => updateExportMenuPosition();
+
     document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("resize", handleLayoutChange);
+    window.addEventListener("scroll", handleLayoutChange, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("resize", handleLayoutChange);
+      window.removeEventListener("scroll", handleLayoutChange, true);
+    };
   }, [isExportOpen]);
 
   const handleDelete = async () => {
@@ -211,68 +248,72 @@ const ReportProfileDialog = ({ report, canDelete = false, canManageStatus = fals
                   setExportError("This report is under review. Mark it Ready before exporting.");
                   return;
                 }
-                setIsExportOpen((current) => !current);
+                setIsExportOpen((current) => {
+                  const next = !current;
+                  if (next) updateExportMenuPosition();
+                  return next;
+                });
               }}
               disabled={!isExportable}
             >
               Export Report
             </ActionButton>
-            {isExportOpen && createPortal(
-              <div
-                className="dashboard-filter-menu export-menu report-dialog-export-menu floating-report-menu"
-                ref={exportMenuRef}
-                role="menu"
-                aria-label="Export report"
-                style={getFloatingMenuStyle(exportAnchorRef.current, "top")}
-              >
-                <button type="button" onClick={async () => {
-                  try {
-                    await handleExport("excel");
-                  } catch (requestError) {
-                    setExportError(requestError.message);
-                  }
-                }}>
-                  <span>Excel</span>
-                  <FileSpreadsheet size={15} />
-                </button>
-                <button type="button" onClick={async () => {
-                  try {
-                    await handleExport("pdf");
-                  } catch (requestError) {
-                    setExportError(requestError.message);
-                  }
-                }}>
-                  <span>PDF</span>
-                  <FileText size={15} />
-                </button>
-                <button type="button" onClick={async () => {
-                  try {
-                    await handleExport("word");
-                  } catch (requestError) {
-                    setExportError(requestError.message);
-                  }
-                }}>
-                  <span>Word</span>
-                  <Download size={15} />
-                </button>
-                <button type="button" onClick={async () => {
-                  try {
-                    await handleExport("json");
-                  } catch (requestError) {
-                    setExportError(requestError.message);
-                  }
-                }}>
-                  <span>JSON</span>
-                  <FileText size={15} />
-                </button>
-              </div>,
-              document.body
-            )}
           </div>
           <div className="form-actions">
             <ActionButton onClick={onClose}>Close</ActionButton>
           </div>
         </div>
+        {isExportOpen && exportMenuPosition && createPortal(
+          <div
+            className="dashboard-filter-menu export-menu report-dialog-export-menu"
+            ref={exportMenuRef}
+            role="menu"
+            aria-label="Export report"
+            style={exportMenuPosition}
+          >
+            <button type="button" onClick={async () => {
+              try {
+                await handleExport("excel");
+              } catch (requestError) {
+                setExportError(requestError.message);
+              }
+            }}>
+              <span>Excel</span>
+              <FileSpreadsheet size={15} />
+            </button>
+            <button type="button" onClick={async () => {
+              try {
+                await handleExport("pdf");
+              } catch (requestError) {
+                setExportError(requestError.message);
+              }
+            }}>
+              <span>PDF</span>
+              <FileText size={15} />
+            </button>
+            <button type="button" onClick={async () => {
+              try {
+                await handleExport("word");
+              } catch (requestError) {
+                setExportError(requestError.message);
+              }
+            }}>
+              <span>Word</span>
+              <Download size={15} />
+            </button>
+            <button type="button" onClick={async () => {
+              try {
+                await handleExport("json");
+              } catch (requestError) {
+                setExportError(requestError.message);
+              }
+            }}>
+              <span>JSON</span>
+              <FileText size={15} />
+            </button>
+          </div>,
+          document.body
+        )}
         {showDeleteConfirm && (
           <div className="delete-confirm-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setShowDeleteConfirm(false)}>
             <div className="delete-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-report-title" aria-describedby="delete-report-description">
@@ -413,30 +454,5 @@ const formatScopeRange = (scope) => {
 };
 
 const formatDate = (value) => new Date(value).toLocaleDateString("en-AU");
-
-const getFloatingMenuStyle = (anchor, placement = "bottom") => {
-  if (!anchor) return undefined;
-
-  const rect = anchor.getBoundingClientRect();
-  const menuWidth = 220;
-  const estimatedHeight = 224;
-  const viewportPadding = 12;
-  const left = Math.min(
-    Math.max(viewportPadding, rect.right - menuWidth),
-    window.innerWidth - menuWidth - viewportPadding
-  );
-  const top = placement === "top"
-    ? Math.max(viewportPadding, rect.top - estimatedHeight - 8)
-    : rect.bottom + 8;
-
-  return {
-    position: "fixed",
-    top: `${top}px`,
-    left: `${left}px`,
-    right: "auto",
-    width: `${menuWidth}px`,
-    zIndex: 10080
-  };
-};
 
 export default ReportProfileDialog;

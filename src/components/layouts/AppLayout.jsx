@@ -1,6 +1,7 @@
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import { useEffect, useState } from "react";
+import OperationalAlertCenter from "../common/OperationalAlertCenter";
 
 const AppLayout = ({
   activeRoute,
@@ -32,6 +33,7 @@ const AppLayout = ({
       <Sidebar
         activeRoute={activeRoute}
         routes={routes}
+        user={user}
         isCollapsed={isSidebarCollapsed}
         onCollapsedChange={setIsSidebarCollapsed}
         onNavigate={onNavigate}
@@ -50,6 +52,7 @@ const AppLayout = ({
         />
         {children}
       </main>
+      <OperationalAlertCenter user={user} />
     </div>
   );
 };

@@ -37,6 +37,7 @@ export const userRoles = [
       "telemetry:read",
       "pilots:read",
       "geofences:read",
+      "maintenance:read",
       "incidents:create",
       "documents:read",
       "audit:read"
@@ -72,6 +73,8 @@ export const userRoles = [
       "geofences:manage",
       "risk:manage",
       "telemetry:read",
+      "drones:read",
+      "maintenance:read",
       "reports",
       "reports:read",
       "documents:read",
@@ -87,6 +90,8 @@ export const userRoles = [
       "reports",
       "reports:read",
       "reports:manage",
+      "drones:read",
+      "maintenance:read",
       "documents:read",
       "documents:manage",
       "audit:read"

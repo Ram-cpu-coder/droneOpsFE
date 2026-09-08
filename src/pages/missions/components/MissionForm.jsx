@@ -11,6 +11,7 @@ import RoutePointMapPicker from "./RoutePointMapPicker";
 const missionTypes = ["Mapping", "Inspection", "Security", "Delivery", "Training", "Emergency Response"];
 const missionStatuses = ["AWAITING_AUTHORITY_APPROVAL", "PLANNED", "APPROVED", "RISK_ASSESSMENT_COMPLETED", "ACTIVE", "COMPLETED", "ABORTED", "CANCELLED"];
 const assignableDroneStatus = "AVAILABLE";
+const assignablePilotRoles = new Set(["REMOTE_PILOT", "OPERATIONS_MANAGER", "SYSTEM_ADMINISTRATOR"]);
 
 const initialForm = {
   missionCode: "",
@@ -31,6 +32,7 @@ const initialForm = {
   waypointNotes: "",
   routeAccepted: false,
   routeAuthorityAnalysis: null,
+  routeOperationalGeofenceAnalysis: null,
   authorityApprovals: {},
   permissionsReviewed: false,
   routeTrackingEnabled: true,
@@ -93,7 +95,8 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
 
   const pilotOptions = useMemo(
     () => users
-      .filter((user) => ["REMOTE_PILOT", "OPERATIONS_MANAGER", "SYSTEM_ADMINISTRATOR"].includes(user.role))
+      .filter((user) => assignablePilotRoles.has(normalizeRole(user.role)))
+      .filter((user) => !getPilotAssignmentBlockReason(user))
       .filter((user) => (
         form.pilotIds.includes(user.id) ||
         !isResourceBookedForMission(bookingContext, user.id, "pilot")
@@ -130,6 +133,18 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
     () => form.pilotIds.map((pilotId) => users.find((user) => user.id === pilotId)).filter(Boolean),
     [users, form.pilotIds]
   );
+  const pilotAssignmentIssues = useMemo(
+    () => selectedPilots
+      .map((pilot) => {
+        const reason = getPilotAssignmentBlockReason(pilot);
+        return reason ? { pilot, reason } : null;
+      })
+      .filter(Boolean),
+    [selectedPilots]
+  );
+  const pilotAssignmentError = pilotAssignmentIssues[0]
+    ? `${pilotAssignmentIssues[0].pilot.name ?? "Selected pilot"} cannot be assigned: ${pilotAssignmentIssues[0].reason}`
+    : "";
 
   const scheduleError = getScheduleError(form);
   const hasLaunchSite = hasCoordinates(form.locationPlan.launchSite);
@@ -152,7 +167,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
     { label: "Mission type", complete: Boolean(form.type), detail: form.type || "Required" },
     { label: "Schedule", complete: Boolean(form.plannedDate && form.startTime && form.endTime && !scheduleError), detail: scheduleError || "Date and time ready" },
     { label: "Drone", complete: form.droneIds.length > 0 && !droneAssignmentError, detail: droneAssignmentError || (selectedDrones.length ? `${selectedDrones.length} drone(s) selected` : "Required") },
-    { label: "Remote pilot", complete: form.pilotIds.length > 0, detail: selectedPilots.length ? `${selectedPilots.length} pilot(s) selected` : "Required" },
+    { label: "Remote pilot", complete: form.pilotIds.length > 0 && !pilotAssignmentError, detail: pilotAssignmentError || (selectedPilots.length ? `${selectedPilots.length} pilot(s) selected` : "Required") },
     { label: "Launch site", complete: hasLaunchSite, detail: hasLaunchSite ? "Selected on map" : "Required" },
     { label: "Operating area", complete: hasOperatingArea && !operatingAreaError, detail: operatingAreaError || (hasOperatingArea ? "Derived from route envelope" : "Derived by backend after route analysis") },
     { label: "Route path", complete: hasRouteStart && hasRouteEnd, detail: hasRouteStart && hasRouteEnd ? `${form.waypoints.filter(hasCoordinates).length} point(s) selected` : "Start and end required" },
@@ -163,7 +178,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
   const routeAnalysis = useMemo(() => createRouteAnalysis(form), [form]);
   const formSteps = useMemo(() => {
     const detailsComplete = Boolean(form.name.trim() && form.type);
-    const assignmentComplete = form.droneIds.length > 0 && !droneAssignmentError && form.pilotIds.length > 0;
+    const assignmentComplete = form.droneIds.length > 0 && !droneAssignmentError && form.pilotIds.length > 0 && !pilotAssignmentError;
     const scheduleComplete = Boolean(form.plannedDate && form.startTime && form.endTime && !scheduleError);
     const routeComplete = canAnalyseRoute && form.routeAccepted;
     const permissionsComplete = routeComplete && form.permissionsReviewed;
@@ -175,13 +190,13 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
       { id: "planning", label: "Mission Map", helper: "Launch, area, and route", complete: routeComplete, unlocked: detailsComplete && assignmentComplete && scheduleComplete },
       { id: "permissions", label: "Council Permissions", helper: "Required before flight", complete: permissionsComplete, unlocked: detailsComplete && assignmentComplete && scheduleComplete && routeComplete }
     ];
-  }, [canAnalyseRoute, droneAssignmentError, form.droneIds.length, form.endTime, form.name, form.permissionsReviewed, form.pilotIds.length, form.plannedDate, form.routeAccepted, form.startTime, form.type, scheduleError]);
+  }, [canAnalyseRoute, droneAssignmentError, form.droneIds.length, form.endTime, form.name, form.permissionsReviewed, form.pilotIds.length, form.plannedDate, form.routeAccepted, form.startTime, form.type, pilotAssignmentError, scheduleError]);
   const activeStepIndex = Math.max(formSteps.findIndex((step) => step.id === activeStepId), 0);
   const activeStep = formSteps[activeStepIndex] ?? formSteps[0];
   const previousStep = formSteps[activeStepIndex - 1] ?? null;
   const nextStep = formSteps[activeStepIndex + 1] ?? null;
   const isCompactTabs = useMediaQuery("(max-width: 720px)");
-  const visibleTabCount = isCompactTabs ? 2 : 4;
+  const visibleTabCount = isCompactTabs ? 2 : 5;
 
   useEffect(() => {
     const currentStep = formSteps.find((step) => step.id === activeStepId);
@@ -210,7 +225,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
   };
 
   const updateRouteField = (field, value) => {
-    setForm((current) => ({ ...current, [field]: value, routeAccepted: false, routeAuthorityAnalysis: null, authorityApprovals: {}, permissionsReviewed: false }));
+    setForm((current) => ({ ...current, [field]: value, routeAccepted: false, routeAuthorityAnalysis: null, routeOperationalGeofenceAnalysis: null, authorityApprovals: {}, permissionsReviewed: false }));
   };
 
   const acceptRouteAnalysis = async () => {
@@ -234,6 +249,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
     try {
       const authorityPlan = await droneOpsApi.missions.analyseRoute({ plannedRoute: buildPlannedRoute({ includeRouteAnalysis: false }) });
       const authorityAnalysis = authorityPlan?.geofenceConfig?.authorityAnalysis ?? authorityPlan?.plannedRoute?.routeAnalysis?.authorityAnalysis ?? null;
+      const operationalGeofenceAnalysis = authorityPlan?.geofenceConfig?.operationalGeofenceAnalysis ?? authorityPlan?.plannedRoute?.routeAnalysis?.operationalGeofenceAnalysis ?? null;
 
       if (authorityAnalysis?.status !== "READY") {
         const message = authorityAnalysis?.message || "Council boundary analysis could not be completed from the official authority dataset.";
@@ -252,6 +268,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
         ...current,
         routeAccepted: true,
         routeAuthorityAnalysis: authorityAnalysis,
+        routeOperationalGeofenceAnalysis: operationalGeofenceAnalysis,
         authorityApprovals: buildInitialAuthorityApprovals(authorityAnalysis),
         permissionsReviewed: false,
         locationPlan: {
@@ -263,7 +280,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
         id: routeAnalysisFeedbackId,
         type: "success",
         title: "Route analysed and accepted",
-        message: getRouteAnalysisSuccessMessage(authorityAnalysis),
+        message: getRouteAnalysisSuccessMessage(authorityAnalysis, operationalGeofenceAnalysis),
         actionLabel: "Review permissions"
       });
     } catch (requestError) {
@@ -281,7 +298,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
   };
 
   const unlockAcceptedRoute = () => {
-    setForm((current) => ({ ...current, routeAccepted: false, routeAuthorityAnalysis: null, authorityApprovals: {}, permissionsReviewed: false }));
+    setForm((current) => ({ ...current, routeAccepted: false, routeAuthorityAnalysis: null, routeOperationalGeofenceAnalysis: null, authorityApprovals: {}, permissionsReviewed: false }));
   };
 
   const updateAuthorityApproval = (authority, isApproved) => {
@@ -340,6 +357,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
           councilCount: routeAnalysis.councilCount,
           councilSummary: routeAnalysis.councilSummary,
           authorityAnalysis: sanitiseAuthorityAnalysis(form.routeAuthorityAnalysis, form.authorityApprovals),
+          operationalGeofenceAnalysis: form.routeOperationalGeofenceAnalysis,
           authorityApprovals: form.authorityApprovals,
           analysisModel: "DRONEOPS_ROUTE_ENVELOPE_V1"
         }
@@ -527,7 +545,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
               <div className="assignment-picker-row">
                 <div className="assignment-picker-copy">
                   <span>Remote Pilots</span>
-                  <strong>{selectedPilots.length ? `${selectedPilots.length} selected` : `${pilotOptions.length} available`}</strong>
+                <strong>{selectedPilots.length ? `${selectedPilots.length} selected` : `${pilotOptions.length} assignable`}</strong>
                 </div>
                 <MultiSearchableSelectField
                   label=""
@@ -539,10 +557,11 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
                   placeholder="Search pilots"
                 />
               </div>
-              <SelectedAssignmentList type="pilot" items={selectedPilots} onRemove={(id) => setForm((current) => {
+              <SelectedAssignmentList type="pilot" items={selectedPilots} getItemIssue={getPilotAssignmentBlockReason} onRemove={(id) => setForm((current) => {
                 const nextIds = current.pilotIds.filter((pilotId) => pilotId !== id);
                 return { ...current, pilotIds: nextIds };
               })} />
+              {pilotAssignmentError && <InlineWarning message={pilotAssignmentError} />}
             </FormSection>
             )}
 
@@ -769,6 +788,7 @@ const RouteAnalysisPanel = ({ analysis, isAccepted, isAnalysing, approvals = {},
         <span>{analysis.pointCount} points</span>
         <span>{analysis.altitudeRange}</span>
         <span>{isAccepted && authorities.length ? `${approvedCount}/${authorities.length} permissions` : analysis.councilSummary}</span>
+        <span>{analysis.operationalGeofenceSummary}</span>
       </div>
       {showPermissions && isAccepted && authorities.length > 0 && (
         <CouncilPermissionChecklist authorities={authorities} approvals={approvals} onApprovalChange={onApprovalChange} />
@@ -1093,6 +1113,7 @@ const toFormState = (mission) => {
     waypointNotes: mission.plannedRoute?.notes ?? mission.routeNotes ?? "",
     routeAccepted: Boolean(mission.plannedRoute?.routeAnalysis?.accepted),
     routeAuthorityAnalysis: mission.plannedRoute?.routeAnalysis?.authorityAnalysis ?? mission.geofenceConfig?.authorityAnalysis ?? null,
+    routeOperationalGeofenceAnalysis: mission.plannedRoute?.routeAnalysis?.operationalGeofenceAnalysis ?? mission.geofenceConfig?.operationalGeofenceAnalysis ?? null,
     authorityApprovals: buildInitialAuthorityApprovals(mission.plannedRoute?.routeAnalysis?.authorityAnalysis ?? mission.geofenceConfig?.authorityAnalysis ?? null),
     permissionsReviewed: Boolean(mission.plannedRoute?.routeAnalysis?.accepted),
     routeTrackingEnabled: waypoints.length >= 2,
@@ -1125,8 +1146,10 @@ const createRouteAnalysis = (form) => {
   const maxAltitude = altitudes.length ? Math.max(...altitudes) : 0;
   const distanceMeters = points.length >= 2 ? getRouteDistanceMeters(points) : 0;
   const authorityAnalysis = form.routeAuthorityAnalysis;
+  const operationalGeofenceAnalysis = form.routeOperationalGeofenceAnalysis;
   const councils = Array.isArray(authorityAnalysis?.authorities) ? authorityAnalysis.authorities : [];
   const councilCount = authorityAnalysis?.status === "READY" ? councils.length : 0;
+  const operationalWarnings = Array.isArray(operationalGeofenceAnalysis?.warningZones) ? operationalGeofenceAnalysis.warningZones : [];
 
   return {
     pointCount: points.length,
@@ -1137,10 +1160,16 @@ const createRouteAnalysis = (form) => {
       ? councilCount === 1 ? councils[0]?.authorityName ?? "1 council area" : `${councilCount} council areas`
       : "Official council lookup required",
     authorityAnalysis,
+    operationalGeofenceAnalysis,
+    operationalGeofenceSummary: operationalGeofenceAnalysis?.status === "WARNING"
+      ? `${operationalWarnings.length} geofence warning${operationalWarnings.length === 1 ? "" : "s"}`
+      : operationalGeofenceAnalysis?.status === "CLEAR"
+        ? "No geofence intersections"
+        : "Operational geofence check required",
     summary: points.length >= 2 ? `${formatDistance(distanceMeters)} editable route` : "Route needs start and end points",
     detail: points.length >= 2
       ? authorityAnalysis?.status === "READY"
-        ? authorityAnalysis.message
+        ? [authorityAnalysis.message, operationalGeofenceAnalysis?.status === "WARNING" ? operationalGeofenceAnalysis.message : ""].filter(Boolean).join(" ")
         : "Use Analyse & Accept Route to check official NSW council/LGA boundary intersections."
       : "Select launch site, start point, and end point before creating the accepted mission path."
   };
@@ -1175,13 +1204,14 @@ const getRouteAuthorities = (authorityAnalysis) => (
   Array.isArray(authorityAnalysis?.authorities) ? authorityAnalysis.authorities : []
 );
 
-const getRouteAnalysisSuccessMessage = (authorityAnalysis) => {
+const getRouteAnalysisSuccessMessage = (authorityAnalysis, operationalGeofenceAnalysis) => {
+  const operationalMessage = operationalGeofenceAnalysis?.status === "WARNING" ? ` ${operationalGeofenceAnalysis.message}` : "";
   const authorities = getRouteAuthorities(authorityAnalysis);
   if (!authorities.length) {
-    return "The route has been accepted. No council permission areas were found for this flight path.";
+    return `The route has been accepted. No council permission areas were found for this flight path.${operationalMessage}`;
   }
 
-  return `${authorities.length} council permission ${authorities.length === 1 ? "area was" : "areas were"} found. Review and confirm permissions before the mission can be started.`;
+  return `${authorities.length} council permission ${authorities.length === 1 ? "area was" : "areas were"} found. Review and confirm permissions before the mission can be started.${operationalMessage}`;
 };
 
 const getAuthorityKey = (authority) => String(authority?.reference ?? authority?.absCode ?? authority?.authorityName ?? authority?.lgaName ?? "");
@@ -1245,6 +1275,40 @@ const getDroneAssignmentBlockReason = (drone) => {
   }
 
   return "";
+};
+
+const getPilotAssignmentBlockReason = (pilot) => {
+  if (!pilot) return "pilot record is missing.";
+
+  const credentials = pilot.pilotCredentials && typeof pilot.pilotCredentials === "object"
+    ? pilot.pilotCredentials
+    : null;
+  const licences = Array.isArray(credentials?.licences) ? credentials.licences : [];
+
+  if (!credentials) return "credentials are missing.";
+  if (!credentials.certificationExpiry || isExpiredCredentialDate(credentials.certificationExpiry)) {
+    return "certification is missing or expired.";
+  }
+  if (!licences.length) return "licence records are missing.";
+  if (licences.some((licence) => (
+    !licence?.type
+    || !licence?.number
+    || !licence?.expiresAt
+    || isExpiredCredentialDate(licence.expiresAt)
+  ))) {
+    return "licence number or expiry is missing or expired.";
+  }
+
+  return "";
+};
+
+const normalizeRole = (role) => String(role ?? "").trim().toUpperCase();
+
+const isExpiredCredentialDate = (value) => {
+  const expiry = new Date(value);
+  if (Number.isNaN(expiry.getTime())) return true;
+  expiry.setHours(23, 59, 59, 999);
+  return expiry < new Date();
 };
 
 const blockingMissionStatuses = new Set(["APPROVED", "RISK_ASSESSMENT_COMPLETED", "ACTIVE"]);

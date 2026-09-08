@@ -1,4 +1,4 @@
-import { BatteryCharging, CalendarClock, Cpu, MapPin, Pencil, Plane, RadioTower, Save, Trash2, X } from "lucide-react";
+import { BatteryCharging, CalendarClock, Cpu, Download, FileSpreadsheet, FileText, MapPin, Pencil, Plane, Plus, RadioTower, Save, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
@@ -8,6 +8,7 @@ import BatteryMeter from "../../../components/common/BatteryMeter";
 import CopyableId from "../../../components/common/CopyableId";
 import StatusBadge from "../../../components/common/StatusBadge";
 import { droneOpsApi } from "../../../services/droneOpsApi";
+import { exportDroneTelemetrySnapshot } from "../../../utils/droneProfileExport";
 import MissionRouteMap from "../../missions/components/MissionRouteMap";
 
 const droneStatuses = ["AVAILABLE", "IN_MISSION", "MAINTENANCE", "GROUNDED", "DISCONNECTED", "AWAITING_APPROVAL"];
@@ -15,10 +16,10 @@ const certificationStatuses = ["CERTIFIED", "AWAITING_APPROVAL", "AWAITING_RENEW
 const telemetryProviders = ["NONE", "DJI", "AUTEL", "MAVLINK"];
 const simulatorDeviceId = "SIM-001";
 const profileTabs = [
-  { id: "aircraft", label: "Aircraft" },
-  { id: "maintenance", label: "Maintenance" },
-  { id: "telemetry", label: "Telemetry" },
-  { id: "maps", label: "Maps & Missions" }
+  { id: "aircraft", label: "Aircraft", icon: Plane },
+  { id: "maintenance", label: "Maintenance", icon: CalendarClock },
+  { id: "telemetry", label: "Telemetry", icon: RadioTower },
+  { id: "maps", label: "Maps & Missions", icon: MapPin }
 ];
 
 const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, onClose }) => {
@@ -33,15 +34,32 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const [exportMenuPosition, setExportMenuPosition] = useState(null);
   const [error, setError] = useState("");
   const [form, setForm] = useState(() => toEditableForm(drone));
   const [modelCatalog, setModelCatalog] = useState([]);
+  const exportAnchorRef = useRef(null);
+  const exportMenuRef = useRef(null);
   const telemetry = drone.latestTelemetry;
   const telemetryReadout = useMemo(() => getTelemetryReadout(drone), [drone]);
   const droneUuid = drone.uuid ?? drone.idRaw ?? drone.id;
   const relatedMission = drone.activeMission ?? drone.lastMission ?? null;
   const relatedMissionRoute = useMemo(() => getMissionRouteState(relatedMission), [relatedMission]);
   const locationState = useMemo(() => getDroneLocationState(drone), [drone]);
+  const telemetryExportRows = useMemo(() => [
+    { label: "Location", value: locationState.hasLocation ? formatCoordinate(locationState.location) : "No location recorded" },
+    { label: "Map Status", value: locationState.isOffline ? "Offline - showing last known location" : locationState.hasLocation ? "Live location" : "Waiting for telemetry" },
+    { label: "Battery", value: telemetryReadout.battery },
+    { label: "Battery Voltage", value: telemetryReadout.voltage },
+    { label: "Signal", value: telemetryReadout.signal },
+    { label: "Altitude", value: telemetryReadout.altitude },
+    { label: "Speed", value: telemetryReadout.speed },
+    { label: "Heading", value: telemetryReadout.heading },
+    { label: "Flight Status", value: formatOptionLabel(telemetry?.simulator?.flightStatus ?? telemetry?.status ?? "No data") },
+    { label: "Source", value: telemetry?.simulator?.droneId ?? telemetry?.source ?? "No data" },
+    { label: "Last Seen", value: locationState.timestamp ? formatDateTime(locationState.timestamp) : "No data" }
+  ], [locationState, telemetry, telemetryReadout]);
   const manufacturerOptions = modelCatalog.map((entry) => entry.manufacturer);
   const selectedModelOptions = getModelOptions(modelCatalog, form.manufacturer);
 
@@ -68,6 +86,10 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key !== "Escape") return;
+      if (isExportOpen) {
+        setIsExportOpen(false);
+        return;
+      }
       if (showDeleteConfirm) {
         setShowDeleteConfirm(false);
         return;
@@ -82,7 +104,51 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
       document.body.classList.remove("modal-open");
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose, showDeleteConfirm]);
+  }, [isExportOpen, onClose, showDeleteConfirm]);
+
+  const updateExportMenuPosition = () => {
+    const anchor = exportAnchorRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const menuWidth = 220;
+    const menuHeight = 212;
+    const viewportPadding = 12;
+    const left = Math.min(
+      Math.max(rect.right - menuWidth, viewportPadding),
+      window.innerWidth - menuWidth - viewportPadding
+    );
+    const hasRoomBelow = window.innerHeight - rect.bottom > menuHeight + viewportPadding;
+    const top = hasRoomBelow
+      ? rect.bottom + 8
+      : rect.top - menuHeight - 8;
+
+    setExportMenuPosition({
+      left,
+      top: Math.max(viewportPadding, top),
+      width: menuWidth
+    });
+  };
+
+  useEffect(() => {
+    if (!isExportOpen) return undefined;
+    updateExportMenuPosition();
+
+    const handlePointerDown = (event) => {
+      const isInsideAnchor = exportAnchorRef.current?.contains(event.target);
+      const isInsideMenu = exportMenuRef.current?.contains(event.target);
+      if (!isInsideAnchor && !isInsideMenu) setIsExportOpen(false);
+    };
+    const handleLayoutChange = () => updateExportMenuPosition();
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("resize", handleLayoutChange);
+    window.addEventListener("scroll", handleLayoutChange, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("resize", handleLayoutChange);
+      window.removeEventListener("scroll", handleLayoutChange, true);
+    };
+  }, [isExportOpen]);
 
   const previewDrone = useMemo(() => ({
     ...drone,
@@ -156,6 +222,28 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
     }
   };
 
+  const openMaintenanceScheduler = () => {
+    onClose?.();
+    navigate("/maintenance", {
+      state: {
+        scheduleMaintenance: {
+          droneId: droneUuid,
+          droneCode: drone.droneCode ?? drone.id
+        }
+      }
+    });
+  };
+
+  const handleTelemetryExport = async (format) => {
+    try {
+      await exportDroneTelemetrySnapshot({ drone, telemetryRows: telemetryExportRows, format });
+      setIsExportOpen(false);
+      setError("");
+    } catch (requestError) {
+      setError(requestError.message || "Telemetry export failed.");
+    }
+  };
+
   const dialog = (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose?.()}>
       <form className="modal-dialog profile-dialog drone-profile-dialog" role="dialog" aria-modal="true" aria-labelledby="drone-profile-title" onSubmit={handleSave}>
@@ -192,7 +280,9 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
           {!isEditing && (
             <HeaderDockedTabs>
               <div className="mission-profile-tabs drone-profile-tabs" role="tablist" aria-label="Drone profile sections">
-                {profileTabs.map((tab, index) => (
+                {profileTabs.map((tab, index) => {
+                  const Icon = tab.icon;
+                  return (
                   <button key={tab.id} type="button" role="tab" id={`drone-tab-${tab.id}`}
                     aria-controls={`drone-panel-${tab.id}`} aria-selected={activeTab === tab.id}
                     tabIndex={activeTab === tab.id ? 0 : -1} className={activeTab === tab.id ? "active" : ""}
@@ -206,9 +296,11 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
                       selectTab(profileTabs[next].id);
                       event.currentTarget.parentElement.children[next].focus();
                     }}>
+                    <Icon size={16} />
                     <strong>{tab.label}</strong>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </HeaderDockedTabs>
           )}
@@ -304,30 +396,49 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
               )}
 
               {activeTab === "maintenance" && (
-              <ProfileSection icon={CalendarClock} title="Lifecycle">
-                <ProfileRow label="Purchased" value={formatDate(drone.purchaseDate)} />
-                <ProfileRow label="Last Maintenance" value={formatDate(drone.lastMaintenanceDate)} />
-                <ProfileRow label="Next Service" value={drone.nextMaintenance} />
-                <ProfileRow label="Inspection Threshold" value={drone.inspectionThresholdHours ? `${drone.inspectionThresholdHours} hours` : "Not provided"} />
-                <ProfileRow label="Created" value={formatDate(drone.createdAt)} />
-                <ProfileRow label="Updated" value={formatDate(drone.updatedAt)} />
-              </ProfileSection>
+              <>
+                <div className="profile-tab-action-row">
+                  <ActionButton icon={Plus} variant="primary" type="button" onClick={openMaintenanceScheduler}>
+                    Schedule maintenance
+                  </ActionButton>
+                </div>
+                <ProfileSection icon={CalendarClock} title="Lifecycle">
+                  <ProfileRow label="Purchased" value={formatDate(drone.purchaseDate)} />
+                  <ProfileRow label="Last Maintenance" value={formatDate(drone.lastMaintenanceDate)} />
+                  <ProfileRow label="Next Service" value={drone.nextMaintenance} />
+                  <ProfileRow label="Inspection Threshold" value={drone.inspectionThresholdHours ? `${drone.inspectionThresholdHours} hours` : "Not provided"} />
+                  <ProfileRow label="Created" value={formatDate(drone.createdAt)} />
+                  <ProfileRow label="Updated" value={formatDate(drone.updatedAt)} />
+                </ProfileSection>
+              </>
               )}
 
               {activeTab === "telemetry" && (
+              <>
+                <div className="profile-tab-action-row">
+                  <div className="dashboard-filter-wrap" ref={exportAnchorRef}>
+                    <ActionButton
+                      icon={Download}
+                      variant="primary"
+                      type="button"
+                      onClick={() => {
+                        setIsExportOpen((current) => {
+                          const next = !current;
+                          if (next) updateExportMenuPosition();
+                          return next;
+                        });
+                      }}
+                    >
+                      Export telemetry
+                    </ActionButton>
+                  </div>
+                </div>
               <ProfileSection icon={MapPin} title="Latest Telemetry">
-                <ProfileRow label="Location" value={locationState.hasLocation ? formatCoordinate(locationState.location) : "No location recorded"} />
-                <ProfileRow label="Map Status" value={locationState.isOffline ? "Offline - showing last known location" : locationState.hasLocation ? "Live location" : "Waiting for telemetry"} />
-                <ProfileRow label="Battery" value={telemetryReadout.battery} />
-                <ProfileRow label="Battery Voltage" value={telemetryReadout.voltage} />
-                <ProfileRow label="Signal" value={telemetryReadout.signal} />
-                <ProfileRow label="Altitude" value={telemetryReadout.altitude} />
-                <ProfileRow label="Speed" value={telemetryReadout.speed} />
-                <ProfileRow label="Heading" value={telemetryReadout.heading} />
-                <ProfileRow label="Flight Status" value={formatOptionLabel(telemetry?.simulator?.flightStatus ?? telemetry?.status ?? "No data")} />
-                <ProfileRow label="Source" value={telemetry?.simulator?.droneId ?? telemetry?.source ?? "No data"} />
-                <ProfileRow label="Last Seen" value={locationState.timestamp ? formatDateTime(locationState.timestamp) : "No data"} />
+                {telemetryExportRows.map((row) => (
+                  <ProfileRow key={row.label} label={row.label} value={row.value} />
+                ))}
               </ProfileSection>
+              </>
               )}
             </div>
           )}
@@ -371,6 +482,33 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
               </div>
             </div>
           </div>
+        )}
+        {isExportOpen && exportMenuPosition && createPortal(
+          <div
+            className="dashboard-filter-menu export-menu drone-profile-export-menu"
+            ref={exportMenuRef}
+            role="menu"
+            aria-label="Export drone telemetry"
+            style={exportMenuPosition}
+          >
+            <button type="button" onClick={() => handleTelemetryExport("excel")}>
+              <span>Excel</span>
+              <FileSpreadsheet size={15} />
+            </button>
+            <button type="button" onClick={() => handleTelemetryExport("pdf")}>
+              <span>PDF</span>
+              <FileText size={15} />
+            </button>
+            <button type="button" onClick={() => handleTelemetryExport("word")}>
+              <span>Word</span>
+              <Download size={15} />
+            </button>
+            <button type="button" onClick={() => handleTelemetryExport("json")}>
+              <span>JSON</span>
+              <FileText size={15} />
+            </button>
+          </div>,
+          document.body
         )}
       </form>
     </div>

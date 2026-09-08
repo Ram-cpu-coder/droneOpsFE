@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pause, Play, RadioTower, RotateCcw, Save, ShieldCheck, Trash2, Undo2, RefreshCw } from "lucide-react";
-import SectionHeader from "../../components/common/SectionHeader";
-import ActionButton from "../../components/common/ActionButton";
+import DataTable from "../../components/common/DataTable";
 import GeospatialMap from "../../components/maps/GeospatialMap";
 import MissionRouteMap from "../missions/components/MissionRouteMap";
 import { droneOpsApi } from "../../services/droneOpsApi";
@@ -23,7 +22,9 @@ export default function LiveOperations({user}) {
   const [zone,setZone]=useState(blankZone);const [editingId,setEditingId]=useState(null);
   const [telemetryStatus,setTelemetryStatus]=useState(null);
   const [drawing,setDrawing]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState("");const [message,setMessage]=useState("");
+  const [showGeofenceList,setShowGeofenceList]=useState(false);
   const requestRef=useRef(0);
+  const geofenceTableRef=useRef(null);
   const canManage=hasClientPermission(user,"geofences:manage");
   const refreshZones=useCallback(async()=>{if(document.visibilityState!=="visible")return;try{setZones(await droneOpsApi.geofences.list());}catch(e){setError(e.message);}},[]);
   const refreshTelemetryStatus=useCallback(async()=>{if(document.visibilityState!=="visible")return;try{setTelemetryStatus(await droneOpsApi.telemetry.status());}catch(e){setTelemetryStatus({error:e.message});}},[]);
@@ -56,14 +57,25 @@ export default function LiveOperations({user}) {
   const saveZone=async(event)=>{
     event.preventDefault();setBusy(true);setError("");setMessage("");
     try{const saved=editingId?await droneOpsApi.geofences.update(editingId,zone):await droneOpsApi.geofences.create(zone);
-      setZones(rows=>[saved,...rows.filter(row=>row.id!==saved.id)]);setEditingId(saved.id);setDrawing(false);setMessage("Geofence saved.");
+      setZones(rows=>[saved,...rows.filter(row=>row.id!==saved.id)]);setEditingId(editingId?saved.id:null);setZone(editingId?{name:saved.name,type:saved.type,isActive:saved.isActive,polygon:saved.polygon}:blankZone());setDrawing(false);setMessage("Geofence saved.");
     }catch(e){setError(e.message);}finally{setBusy(false);}
   };
-  const deleteZone=async()=>{if(!editingId)return;setBusy(true);setError("");setMessage("");try{await droneOpsApi.geofences.remove(editingId);setZones(rows=>rows.filter(row=>row.id!==editingId));setZone(blankZone());setEditingId(null);setDrawing(false);setMessage("Geofence deleted.");}catch(e){setError(e.message);}finally{setBusy(false);}};
+  const deleteZone=async(targetId=editingId)=>{if(!targetId)return;setBusy(true);setError("");setMessage("");try{await droneOpsApi.geofences.remove(targetId);setZones(rows=>rows.filter(row=>row.id!==targetId));if(editingId===targetId){setZone(blankZone());setEditingId(null);setDrawing(false);}setMessage("Geofence deleted.");}catch(e){setError(e.message);}finally{setBusy(false);}};
+  const selectZone=(selectedZone)=>{setZone({name:selectedZone.name,type:selectedZone.type,isActive:selectedZone.isActive,polygon:selectedZone.polygon});setEditingId(selectedZone.id);setDrawing(false);};
+  const openGeofenceList=()=>{setShowGeofenceList(true);window.requestAnimationFrame(()=>geofenceTableRef.current?.scrollIntoView({behavior:"smooth",block:"start"}));};
   const mission=missions.find(m=>m.id===missionId);
   const replaySelectionReady = Boolean(missionId && droneId);
-  const manualZones=zones.filter(z=>z.source!=="GOVERNMENT");
   const governmentZones=zones.filter(z=>z.source==="GOVERNMENT");
+  const geofenceRows=zones.map(z=>({...z,sourceLabel:z.source==="GOVERNMENT"?(z.provider||"Government"):"DroneOps",pointCount:Array.isArray(z.polygon)?z.polygon.length:0,statusLabel:z.isActive?"Active":"Inactive"}));
+  const geofenceColumns=[
+    {key:"name",label:"Name"},
+    {key:"type",label:"Type",filterable:true,render:z=><span className={`status-pill ${String(z.type).toLowerCase()}`}>{z.type}</span>},
+    {key:"statusLabel",label:"Status",filterable:true},
+    {key:"sourceLabel",label:"Source",filterable:true},
+    {key:"pointCount",label:"Points"},
+    {key:"updatedAt",label:"Updated",render:z=>z.updatedAt?new Date(z.updatedAt).toLocaleDateString():"-"},
+    {key:"actions",label:"Actions",sortable:false,searchable:false,render:z=><div className="table-row-actions"><button type="button" className="secondary-button compact" onClick={()=>selectZone(z)}>Edit</button>{z.source!=="GOVERNMENT"&&<button type="button" className="danger-button compact" disabled={busy} onClick={()=>deleteZone(z.id)}>Delete</button>}</div>}
+  ];
   const editingZone=zones.find(z=>z.id===editingId);
   const isGovernmentEditing=editingZone?.source==="GOVERNMENT";
   return <div className="page-stack operations-module">
@@ -79,11 +91,11 @@ export default function LiveOperations({user}) {
     {(error||message)&&<div className="operations-feedback-row">{error&&<div role="alert" className="auth-alert">{error}</div>}{message&&<p role="status" className="operations-success-message">{message}</p>}</div>}
     {tab==="live"&&<GeospatialMap/>}
     {tab==="replay"&&<div className="panel telemetry-replay-panel">
-      <SectionHeader title="Telemetry Replay" action={<ActionButton icon={RefreshCw} disabled={busy} onClick={()=>setReload(value=>value+1)}>Refresh history</ActionButton>} />
       <div className="operations-toolbar telemetry-replay-toolbar">
         <label className="field">Source<select aria-label="Replay source" value={replaySource} onChange={e=>setReplaySource(e.target.value)}><option value="mission">Mission replay</option><option value="drone">Drone history</option></select></label>
         <label className="field">Mission<select aria-label="Replay mission" value={missionId} onChange={e=>setMissionId(e.target.value)}><option value="">Select mission</option>{missions.map(m=><option value={m.id} key={m.id}>{m.missionCode} - {m.name}</option>)}</select></label>
         <label className="field">Drone<select aria-label="Replay drone" value={droneId} onChange={e=>setDroneId(e.target.value)}><option value="">Select drone</option>{drones.map(d=><option key={d.id} value={d.droneCode ?? d.id}>{d.droneCode}</option>)}</select></label>
+        <button className="secondary-button telemetry-refresh-button" type="button" disabled={busy} onClick={()=>setReload(value=>value+1)}><RefreshCw size={16}/>Refresh history</button>
       </div>
       {!busy&&!records.length&&(replaySource==="mission"?missionId:droneId)&&<div className="auth-alert" role="status">{buildReplayEmptyMessage(replaySource, telemetryStatus)}</div>}
       {telemetryStatus&&<TelemetryStatusNote status={telemetryStatus}/>}
@@ -103,6 +115,7 @@ export default function LiveOperations({user}) {
       <div>
         <MissionRouteMap showEmptyMap geofences={[...zones.filter(z=>z.id!==editingId),...(zone.polygon.length>=3?[{...zone,name:zone.name||"Unsaved geofence",isActive:true}]:[])]}
           waypoints={zone.polygon.map(([longitude,latitude],i)=>({longitude,latitude,label:`Boundary point ${i+1}`}))}
+          autoFit={false}
           mapOverlayControls={<div className="geofence-map-controls">
             {canManage&&<>
               <button className="secondary-button" type="button" disabled={isGovernmentEditing} onClick={()=>setDrawing(v=>!v)}>{drawing?"Finish boundary":"Draw boundary"}</button>
@@ -121,20 +134,26 @@ export default function LiveOperations({user}) {
           <label className="operations-toggle"><input type="checkbox" checked={zone.isActive} disabled={isGovernmentEditing} onChange={e=>setZone(z=>({...z,isActive:e.target.checked}))}/><span><strong>Active</strong><small>Show this zone on operational maps</small></span></label>
           <button className="primary-button" type="submit" disabled={busy||zone.polygon.length<3||isGovernmentEditing}><Save size={16}/>{busy?"Saving...":"Save manual geofence"}</button>
           <button className="secondary-button" type="button" onClick={()=>{setZone(blankZone());setEditingId(null);setDrawing(false);}}>New manual boundary</button>
-          {editingId&&!isGovernmentEditing&&<button className="danger-button" type="button" disabled={busy} onClick={deleteZone}><Trash2 size={16}/>Delete manual geofence</button>}
+          {editingId&&!isGovernmentEditing&&<button className="danger-button" type="button" disabled={busy} onClick={()=>deleteZone()}><Trash2 size={16}/>Delete manual geofence</button>}
         </form>}
-        <h3>Manual geofences</h3>
-        {!manualZones.length&&<p>No manual geofences saved.</p>}
-        {manualZones.map(z=><button className="operations-list-item" key={z.id} type="button" onClick={()=>{setZone({name:z.name,type:z.type,isActive:z.isActive,polygon:z.polygon});setEditingId(z.id);setDrawing(false);}}><strong>{z.name}</strong><span>{z.type} · {z.isActive?"Active":"Inactive"} · DroneOps</span></button>)}
+        <button type="button" className="secondary-button geofence-list-jump" onClick={openGeofenceList}>View geofence list</button>
         <section className="operations-source-card reserved">
           <h3>Government airspace integration</h3>
           <p className="muted">Reserved for CASA/Airservices/FIMS or an approved provider feed. Manual geofences work now.</p>
           <div className="operations-source-stats"><span>{governmentZones.length} synced</span><span>Provider not connected</span></div>
         </section>
-        {governmentZones.length>0&&<h3>Government restrictions</h3>}
-        {governmentZones.map(z=><button className="operations-list-item government" key={z.id} type="button" onClick={()=>{setZone({name:z.name,type:z.type,isActive:z.isActive,polygon:z.polygon});setEditingId(z.id);setDrawing(false);}}><strong>{z.name}</strong><span>{z.type} · {z.provider||"Government"} · Read-only</span></button>)}
       </aside>
     </div>}
+    {tab==="zones"&&showGeofenceList&&<section className="panel geofence-list-panel" ref={geofenceTableRef}>
+      <div className="panel-heading">
+        <div>
+          <h3>Geofence List</h3>
+          <p>Manual and provider boundaries used by operational maps and mission route checks.</p>
+        </div>
+        <button type="button" className="secondary-button" onClick={()=>setShowGeofenceList(false)}>Hide list</button>
+      </div>
+      <DataTable columns={geofenceColumns} rows={geofenceRows} getRowKey={row=>row.id} onRowClick={selectZone} searchPlaceholder="Search geofences" emptyMessage="No geofences saved." tableClassName="geofence-register-table"/>
+    </section>}
   </div>;
 }
 

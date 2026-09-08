@@ -8,7 +8,7 @@ import { useOperationalGeofences } from "../../../hooks/useOperationalGeofences"
 
 const defaultCenter = { latitude: -33.8679, longitude: 151.2073 };
 
-const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = null, authorityAnalysis = null, telemetry = null, telemetryTrail = [], telemetryMode = "planned", incidentLocation = null, context = null, geofences: suppliedGeofences, onMapClick, mapOverlayControls = null, showEmptyMap = false }) => {
+const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = null, authorityAnalysis = null, telemetry = null, telemetryTrail = [], telemetryMode = "planned", incidentLocation = null, context = null, geofences: suppliedGeofences, onMapClick, mapOverlayControls = null, showEmptyMap = false, autoFit = true }) => {
   const operationalGeofences = useOperationalGeofences(suppliedGeofences === undefined);
   const geofences = suppliedGeofences ?? operationalGeofences.zones;
   const clickRef = useRef(onMapClick);
@@ -128,7 +128,7 @@ const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = nu
     });
     window.requestAnimationFrame(() => updateDroneMarkerScale(mapRef.current));
 
-    if (!hasFittedRef.current) {
+    if (autoFit && !hasFittedRef.current) {
       fitMapToPoints(mapRef.current, mapPoints);
       hasFittedRef.current = true;
     }
@@ -139,7 +139,7 @@ const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = nu
         duration: 0.35
       });
     }
-  }, [councilOverlay, incidentPoint, latestTelemetryPoint, locationPoints, mapPoints, mapReady, operatingArea, routePoints, telemetryMode, telemetryPoints]);
+  }, [autoFit, councilOverlay, incidentPoint, latestTelemetryPoint, locationPoints, mapPoints, mapReady, operatingArea, routePoints, telemetryMode, telemetryPoints]);
 
   if (mapPoints.length === 0 && !showEmptyMap) {
     return (
@@ -242,8 +242,14 @@ const renderMapLayers = ({ layers, routePoints, locationPoints, operatingArea, c
   });
 
   if (hasCoordinates(latestTelemetryPoint)) {
+    const telemetryMarkerState = getTelemetryMarkerState(latestTelemetryPoint, telemetryMode);
+    const telemetryMarkerTitle = telemetryMarkerState === "offline"
+      ? "Offline aircraft position"
+      : telemetryMode === "recorded"
+        ? "Recorded aircraft position"
+        : "Live aircraft position";
     L.marker(toLatLng(latestTelemetryPoint), {
-      icon: createMarkerIcon("", "drone-logo-marker", telemetryMode === "recorded" ? "Recorded aircraft position" : "Live aircraft position")
+      icon: createMarkerIcon("", `drone-logo-marker ${telemetryMarkerState}`, telemetryMarkerTitle)
     })
       .bindPopup(buildTelemetryPopup(latestTelemetryPoint))
       .addTo(layers.markers);
@@ -258,14 +264,24 @@ const renderMapLayers = ({ layers, routePoints, locationPoints, operatingArea, c
   }
 };
 
-const createMarkerIcon = (label, className, title) => L.divIcon({
+const createMarkerIcon = (label, className, title) => {
+  const isDroneLogo = className.includes("drone-logo-marker");
+  return L.divIcon({
   className: "leaflet-route-marker-wrapper",
-  html: className === "drone-logo-marker"
+  html: isDroneLogo
     ? `<button type="button" class="route-picker-marker mission-profile-map-marker ${className}" aria-label="${escapeAttribute(title)}"><span class="map-drone-logo drone-logo" aria-hidden="true"><span class="drone-rotor rotor-left-top"></span><span class="drone-rotor rotor-right-top"></span><span class="drone-rotor rotor-left-bottom"></span><span class="drone-rotor rotor-right-bottom"></span><span class="drone-body"></span></span><span class="route-picker-marker-tag">${escapeHtml(title)}</span></button>`
     : `<button type="button" class="route-picker-marker mission-profile-map-marker ${className}" aria-label="${escapeAttribute(title)}"><span class="route-picker-marker-bubble">${escapeHtml(label)}</span><span class="route-picker-marker-tag">${escapeHtml(title)}</span></button>`,
-  iconSize: className === "drone-logo-marker" ? [42, 30] : [28, 28],
-  iconAnchor: className === "drone-logo-marker" ? [21, 15] : [14, 14]
+  iconSize: isDroneLogo ? [56, 56] : [28, 28],
+  iconAnchor: isDroneLogo ? [28, 28] : [14, 14]
 });
+};
+
+const getTelemetryMarkerState = (point, telemetryMode) => {
+  const status = String(point?.status ?? "").trim().toLowerCase();
+  if (status.includes("offline") || status.includes("disconnected") || status.includes("lost")) return "offline";
+  if (status.includes("live") || status.includes("active") || telemetryMode === "live") return "online";
+  return telemetryMode === "recorded" ? "offline" : "online";
+};
 
 const updateDroneMarkerScale = (map) => {
   if (!map) return;

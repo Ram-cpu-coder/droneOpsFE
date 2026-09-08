@@ -77,8 +77,7 @@ const routes = [
     label: "Users",
     description: "Manage users, verification status, role assignments, and access control.",
     icon: Users,
-    requiredPermission: "users",
-    secondary: true
+    requiredPermission: "users"
   },
   {
     id: "settings",

@@ -322,7 +322,9 @@ const request = async (path, options = {}, retry = true) => {
 
   const responseData = payload.data ?? payload;
   const syncStatus = responseData?.synctegralSyncStatus;
-  const hasSyncFailure = path.includes("/sync-synctegral")
+  const isMissionSyncPath = path.includes("/sync-synctegral")
+    || /\/missions\/[^/]+\/(start|complete)$/.test(path);
+  const hasSyncFailure = isMissionSyncPath
     && ["FAILED", "SKIPPED"].includes(String(syncStatus ?? "").toUpperCase());
 
   if (shouldShowOperationFeedback(method, path)) {
@@ -332,16 +334,29 @@ const request = async (path, options = {}, retry = true) => {
       title: hasSyncFailure ? "Synctegral sync needs attention" : requestContext.successTitle,
       message: hasSyncFailure
         ? responseData.synctegralSyncError ?? "Synctegral did not accept the mission synchronization."
-        : payload.message || requestContext.successMessage,
+        : requestContext.successMessage,
       context: requestContext.context,
-      details: hasSyncFailure
-        ? ["The local mission remains saved.", "Fix the integration issue and reconnect Synctegral to retry the route sync."]
-        : requestContext.successDetails
+      details: hasSyncFailure ? getSyncFailureDetails(responseData) : requestContext.successDetails
     });
   }
 
   // Return response data.
   return responseData;
+};
+
+const getSyncFailureDetails = (responseData) => {
+  const message = String(responseData?.synctegralSyncError ?? "").toLowerCase();
+  if (message.includes("terminal state") || message.includes("completed") || message.includes("cannot be modified")) {
+    return [
+      "This mission is already in a terminal state.",
+      "DroneOps will not retry route/detail updates for completed missions."
+    ];
+  }
+
+  return [
+    "The local mission remains saved.",
+    "Fix the integration issue and reconnect Synctegral to retry the route sync."
+  ];
 };
 
 // Builds unique key for GET request cache.
@@ -415,6 +430,61 @@ const getRequestResource = (path) => {
 };
 
 const getRequestAction = (method, path) => {
+  if (/^\/missions\/[^/]+\/risk-assessment$/.test(path)) {
+    return {
+      loading: "Saving",
+      loadingMessage: () => "DroneOps is saving the pre-flight risk assessment.",
+      loadingDetails: ["Hazards, mitigations, and risk level are being checked before the mission can move forward."],
+      success: "saved",
+      successMessage: () => "Risk assessment saved. The mission is ready for the next allowed step.",
+      successDetails: ["Mission status and pre-flight records have been refreshed."]
+    };
+  }
+
+  if (/^\/missions\/[^/]+\/approve$/.test(path)) {
+    return {
+      loading: "Approving",
+      loadingMessage: () => "DroneOps is approving this mission.",
+      loadingDetails: ["Assignments, permissions, and mission state are being checked."],
+      success: "approved",
+      successMessage: () => "Mission approved. Pre-flight risk assessment can now be completed.",
+      successDetails: ["Mission Control has been refreshed with the latest approval state."]
+    };
+  }
+
+  if (/^\/missions\/[^/]+\/start$/.test(path)) {
+    return {
+      loading: "Starting",
+      loadingMessage: () => "DroneOps is starting the mission and checking Synctegral sync.",
+      loadingDetails: ["Drone assignment, pilot credentials, permissions, risk assessment, and telemetry connector details are being verified."],
+      success: "started",
+      successMessage: () => "Mission started. Live tracking is ready.",
+      successDetails: ["If Synctegral reports a sync problem, DroneOps will show it before treating the action as complete."]
+    };
+  }
+
+  if (/^\/missions\/[^/]+\/complete$/.test(path)) {
+    return {
+      loading: "Completing",
+      loadingMessage: () => "DroneOps is closing the mission and saving final operational state.",
+      loadingDetails: ["Drone status, flight hours, and mission completion records are being updated."],
+      success: "completed",
+      successMessage: () => "Mission completed. Final records are saved.",
+      successDetails: ["Mission history, telemetry replay, and linked records have been refreshed."]
+    };
+  }
+
+  if (/^\/missions\/[^/]+\/authority-approvals$/.test(path)) {
+    return {
+      loading: "Saving",
+      loadingMessage: () => "DroneOps is saving council permission confirmations.",
+      loadingDetails: ["Permission state is being checked before the mission can proceed."],
+      success: "saved",
+      successMessage: () => "Council permission confirmations saved.",
+      successDetails: ["The mission approval checklist has been refreshed."]
+    };
+  }
+
   if (path === "/reports/generate") {
     return {
       loading: "Generating",
@@ -434,6 +504,83 @@ const getRequestAction = (method, path) => {
       success: "analysed",
       successMessage: () => "Flight path analysis completed.",
       successDetails: ["Review the route findings before accepting the path and saving the mission."]
+    };
+  }
+
+  if (path === "/missions" && method === "POST") {
+    return {
+      loading: "Creating",
+      loadingMessage: () => "DroneOps is creating the mission and checking Synctegral sync.",
+      loadingDetails: ["Assignments, schedule, route analysis, permissions, and linked records are being validated."],
+      success: "created",
+      successMessage: () => "Mission created successfully.",
+      successDetails: ["Mission Control has been refreshed with the saved mission."]
+    };
+  }
+
+  if (/^\/incidents\/[^/]+\/evidence$/.test(path)) {
+    return {
+      loading: "Uploading",
+      loadingMessage: () => "DroneOps is uploading incident evidence.",
+      loadingDetails: ["The incident record stays open while selected files are attached."],
+      success: "uploaded",
+      successMessage: () => "Incident evidence uploaded.",
+      successDetails: ["The incident evidence list has been refreshed."]
+    };
+  }
+
+  if (path === "/incidents" && method === "POST") {
+    return {
+      loading: "Logging",
+      loadingMessage: () => "DroneOps is logging the incident.",
+      loadingDetails: ["Required fields, linked drones, location, and follow-up ownership are being saved."],
+      success: "logged",
+      successMessage: () => "Incident logged successfully.",
+      successDetails: ["The incident register has been refreshed."]
+    };
+  }
+
+  if (path === "/maintenance" && method === "POST") {
+    return {
+      loading: "Saving",
+      loadingMessage: () => "DroneOps is saving the maintenance record.",
+      loadingDetails: ["Drone service state and next-service calculations are being updated."],
+      success: "saved",
+      successMessage: () => "Maintenance record saved.",
+      successDetails: ["Maintenance schedule and fleet status have been refreshed."]
+    };
+  }
+
+  if (/^\/maintenance\/[^/]+\/release$/.test(path)) {
+    return {
+      loading: "Releasing",
+      loadingMessage: () => "DroneOps is releasing the drone from maintenance.",
+      loadingDetails: ["Service status and fleet availability are being checked."],
+      success: "released",
+      successMessage: () => "Drone released from maintenance.",
+      successDetails: ["Fleet and maintenance records have been refreshed."]
+    };
+  }
+
+  if (path === "/geofences" && method === "POST") {
+    return {
+      loading: "Saving",
+      loadingMessage: () => "DroneOps is saving the operational geofence.",
+      loadingDetails: ["Boundary geometry and geofence details are being validated."],
+      success: "saved",
+      successMessage: () => "Geofence saved.",
+      successDetails: ["Operational maps and the geofence register have been refreshed."]
+    };
+  }
+
+  if (path === "/drones" && method === "POST") {
+    return {
+      loading: "Registering",
+      loadingMessage: () => "DroneOps is registering the drone.",
+      loadingDetails: ["Fleet identifiers, certification details, and telemetry connector settings are being validated."],
+      success: "registered",
+      successMessage: () => "Drone registered successfully.",
+      successDetails: ["Fleet records have been refreshed."]
     };
   }
 
@@ -471,11 +618,11 @@ const getRequestAction = (method, path) => {
   }
 
   return {
-    loading: "Submitting",
-    loadingMessage: (resource) => `DroneOps is submitting this ${resource.toLowerCase()} request.`,
+    loading: "Processing",
+    loadingMessage: (resource) => `DroneOps is processing this ${resource.toLowerCase()} request.`,
     loadingDetails: ["Keep this window open until the request finishes."],
-    success: "submitted",
-    successMessage: (resource) => `${resource} was submitted successfully.`,
+    success: "completed",
+    successMessage: (resource) => `${resource} request completed successfully.`,
     successDetails: ["The relevant list will reload with the latest data."]
   };
 };

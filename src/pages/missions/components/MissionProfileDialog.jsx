@@ -35,6 +35,7 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
   const isSystemAdministrator = ["SYSTEM_ADMINISTRATOR", "system_administrator"].includes(user?.role);
   const canCompleteRisk = Boolean(user?.permissions?.includes("*") || user?.permissions?.includes("risk:complete") || user?.permissions?.includes("risk:manage"));
   const workflowStatus = mission.rawStatus ?? mission.status;
+  const isTerminalMission = isTerminalMissionStatus(workflowStatus);
   const hasRiskAssessment = Boolean(mission.riskAssessment);
   const routeProgress = mission.plannedRoute?.progress;
   const waypoints = toWaypointRows(mission.plannedRoute?.waypoints ?? mission.plannedRoute?.coordinates);
@@ -42,6 +43,7 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
   const operatingLocation = mission.plannedRoute?.operatingArea ?? toSavedLocation(mission.operatingArea);
   const authorityAnalysis = mission.plannedRoute?.routeAnalysis?.authorityAnalysis ?? mission.geofenceConfig?.authorityAnalysis ?? null;
   const councilApprovalState = getCouncilApprovalState(mission.geofenceConfig, authorityAnalysis, authorityApprovalDraft);
+  const canEditMission = canManage && !isTerminalMission;
   const canEditAuthorityApprovals = canManage && !["ACTIVE", "COMPLETED", "ABORTED", "CANCELLED"].includes(workflowStatus);
   const canDeleteMission = canManage && workflowStatus !== "ACTIVE";
   const routeSummary = getRouteSummary(waypoints);
@@ -151,7 +153,7 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
     };
   }, [mission, workflowStatus]);
 
-  if (isEditing) {
+  if (isEditing && canEditMission) {
     return (
       <MissionForm
         mission={mission}
@@ -188,7 +190,7 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
           </div>
           <div className="profile-header-actions">
             <div className="profile-header-buttons">
-              {canManage && (
+              {canEditMission && (
                 <ActionButton icon={Pencil} onClick={() => setIsEditing(true)}>Edit</ActionButton>
               )}
               <button className="icon-button" type="button" onClick={onClose} aria-label="Close mission profile">
@@ -571,6 +573,7 @@ const MissionProfileDialog = ({ mission, canManage = false, user, onUpdated, onC
       if (action === "start") updatedMission = await droneOpsApi.missions.start(missionId);
       if (action === "complete") updatedMission = await droneOpsApi.missions.complete(missionId);
 
+      assertMissionTransitionSynced(updatedMission, action);
       onUpdated?.(updatedMission, action);
       if (action === "start") setShowLiveFullscreen(true);
     } catch (requestError) {
@@ -1146,6 +1149,8 @@ const normalizeSyncStatus = (status) => {
   return "PENDING";
 };
 
+const isTerminalMissionStatus = (status) => ["COMPLETED", "ABORTED", "CANCELLED"].includes(String(status ?? "").toUpperCase());
+
 const AuthorityApprovalReadout = ({ operatingLocation, geofenceConfig, authorityAnalysis, approvalState, approvals = {}, editable = false, isSaving = false, saveMessage = "", onApprovalChange, onSave }) => {
   if (approvalState.items.length) {
     const confirmedCount = approvalState.items.length - approvalState.pendingCount;
@@ -1393,6 +1398,17 @@ const getWorkflowDescription = (status, isSystemAdministrator) => {
   }
 
   return "This mission is currently in a locked lifecycle state.";
+};
+
+const assertMissionTransitionSynced = (mission, action) => {
+  if (!["start", "complete"].includes(action)) return;
+
+  const syncStatus = String(mission?.synctegralSyncStatus ?? "").toUpperCase();
+  if (!["FAILED", "SKIPPED"].includes(syncStatus)) return;
+
+  const actionLabel = action === "start" ? "start" : "completion";
+  const reason = mission?.synctegralSyncError || (syncStatus === "SKIPPED" ? "Synctegral sync is disabled." : "Synctegral did not accept the mission update.");
+  throw new Error(`Mission ${actionLabel} was not confirmed by Synctegral. ${reason}`);
 };
 
 export default MissionProfileDialog;

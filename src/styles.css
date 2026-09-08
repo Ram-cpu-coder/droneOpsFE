@@ -2308,12 +2308,77 @@ body.modal-open {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.drone-profile-dialog .drone-profile-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 6px;
+  background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+  border-color: color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.drone-profile-dialog .drone-profile-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 14px;
+  color: var(--text-soft);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  box-shadow: none;
+  text-align: center;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.drone-profile-dialog .drone-profile-tabs button svg {
+  flex: 0 0 auto;
+  color: currentColor;
+}
+
+.drone-profile-dialog .drone-profile-tabs button strong {
+  min-width: 0;
+  overflow: hidden;
+  color: currentColor;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drone-profile-dialog .drone-profile-tabs button:hover,
+.drone-profile-dialog .drone-profile-tabs button:focus-visible {
+  color: var(--text);
+  background: color-mix(in srgb, var(--blue) 9%, transparent);
+  border-color: color-mix(in srgb, var(--blue) 20%, transparent);
+  outline: 0;
+}
+
+.drone-profile-dialog .drone-profile-tabs button.active {
+  color: #f8fbff;
+  background: linear-gradient(135deg, rgba(77, 141, 255, 0.42), rgba(82, 211, 172, 0.22));
+  border-color: color-mix(in srgb, var(--blue) 46%, var(--line));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 10px 22px rgba(15, 42, 96, 0.2);
+}
+
 .drone-profile-content { position: relative; z-index: 0; min-width: 0; }
 .drone-profile-sections .profile-section dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }
+.profile-tab-action-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
 @media (max-width: 600px) {
   .drone-profile-dialog .drone-profile-tabs { display: flex; overflow-x: auto; gap: 4px; }
-  .drone-profile-dialog .drone-profile-tabs button { flex: 0 0 auto; min-height: 44px; padding: 8px 10px; }
+  .drone-profile-dialog .drone-profile-tabs button { flex: 0 0 auto; min-height: 44px; padding: 8px 12px; }
   .drone-profile-sections .profile-section dl { grid-template-columns: minmax(0, 1fr); }
+  .profile-tab-action-row,
+  .profile-tab-action-row > button {
+    width: 100%;
+  }
 }
 
 .incident-profile-dialog [role="tabpanel"] {
@@ -3436,6 +3501,29 @@ body.modal-open {
   flex: 0 0 auto;
 }
 
+.sidebar-profile-avatar {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  place-items: center;
+  overflow: hidden;
+  color: #ffffff;
+  background: linear-gradient(135deg, #4d8dff, #56d6a5);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 10px 22px rgba(38, 114, 234, 0.2);
+}
+
+.sidebar-profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .nav-item span {
   min-width: 0;
   overflow: hidden;
@@ -3449,7 +3537,7 @@ body.modal-open {
 }
 
 .sidebar-collapsed .brand-copy,
-.sidebar-collapsed .nav-item span {
+.sidebar-collapsed .nav-item > span:not(.sidebar-profile-avatar) {
   width: 0;
   opacity: 0;
   pointer-events: none;
@@ -3897,6 +3985,199 @@ button.notification-item:focus-visible {
 .notification-item p {
   margin: 0;
   line-height: 1.45;
+}
+
+.floating-alert-button {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 80;
+  display: inline-grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  color: #1f2937;
+  background: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.46);
+  border-radius: 999px;
+  box-shadow: 0 18px 42px rgba(2, 6, 23, 0.34), 0 0 0 8px rgba(255, 255, 255, 0.06);
+}
+
+.floating-alert-button.has-alerts {
+  color: #b91c1c;
+  animation: operationalAlertPulse 1.9s ease-out infinite;
+}
+
+.floating-alert-button span {
+  position: absolute;
+  top: -6px;
+  right: -4px;
+  display: inline-grid;
+  min-width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0 6px;
+  color: #ffffff;
+  background: #ef4444;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.operational-alert-panel {
+  position: fixed;
+  right: 24px;
+  bottom: 94px;
+  z-index: 90;
+  display: grid;
+  width: min(980px, calc(100vw - 48px));
+  max-height: min(760px, calc(100vh - 126px));
+  gap: 16px;
+  padding: 18px;
+  overflow: auto;
+  color: var(--text);
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.98), rgba(20, 31, 52, 0.98));
+  border: 1px solid color-mix(in srgb, var(--line) 92%, transparent);
+  border-radius: 14px;
+  box-shadow: 0 28px 80px rgba(2, 6, 23, 0.52);
+}
+
+.operational-alert-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.operational-alert-header h2 {
+  margin: 0;
+}
+
+.operational-alert-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.alert-center-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.alert-summary-tile {
+  display: grid;
+  gap: 6px;
+  min-height: 76px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 10px;
+}
+
+.alert-summary-tile span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.alert-summary-tile strong {
+  color: var(--text);
+  font-size: 28px;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 146px;
+}
+
+.secondary-button.compact-action {
+  min-height: 32px;
+  padding: 0 9px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.operational-alert-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.operational-alert-table th,
+.operational-alert-table td {
+  padding: 14px 12px;
+}
+
+.operational-alert-table th:nth-child(1),
+.operational-alert-table td:nth-child(1) {
+  width: 27%;
+}
+
+.operational-alert-table th:nth-child(2),
+.operational-alert-table td:nth-child(2),
+.operational-alert-table th:nth-child(3),
+.operational-alert-table td:nth-child(3),
+.operational-alert-table th:nth-child(5),
+.operational-alert-table td:nth-child(5),
+.operational-alert-table th:nth-child(6),
+.operational-alert-table td:nth-child(6) {
+  width: 12%;
+}
+
+.operational-alert-table th:nth-child(4),
+.operational-alert-table td:nth-child(4) {
+  width: 13%;
+}
+
+.operational-alert-table th:nth-child(7),
+.operational-alert-table td:nth-child(7) {
+  width: 18%;
+}
+
+.alert-profile-dialog {
+  width: min(740px, calc(100vw - 32px));
+}
+
+.profile-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.profile-field {
+  display: grid;
+  gap: 8px;
+  min-height: 84px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  border-radius: 10px;
+}
+
+.profile-field span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.profile-field strong {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+@keyframes operationalAlertPulse {
+  0% {
+    box-shadow: 0 18px 42px rgba(2, 6, 23, 0.34), 0 0 0 0 rgba(239, 68, 68, 0.26);
+  }
+
+  100% {
+    box-shadow: 0 18px 42px rgba(2, 6, 23, 0.34), 0 0 0 18px rgba(239, 68, 68, 0);
+  }
 }
 
 .empty-state.error {
@@ -6388,6 +6669,11 @@ tr:last-child td {
 .geofence-map-controls .icon-button,
 .geofence-map-controls > span {
   min-height: 36px;
+  color: #f8fafc;
+  background: rgba(8, 18, 34, 0.94);
+  border-color: rgba(147, 197, 253, 0.34);
+  box-shadow: 0 8px 20px rgba(2, 8, 18, 0.34);
+  backdrop-filter: blur(10px);
 }
 
 .telemetry-replay-map-controls {
@@ -6422,15 +6708,29 @@ tr:last-child td {
   white-space: nowrap;
 }
 
+.geofence-map-controls .secondary-button:hover:not(:disabled),
+.geofence-map-controls .secondary-button:focus-visible:not(:disabled),
+.geofence-map-controls .icon-button:hover:not(:disabled),
+.geofence-map-controls .icon-button:focus-visible:not(:disabled) {
+  color: #ffffff;
+  background: rgba(29, 78, 216, 0.94);
+  border-color: rgba(191, 219, 254, 0.76);
+}
+
+.geofence-map-controls .secondary-button:disabled,
+.geofence-map-controls .icon-button:disabled {
+  color: rgba(248, 250, 252, 0.55);
+  background: rgba(15, 23, 42, 0.78);
+  border-color: rgba(148, 163, 184, 0.22);
+  opacity: 1;
+}
+
 .geofence-map-controls > span {
   display: inline-flex;
   align-items: center;
   padding: 0 10px;
-  color: var(--text-soft);
-  background: color-mix(in srgb, var(--surface-solid) 92%, transparent);
-  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  color: #f8fafc;
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(2, 8, 18, 0.2);
   font-size: 12px;
   font-weight: 800;
   white-space: nowrap;
@@ -6664,13 +6964,52 @@ tr:last-child td {
   flex-wrap: wrap;
 }
 
+.pilot-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pilot-action-button {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  box-shadow: 0 12px 24px rgba(2, 8, 18, 0.18);
+}
+
+.pilot-action-button.primary {
+  color: #a8c7ff;
+  background: color-mix(in srgb, var(--blue) 20%, var(--surface-control));
+  border-color: color-mix(in srgb, var(--blue) 48%, var(--line));
+}
+
+.pilot-action-button.warning {
+  color: #ffd37a;
+  background: color-mix(in srgb, #f59e0b 18%, var(--surface-control));
+  border-color: color-mix(in srgb, #f59e0b 44%, var(--line));
+}
+
+.pilot-action-button.danger {
+  color: #fecaca;
+  background: color-mix(in srgb, var(--danger) 20%, var(--surface-control));
+  border-color: color-mix(in srgb, var(--danger) 52%, var(--line));
+}
+
+.pilot-action-button:hover,
+.pilot-action-button:focus-visible {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
 .pilot-profile-grid {
   display: grid;
   gap: 16px;
 }
 
 .pilot-summary-card,
-.pilot-credentials-readout {
+.pilot-credentials-readout,
+.pilot-operational-grid,
+.pilot-mission-list {
   padding: 18px;
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--blue) 10%, transparent), transparent 58%),
@@ -6712,6 +7051,39 @@ tr:last-child td {
   margin: 6px 0 0;
   color: var(--muted);
   font-weight: 700;
+}
+
+.pilot-operational-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pilot-operational-grid article {
+  display: grid;
+  gap: 7px;
+  min-height: 112px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--surface-control) 76%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  border-radius: 8px;
+}
+
+.pilot-operational-grid svg {
+  color: var(--blue-soft);
+}
+
+.pilot-operational-grid span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.pilot-operational-grid strong {
+  color: var(--text);
+  font-size: 16px;
+  overflow-wrap: anywhere;
 }
 
 .pilot-summary-metrics {
@@ -6864,6 +7236,43 @@ tr:last-child td {
   overflow-wrap: anywhere;
 }
 
+.pilot-mission-list {
+  display: grid;
+  gap: 12px;
+}
+
+.pilot-mission-card {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  background: color-mix(in srgb, var(--surface-control) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  border-radius: 8px;
+}
+
+.pilot-mission-card span {
+  justify-self: start;
+  padding: 5px 8px;
+  color: var(--blue-soft);
+  background: color-mix(in srgb, var(--blue) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--blue) 34%, var(--line));
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.pilot-mission-card strong {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.pilot-mission-card small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .pilot-form-footer {
   display: flex;
   align-items: center;
@@ -6873,6 +7282,11 @@ tr:last-child td {
 }
 
 .secondary-button.compact {
+  min-height: 38px;
+  padding: 9px 12px;
+}
+
+.danger-button.compact {
   min-height: 38px;
   padding: 9px 12px;
 }
@@ -6898,7 +7312,9 @@ tr:last-child td {
   }
 
   .pilot-licence-fields,
-  .pilot-licence dl {
+  .pilot-licence dl,
+  .pilot-operational-grid,
+  .pilot-mission-card {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -7034,33 +7450,74 @@ tr:last-child td {
 }
 
 .mission-profile-map-marker.drone-logo-marker {
-  width: 42px;
-  height: 30px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
   overflow: visible;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
+  background: linear-gradient(145deg, #10b981, #047857);
+  border: 2px solid rgba(255, 255, 255, 0.96);
+  border-radius: 999px;
+  box-shadow: 0 0 0 8px rgba(16, 185, 129, 0.2), 0 16px 32px rgba(5, 31, 25, 0.34);
+  isolation: isolate;
+  transform: translate(-50%, -50%);
+}
+
+.mission-profile-map-marker.drone-logo-marker::before {
+  position: absolute;
+  inset: -10px;
+  z-index: -1;
+  content: "";
+  border: 2px solid rgba(74, 222, 128, 0.72);
+  border-radius: inherit;
+  animation: liveDronePulse 1.45s ease-out infinite;
+}
+
+.mission-profile-map-marker.drone-logo-marker.offline {
+  background: linear-gradient(145deg, #ef4444, #991b1b);
+  border-color: rgba(255, 245, 245, 0.96);
+  box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.2), 0 16px 32px rgba(45, 5, 12, 0.36);
+}
+
+.mission-profile-map-marker.drone-logo-marker.offline::before {
+  border-color: rgba(248, 113, 113, 0.74);
 }
 
 .mission-profile-map-marker.drone-logo-marker .map-drone-logo {
-  transform: scale(0.22);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  transform: translate(-50%, -50%) scale(0.22);
   transform-origin: center;
+  filter: drop-shadow(0 2px 4px rgba(5, 10, 20, 0.34));
   animation: none;
 }
 
+.mission-profile-map-marker.drone-logo-marker .map-drone-logo::before,
+.mission-profile-map-marker.drone-logo-marker .map-drone-logo::after,
+.mission-profile-map-marker.drone-logo-marker .drone-rotor {
+  background: #ffffff;
+}
+
+.mission-profile-map-marker.drone-logo-marker .drone-body {
+  background: #ffffff;
+}
+
+.mission-profile-map-marker.drone-logo-marker .drone-body::after {
+  border-color: rgba(15, 23, 42, 0.42);
+}
+
 .mission-profile-map-marker.drone-logo-marker .route-picker-marker-tag {
-  left: 33px;
-  top: -2px;
+  left: 48px;
+  top: 5px;
 }
 
 .telemetry-replay-panel {
   display: grid;
   gap: 16px;
   padding: 18px;
-}
-
-.telemetry-replay-panel .section-header {
-  margin: 0;
 }
 
 .telemetry-replay-toolbar {
@@ -7077,6 +7534,12 @@ tr:last-child td {
   flex: 1 1 190px;
   min-width: 170px;
   margin: 0;
+}
+
+.telemetry-refresh-button {
+  flex: 0 0 auto;
+  min-height: 43px;
+  white-space: nowrap;
 }
 
 .telemetry-replay-toolbar > .icon-button {
@@ -7104,6 +7567,41 @@ tr:last-child td {
 .telemetry-replay-panel > .auth-alert,
 .telemetry-replay-panel > .muted {
   margin: 0;
+}
+
+.geofence-list-jump {
+  width: 100%;
+  justify-content: center;
+}
+
+.geofence-list-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.geofence-register-table .status-pill.restricted {
+  color: #fecdd3;
+  background: rgba(225, 29, 72, 0.2);
+  border-color: rgba(251, 113, 133, 0.38);
+}
+
+.geofence-register-table .status-pill.warning {
+  color: #fde68a;
+  background: rgba(217, 119, 6, 0.2);
+  border-color: rgba(251, 191, 36, 0.38);
+}
+
+.geofence-register-table .status-pill.advisory {
+  color: #bfdbfe;
+  background: rgba(37, 99, 235, 0.18);
+  border-color: rgba(96, 165, 250, 0.38);
+}
+
+.table-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .telemetry-replay-map {
@@ -7955,9 +8453,40 @@ tr:last-child td {
   grid-template-columns: 1fr;
 }
 
+.incident-form-layout .wide-form-section > .form-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.incident-form-layout .wide-form-section > .form-grid > .map-workspace {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
 .incident-location-picker {
   display: grid;
   grid-column: 1 / -1;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.leaflet-incident-location-picker > .map-workspace,
+.leaflet-incident-location-picker .map-workspace-layout,
+.leaflet-incident-location-picker .map-workspace-canvas {
+  width: 100%;
+}
+
+.incident-form-layout .map-workspace-layout,
+.incident-form-layout .map-workspace-canvas,
+.incident-form-layout .leaflet-incident-location-picker,
+.incident-form-layout .leaflet-incident-location-map {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-width: none;
+}
+
+.leaflet-incident-location-picker .map-workspace-canvas {
+  display: grid;
   gap: 10px;
 }
 
@@ -7983,6 +8512,8 @@ tr:last-child td {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
+  max-width: none;
   min-height: 46px;
   padding: 0 8px 0 12px;
   background: rgba(255, 255, 255, 0.045);
@@ -8013,6 +8544,7 @@ tr:last-child td {
 }
 
 .incident-location-map {
+  width: 100%;
   min-height: 260px;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.035);
@@ -10077,12 +10609,12 @@ tr:last-child td {
 
 .route-picker-search {
   position: absolute;
-  top: 14px;
-  left: 14px;
-  z-index: 3;
+  top: 12px;
+  left: 54px;
+  z-index: 700;
   display: grid;
   gap: 8px;
-  width: min(420px, calc(100% - 28px));
+  width: min(430px, calc(100% - 108px));
 }
 
 .route-picker-search-row {
@@ -10385,6 +10917,11 @@ tr:last-child td {
 
 .route-dot.location {
   background: #7df5c6;
+}
+
+.route-dot.geofence {
+  background: #dc2626;
+  border: 1px solid rgba(255, 255, 255, 0.72);
 }
 
 .route-line {
@@ -11552,9 +12089,21 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 
 .report-dialog-export-menu {
-  top: auto;
-  bottom: calc(100% + 8px);
-  z-index: 10060;
+  position: fixed;
+  display: grid;
+  gap: 4px;
+  width: 220px;
+  max-width: calc(100vw - 24px);
+  z-index: 10120;
+}
+
+.drone-profile-export-menu {
+  position: fixed;
+  display: grid;
+  gap: 4px;
+  width: 220px;
+  max-width: calc(100vw - 24px);
+  z-index: 10120;
 }
 
 .report-scope-backdrop {
@@ -13329,7 +13878,7 @@ tr {
 }
 
 .report-dialog-export-menu {
-  z-index: 10060;
+  z-index: 10120;
 }
 
 .toast-card.success > svg,
@@ -13617,6 +14166,10 @@ tr {
   padding: 0;
 }
 
+.mission-dialog .mission-form-step-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .mission-dialog .form-section {
   padding: 20px;
   background:
@@ -13691,7 +14244,13 @@ tr {
 }
 
 .mission-dialog .mission-form-step-panel {
+  grid-column: 1 / -1;
+  width: 100%;
   min-height: auto;
+}
+
+.mission-dialog .mission-form-step-panel > .form-grid > * {
+  grid-column: 1 / -1;
 }
 
 .mission-dialog .mission-assignment-section .form-grid {
@@ -13935,6 +14494,11 @@ tr {
     max-height: none;
     margin-top: 10px;
     background: rgba(255, 255, 255, 0.94);
+  }
+
+  .route-picker-search {
+    left: 52px;
+    width: min(420px, calc(100% - 76px));
   }
 
   .route-picker-help {
