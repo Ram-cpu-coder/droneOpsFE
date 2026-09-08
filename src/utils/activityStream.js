@@ -104,7 +104,9 @@ const describeAudit = (log) => {
     case "MISSION_DELETED":
       return createDescriptor(type, "warning", `${actorName} removed mission ${entityLabel}`, "Mission removed", `${entityLabel} was removed from Mission Control.`);
     case "INCIDENT_CREATED":
-      return createDescriptor(type, severityPriority(log.metadata?.severity), `${actorName} logged incident ${entityLabel}`, "Incident created", `${entityLabel} has been reported.`);
+      return createDescriptor(type, severityPriority(log.metadata?.severity), `${actorName} logged incident ${entityLabel}`, "Incident created", `${entityLabel} was logged by ${actorName}.`);
+    case "INCIDENT_EVIDENCE_UPLOADED":
+      return null;
     case "INCIDENT_UPDATED":
       return createDescriptor(type, severityPriority(log.metadata?.severity), `${actorName} updated incident ${entityLabel}`, "Incident updated", `${entityLabel} details were updated.`);
     case "INCIDENT_DELETED":

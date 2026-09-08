@@ -4,6 +4,7 @@ import L from "leaflet";
 import MapWorkspace, { MapDataDetails } from "../../../components/maps/MapWorkspace";
 import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useOperationalGeofences } from "../../../hooks/useOperationalGeofences";
 
 const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
 const defaultCenter = { latitude: -33.8679, longitude: 151.2073 };
@@ -39,11 +40,13 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
   const routePoints = useMemo(() => normalizeRoutePoints(value), [value]);
+  const operationalGeofences = useOperationalGeofences(true);
+  const activeGeofences = useMemo(() => operationalGeofences.zones.filter((zone) => zone.isActive !== false && Array.isArray(zone.polygon) && zone.polygon.length >= 3), [operationalGeofences.zones]);
   const activePoint = routePoints[activeIndex] ?? routePoints[0];
   const launchSite = normalizeLocation(locationPlan.launchSite);
   const operatingArea = normalizeLocation(locationPlan.operatingArea);
   const councilOverlay = useMemo(() => createCouncilOverlay(analysis?.authorityAnalysis), [analysis]);
-  const showRouteSearch = activeTool === "routePath" && isStartOrEndPoint(activeIndex, routePoints.length) && !locked;
+  const showRouteSearch = !locked;
   const canFinishRoute = routePoints.filter(hasCoordinates).length >= 2;
 
   useEffect(() => {
@@ -74,6 +77,7 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
       }).addTo(map);
 
       layersRef.current = {
+        geofences: L.layerGroup().addTo(map),
         route: L.layerGroup().addTo(map),
         locations: L.layerGroup().addTo(map),
         operatingArea: L.layerGroup().addTo(map),
@@ -123,13 +127,14 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
       locked,
       launchSite,
       operatingArea,
+      geofences: activeGeofences,
       councilOverlay,
       onPointMove: setPoint,
       onLocationMove: setLocationPoint,
       onPointFocus: focusPoint,
       onToolFocus: setActiveTool
     });
-  }, [activeIndex, activeTool, councilOverlay, launchSite, locked, mapReady, operatingArea, routePoints]);
+  }, [activeGeofences, activeIndex, activeTool, councilOverlay, launchSite, locked, mapReady, operatingArea, routePoints]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -299,7 +304,12 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
     const [longitude, latitude] = Array.isArray(result.center) ? result.center : [];
     if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) return;
 
-    setPoint(activeIndexRef.current, { latitude, longitude }, { continueRoute: true });
+    if (activeToolRef.current === "launchSite") {
+      setLocationPoint("launchSite", { latitude, longitude });
+    } else {
+      setPoint(activeIndexRef.current, { latitude, longitude }, { continueRoute: true });
+    }
+
     setSearchQuery(result.place_name || result.text || "");
     setSearchResults([]);
     mapRef.current?.flyTo([Number(latitude), Number(longitude)], Math.max(mapRef.current.getZoom(), 14), { duration: 0.6 });
@@ -323,6 +333,7 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
   return (
     <MapWorkspace title="Mission planning" details={<>
       <MapDataDetails title="Planning status" value={{ route: routeFinished ? "Finished" : "Editing", accepted: locked ? "Yes" : "No", points: routePoints.length }} />
+      <MapDataDetails title="Operational geofences" value={activeGeofences.map((zone) => `${zone.name} (${zone.type})`)} />
       <MapDataDetails title="Launch site" value={launchSite} />
       <MapDataDetails title="Route points" value={routePoints} />
     </>}>
@@ -383,8 +394,8 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
                 type="search"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder={`Search ${getPointLabel(activeIndex, routePoints.length).toLowerCase()}`}
-                aria-label={`Search ${getPointLabel(activeIndex, routePoints.length)}`}
+                placeholder={`Search ${getSearchTargetLabel(activeTool, activeIndex, routePoints.length).toLowerCase()}`}
+                aria-label={`Search ${getSearchTargetLabel(activeTool, activeIndex, routePoints.length)}`}
               />
               {searchQuery && (
                 <button type="button" onClick={clearSearch} aria-label="Clear location search">
@@ -420,6 +431,7 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
         <div className="route-picker-legend" aria-label="Mission map legend">
           <span><i className="route-dot route" /> Route point</span>
           <span><i className="route-dot location" /> Launch / area</span>
+          <span><i className="route-dot geofence" /> Geofence</span>
           <span><i className="route-dot council" /> Council area</span>
           <span><i className="route-line" /> Planned path</span>
         </div>
@@ -501,8 +513,22 @@ const LocationSummary = ({ label, value, active, locked, onSelect, onClear }) =>
   </div>
 );
 
-const renderRouteLayers = ({ layers, routePoints, activeIndex, activeTool, locked, launchSite, operatingArea, councilOverlay, onPointMove, onLocationMove, onPointFocus, onToolFocus }) => {
+const renderRouteLayers = ({ layers, routePoints, activeIndex, activeTool, locked, launchSite, operatingArea, geofences, councilOverlay, onPointMove, onLocationMove, onPointFocus, onToolFocus }) => {
   Object.values(layers).forEach((layer) => layer.clearLayers());
+
+  geofences.forEach((zone) => {
+    const color = getGeofenceColor(zone.type);
+    const label = document.createElement("span");
+    label.textContent = `${zone.name} (${zone.type})`;
+    L.polygon(zone.polygon.map(([longitude, latitude]) => [latitude, longitude]), {
+      color,
+      weight: zone.type === "RESTRICTED" ? 3 : 2,
+      opacity: zone.type === "RESTRICTED" ? 0.82 : 0.68,
+      dashArray: zone.type === "ADVISORY" ? "7 6" : undefined,
+      fillColor: color,
+      fillOpacity: zone.type === "RESTRICTED" ? 0.18 : 0.12
+    }).bindTooltip(label).addTo(layers.geofences);
+  });
 
   const routeLatLngs = routePoints.filter(hasCoordinates).map(toLatLng);
   if (routeLatLngs.length >= 2) {
@@ -580,6 +606,12 @@ const renderRouteLayers = ({ layers, routePoints, activeIndex, activeTool, locke
   });
 };
 
+const getGeofenceColor = (type) => {
+  if (type === "RESTRICTED") return "#dc2626";
+  if (type === "WARNING") return "#d97706";
+  return "#2563eb";
+};
+
 const createMarkerIcon = (label, className, title) => L.divIcon({
   className: "leaflet-route-marker-wrapper",
   html: `<button type="button" class="route-picker-marker ${className}" aria-label="${escapeAttribute(title)}"><span class="route-picker-marker-bubble">${escapeHtml(label)}</span><span class="route-picker-marker-tag">${escapeHtml(title)}</span></button>`,
@@ -649,8 +681,6 @@ const getMarkerLabel = (index, total) => {
   return String(index);
 };
 
-const isStartOrEndPoint = (index, total) => index === 0 || index === total - 1;
-
 const stopMapOverlayEvent = (event) => {
   event.stopPropagation();
 };
@@ -704,6 +734,11 @@ const getToolHelp = (activeTool, activePoint) => {
 const getActiveToolLabel = (activeTool, activePoint) => {
   if (activeTool === "launchSite") return "Launch Site";
   return activePoint?.label ?? "Route Path";
+};
+
+const getSearchTargetLabel = (activeTool, activeIndex, totalPoints) => {
+  if (activeTool === "launchSite") return "Launch site";
+  return getPointLabel(activeIndex, totalPoints);
 };
 
 const getFirstEmptyIndex = (points) => {

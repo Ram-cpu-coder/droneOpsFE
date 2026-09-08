@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ChevronsLeft, ChevronsRight, LogOut, Menu, X } from "lucide-react";
 import DroneLogo from "../common/DroneLogo";
 
-const Sidebar = ({ activeRoute, routes, isCollapsed = false, onCollapsedChange, onNavigate, onLogout }) => {
+const Sidebar = ({ activeRoute, routes, user, isCollapsed = false, onCollapsedChange, onNavigate, onLogout }) => {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const safeRoutes = Array.isArray(routes) ? routes : [];
   const primaryRoutes = safeRoutes.filter((route) => !route.secondary);
@@ -44,6 +44,12 @@ const Sidebar = ({ activeRoute, routes, isCollapsed = false, onCollapsedChange, 
         </nav>
 
         <div className="sidebar-footer">
+          <button className="nav-item profile" type="button" onClick={() => handleNavigate("settings")} aria-label="Profile" title="Profile">
+            <span className="sidebar-profile-avatar" aria-hidden="true">
+              {user?.profileImageUrl ? <img src={user.profileImageUrl} alt="" /> : getInitials(user?.name)}
+            </span>
+            <span>Profile</span>
+          </button>
           {secondaryRoutes.map((route) => (
             <SidebarButton
               key={route.id}
@@ -69,6 +75,18 @@ const Sidebar = ({ activeRoute, routes, isCollapsed = false, onCollapsedChange, 
       </button>
     </aside>
   );
+};
+
+const getInitials = (name = "") => {
+  const initials = name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+
+  return initials || "U";
 };
 
 const SidebarButton = ({ route, active, onNavigate }) => {

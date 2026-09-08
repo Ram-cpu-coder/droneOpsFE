@@ -33,6 +33,7 @@ const allowedEvidenceMimeTypes = new Set([
   "text/plain"
 ]);
 const allowedEvidenceExtensions = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".mp4", ".mov", ".webm", ".pdf", ".doc", ".docx", ".txt"];
+const incidentDraftStorageKey = "droneops:incident-form-draft";
 const initialForm = {
   incidentCode: "",
   title: "",
@@ -50,14 +51,17 @@ const initialForm = {
 const emptyInitialValues = {};
 
 const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyInitialValues, onCreated, onUpdated, onCancel }) => {
-  const [form, setForm] = useState(() => toFormState(incident, initialValues));
+  const [form, setForm] = useState(() => getInitialIncidentFormState(incident, initialValues, mode));
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [evidenceFiles, setEvidenceFiles] = useState([]);
   const [evidenceError, setEvidenceError] = useState("");
+  const [pendingEvidenceIncident, setPendingEvidenceIncident] = useState(null);
   const errorRef = useRef(null);
   const formBodyRef = useRef(null);
+  const formResetKey = getIncidentFormResetKey({ incident, initialValues, mode });
+  const formResetKeyRef = useRef(formResetKey);
   const loadDrones = useCallback(() => droneOpsApi.drones.list(), []);
   const loadMissions = useCallback(() => droneOpsApi.missions.list(), []);
   const loadUsers = useCallback(() => droneOpsApi.users.list(), []);
@@ -116,10 +120,18 @@ const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyI
   const isIncidentReady = readinessItems.every((item) => item.complete);
 
   useEffect(() => {
-    setForm(toFormState(incident, initialValues));
+    if (formResetKeyRef.current === formResetKey) return;
+    formResetKeyRef.current = formResetKey;
+    setForm(getInitialIncidentFormState(incident, initialValues, mode));
     setEvidenceFiles([]);
     setEvidenceError("");
-  }, [incident, initialValues]);
+    setPendingEvidenceIncident(null);
+  }, [formResetKey, incident, initialValues, mode]);
+
+  useEffect(() => {
+    if (mode !== "create" || incident || hasInitialIncidentValues(initialValues)) return;
+    saveIncidentFormDraft(form);
+  }, [form, incident, initialValues, mode]);
 
   useEffect(() => {
     if (!error) return;
@@ -138,7 +150,7 @@ const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyI
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (event.key === "Escape") onCancel?.();
+      if (event.key === "Escape") handleCancel();
     };
 
     document.body.classList.add("modal-open");
@@ -194,9 +206,12 @@ const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyI
         details: form.details || undefined
       };
 
+      const pendingIncidentId = pendingEvidenceIncident?.id ?? pendingEvidenceIncident?.uuid ?? pendingEvidenceIncident?.idRaw;
       const savedIncident = mode === "edit"
         ? await droneOpsApi.incidents.update(incident?.uuid ?? incident?.idRaw ?? incident?.id, payload)
-        : await droneOpsApi.incidents.create(payload);
+        : pendingIncidentId
+          ? await droneOpsApi.incidents.update(pendingIncidentId, payload)
+          : await droneOpsApi.incidents.create(payload);
       const savedIncidentId = savedIncident?.id ?? incident?.uuid ?? incident?.idRaw ?? incident?.id;
       const evidenceUploadFailures = [];
 
@@ -211,8 +226,18 @@ const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyI
         }
       }
 
+      if (evidenceUploadFailures.length) {
+        setError("Incident was saved, but evidence upload failed. The selected files are still attached below so you can retry.");
+        setEvidenceError(evidenceUploadFailures.join(" "));
+        setPendingEvidenceIncident(savedIncident);
+        onUpdated?.({ ...savedIncident, evidenceUploadFailures });
+        return;
+      }
+
       setForm(initialForm);
       setEvidenceFiles([]);
+      setPendingEvidenceIncident(null);
+      clearIncidentFormDraft();
       if (mode === "edit") {
         onUpdated?.({ ...savedIncident, evidenceUploadFailures });
       } else {
@@ -236,7 +261,7 @@ const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyI
             <h2 id="log-incident-title">{mode === "edit" ? "Update Incident" : "Log Incident"}</h2>
             <p>{mode === "edit" ? "Adjust the incident details, ownership, and follow-up information." : "Record what happened, link the drone, and assign someone to follow up."}</p>
           </div>
-          <button className="icon-button" type="button" onClick={onCancel} aria-label="Close incident form">
+          <button className="icon-button" type="button" onClick={handleCancel} aria-label="Close incident form">
             <X size={18} />
           </button>
         </div>
@@ -321,9 +346,9 @@ const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyI
                 files={evidenceFiles}
                 error={evidenceError}
                 onChange={(files) => {
-                  const validationError = validateEvidenceFiles(files);
+                  const { acceptedFiles, error: validationError } = filterEvidenceFiles(files);
                   setEvidenceError(validationError);
-                  if (!validationError) setEvidenceFiles(files);
+                  setEvidenceFiles(acceptedFiles);
                 }}
                 onRemove={(nextFiles) => {
                   setEvidenceFiles(nextFiles);
@@ -346,7 +371,7 @@ const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyI
         <div className="modal-footer">
           <ReadinessBar items={readinessItems} isReady={isIncidentReady} />
           <div className="form-actions">
-            <ActionButton onClick={onCancel}>Cancel</ActionButton>
+            <ActionButton onClick={handleCancel}>Cancel</ActionButton>
             <ActionButton icon={Save} variant="primary" type="submit" disabled={isSaving || !isIncidentReady}>
               {isSaving ? (mode === "edit" ? "Saving" : "Logging") : (mode === "edit" ? "Save Incident" : "Log Incident")}
             </ActionButton>
@@ -357,6 +382,11 @@ const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyI
   );
 
   return createPortal(dialog, document.body);
+
+  function handleCancel() {
+    if (mode === "create") clearIncidentFormDraft();
+    onCancel?.();
+  }
 };
 
 const FormSection = ({ icon: Icon, title, children, className = "", required = false }) => (
@@ -838,17 +868,126 @@ const getIncidentSubmitErrorMessage = (message = "") => {
 };
 
 const validateEvidenceFiles = (files = []) => {
-  const invalidFile = files.find((file) => !allowedEvidenceMimeTypes.has(file.type));
+  const { error } = filterEvidenceFiles(files);
+  return error;
+};
+
+const filterEvidenceFiles = (files = []) => {
+  const acceptedFiles = [];
+  const invalidFiles = [];
+  const oversizedFiles = [];
+
+  files.forEach((file) => {
+    if (!isAllowedEvidenceFile(file)) {
+      invalidFiles.push(file);
+      return;
+    }
+
+    if (file.size > MAX_EVIDENCE_FILE_BYTES) {
+      oversizedFiles.push(file);
+      return;
+    }
+
+    acceptedFiles.push(file);
+  });
+
+  const invalidFile = invalidFiles[0];
   if (invalidFile) {
-    return `${invalidFile.name} is not supported. Upload only photos, videos, PDF, Word, or text documents.`;
+    return {
+      acceptedFiles,
+      error: `${invalidFile.name} is not supported. Upload only photos, videos, PDF, Word, or text documents.`
+    };
   }
 
-  const oversizedFile = files.find((file) => file.size > MAX_EVIDENCE_FILE_BYTES);
+  const oversizedFile = oversizedFiles[0];
   if (oversizedFile) {
-    return `${oversizedFile.name} is too large. Each attachment must be 20 MB or smaller.`;
+    return {
+      acceptedFiles,
+      error: `${oversizedFile.name} is too large. Each attachment must be 20 MB or smaller.`
+    };
   }
 
-  return "";
+  return { acceptedFiles, error: "" };
+};
+
+const isAllowedEvidenceFile = (file) => {
+  const mimeType = String(file.type ?? "").toLowerCase();
+  if (allowedEvidenceMimeTypes.has(mimeType)) return true;
+  return allowedEvidenceExtensions.includes(getFileExtension(file.name));
+};
+
+const getFileExtension = (fileName = "") => {
+  const extensionIndex = fileName.lastIndexOf(".");
+  return extensionIndex >= 0 ? fileName.slice(extensionIndex).toLowerCase() : "";
+};
+
+const getIncidentFormResetKey = ({ incident, initialValues, mode }) => {
+  const incidentId = incident?.uuid ?? incident?.idRaw ?? incident?.id ?? "new";
+  const initialKey = [
+    initialValues?.title ?? "",
+    initialValues?.type ?? "",
+    initialValues?.severity ?? "",
+    initialValues?.droneId ?? "",
+    ...(initialValues?.droneIds ?? []),
+    initialValues?.missionId ?? "",
+    initialValues?.assignedToId ?? "",
+    initialValues?.source ?? "",
+    initialValues?.location ?? "",
+    initialValues?.locationPoint?.latitude ?? "",
+    initialValues?.locationPoint?.longitude ?? ""
+  ].join("|");
+  return `${mode}:${incidentId}:${initialKey}`;
+};
+
+const getInitialIncidentFormState = (incident, initialValues = {}, mode = "create") => {
+  if (mode === "create" && !incident && !hasInitialIncidentValues(initialValues)) {
+    return readIncidentFormDraft() ?? toFormState(incident, initialValues);
+  }
+
+  return toFormState(incident, initialValues);
+};
+
+const hasInitialIncidentValues = (initialValues = {}) => (
+  Boolean(
+    initialValues.title
+    || initialValues.type
+    || initialValues.severity
+    || initialValues.droneId
+    || initialValues.droneIds?.length
+    || initialValues.missionId
+    || initialValues.assignedToId
+    || initialValues.source
+    || initialValues.location
+    || initialValues.locationPoint
+    || initialValues.details
+  )
+);
+
+const readIncidentFormDraft = () => {
+  try {
+    const rawDraft = window.sessionStorage.getItem(incidentDraftStorageKey);
+    if (!rawDraft) return null;
+    const draft = JSON.parse(rawDraft);
+    return draft && typeof draft === "object" ? { ...initialForm, ...draft } : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveIncidentFormDraft = (form) => {
+  try {
+    window.sessionStorage.setItem(incidentDraftStorageKey, JSON.stringify(form));
+  } catch {
+    // Draft persistence is best-effort; the form state still remains in memory.
+  }
+};
+
+const clearIncidentFormDraft = () => {
+  try {
+    window.sessionStorage.removeItem(incidentDraftStorageKey);
+  } catch {
+    // Nothing to clear when browser storage is unavailable.
+  }
 };
 
 const toFormState = (incident, initialValues = {}) => {
