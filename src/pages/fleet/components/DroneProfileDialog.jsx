@@ -13,6 +13,7 @@ import MissionRouteMap from "../../missions/components/MissionRouteMap";
 const droneStatuses = ["AVAILABLE", "IN_MISSION", "MAINTENANCE", "GROUNDED", "DISCONNECTED", "AWAITING_APPROVAL"];
 const certificationStatuses = ["CERTIFIED", "AWAITING_APPROVAL", "AWAITING_RENEWAL", "EXPIRED", "GROUNDED_PENDING_INSPECTION"];
 const telemetryProviders = ["NONE", "DJI", "AUTEL", "MAVLINK"];
+const simulatorDeviceId = "SIM-001";
 const profileTabs = [
   { id: "aircraft", label: "Aircraft" },
   { id: "maintenance", label: "Maintenance" },
@@ -263,6 +264,14 @@ const DroneProfileDialog = ({ drone, canManage = false, onUpdated, onDeleted, on
               <Field label="Remote ID" value={form.remoteId} onChange={(value) => updateField("remoteId", value)} />
               <SelectField label="Telemetry Provider" value={form.telemetryProvider} onChange={(value) => updateField("telemetryProvider", value)} options={telemetryProviders} />
               <Field label="Vendor Device ID" value={form.externalDeviceId} onChange={(value) => updateField("externalDeviceId", value)} />
+              <SimulatorDeviceOption
+                isSelected={form.telemetryProvider === "MAVLINK" && form.externalDeviceId === simulatorDeviceId}
+                onSelect={() => setForm((current) => ({
+                  ...current,
+                  telemetryProvider: "MAVLINK",
+                  externalDeviceId: simulatorDeviceId
+                }))}
+              />
             </div>
           ) : (
             <div className="drone-profile-sections">
@@ -500,6 +509,19 @@ const ReadOnlyField = ({ label, value }) => (
   </label>
 );
 
+const SimulatorDeviceOption = ({ isSelected, onSelect }) => (
+  <div className="simulator-device-option wide-field">
+    <div>
+      <span>Simulator device</span>
+      <strong>{simulatorDeviceId}</strong>
+      <small>Use this when connecting the drone to the simulator telemetry stream.</small>
+    </div>
+    <button className={isSelected ? "active" : ""} type="button" onClick={onSelect}>
+      {isSelected ? "Selected" : "Use"}
+    </button>
+  </div>
+);
+
 const toEditableForm = (drone) => ({
   droneCode: drone.droneCode ?? drone.id ?? "",
   model: drone.model ?? "",
@@ -581,13 +603,15 @@ const getDroneLocationState = (drone) => {
 
 const getTelemetryReadout = (drone) => {
   const telemetry = drone.latestTelemetry;
-  const batteryValue = Number(telemetry?.battery?.level ?? drone.battery ?? 0);
+  const batteryRaw = telemetry?.battery?.level ?? drone.battery;
+  const batteryValue = Number(batteryRaw);
   const signalValue = Number(telemetry?.signal?.strength ?? drone.signal ?? 0);
   const linkQuality = telemetry?.signal?.linkQuality;
+  const hasBatteryReading = batteryRaw !== null && batteryRaw !== undefined && String(batteryRaw).trim() !== "" && Number.isFinite(batteryValue);
 
   return {
-    batteryValue: Number.isFinite(batteryValue) ? batteryValue : 0,
-    battery: telemetry ? `${Number.isFinite(batteryValue) ? batteryValue : 0}%` : `${drone.battery ?? 0}%`,
+    batteryValue: hasBatteryReading ? Math.min(100, Math.max(0, batteryValue)) : null,
+    battery: hasBatteryReading ? `${Math.min(100, Math.max(0, batteryValue))}%` : "Unknown",
     voltage: telemetry?.battery?.voltage != null ? `${Number(telemetry.battery.voltage).toFixed(2)} V` : "No data",
     signal: telemetry ? `${Number.isFinite(signalValue) ? signalValue : 0}%` : "No data",
     link: linkQuality ? formatOptionLabel(linkQuality) : telemetry ? `${Number.isFinite(signalValue) ? signalValue : 0}%` : "No telemetry",

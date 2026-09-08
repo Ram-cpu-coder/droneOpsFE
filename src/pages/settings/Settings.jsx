@@ -1,12 +1,10 @@
-import { AlertTriangle, Bell, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Database, ImagePlus, Mail, Pencil, Plus, RefreshCw, Save, Search, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Database, ImagePlus, Mail, Pencil, Plus, RefreshCw, Save, Search, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch } from "react-redux";
 import ActionButton from "../../components/common/ActionButton";
 import CopyableId from "../../components/common/CopyableId";
-import MetricCard from "../../components/common/MetricCard";
 import SectionHeader from "../../components/common/SectionHeader";
 import StatusBadge from "../../components/common/StatusBadge";
-import { userRoles } from "../../data/authData";
 import { authService } from "../../features/auth/authService";
 import { sessionUserUpdated } from "../../features/auth/authSlice";
 import { droneOpsApi } from "../../services/droneOpsApi";
@@ -20,6 +18,7 @@ const Settings = ({ user }) => {
   const catalogFormRef = useRef(null);
   const catalogModelInputRef = useRef(null);
   const [form, setForm] = useState(() => toUserForm(user));
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [imageUpload, setImageUpload] = useState({ isUploading: false, fileName: "", error: "" });
@@ -49,7 +48,7 @@ const Settings = ({ user }) => {
   const canEditOrganisation = canEditThresholds;
   const canManageCatalog = canEditThresholds;
   const roleLabel = useMemo(
-    () => userRoles.find((role) => role.id === user?.role)?.label ?? user?.roleLabel ?? "DroneOps user",
+    () => user?.roleLabel ?? formatOptionLabel(user?.role) ?? "DroneOps user",
     [user?.role, user?.roleLabel]
   );
   const filteredCatalogRows = useMemo(() => {
@@ -104,6 +103,7 @@ const Settings = ({ user }) => {
 
   useEffect(() => {
     setForm(toUserForm(user));
+    setIsEditingProfile(false);
     const nextOrganisation = toOrganisationForm(user);
     setOrganisation(nextOrganisation);
     setOrganisationDraft(nextOrganisation);
@@ -170,7 +170,7 @@ const Settings = ({ user }) => {
 
   const handleProfileImageChange = async (event) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !isEditingProfile) return;
 
     setImageUpload({ isUploading: true, fileName: file.name, error: "" });
 
@@ -178,7 +178,7 @@ const Settings = ({ user }) => {
       const result = await authService.uploadProfileImage(file);
       updateField("profileImageUrl", result.profileImageUrl);
       setImageUpload({ isUploading: false, fileName: file.name, error: "" });
-      showToast({ type: "success", title: "Image uploaded", message: "Save your settings to apply the new profile image." });
+      showToast({ type: "success", title: "Image ready", message: "Save changes to apply the new profile image." });
     } catch (error) {
       setImageUpload({ isUploading: false, fileName: "", error: error.message });
     } finally {
@@ -188,6 +188,8 @@ const Settings = ({ user }) => {
 
   const handleSaveProfile = async (event) => {
     event.preventDefault();
+    if (!isEditingProfile) return;
+
     setIsSaving(true);
 
     try {
@@ -199,6 +201,7 @@ const Settings = ({ user }) => {
       const session = authService.updateStoredUser(updatedUser);
       if (session?.user) dispatch(sessionUserUpdated(session.user));
       setForm(toUserForm(session?.user ?? updatedUser));
+      setIsEditingProfile(false);
       if (updatedUser.emailChangePending) {
         showToast(getEmailChangeToast(updatedUser.emailChangePending));
       } else {
@@ -209,6 +212,17 @@ const Settings = ({ user }) => {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleEditProfile = () => {
+    setImageUpload({ isUploading: false, fileName: "", error: "" });
+    setIsEditingProfile(true);
+  };
+
+  const handleCancelProfile = () => {
+    setForm(toUserForm(user));
+    setImageUpload({ isUploading: false, fileName: "", error: "" });
+    setIsEditingProfile(false);
   };
 
   const handlePasswordReset = async () => {
@@ -403,6 +417,7 @@ const Settings = ({ user }) => {
   };
 
   const handleRemoveCatalogModel = async (row) => {
+    if (!window.confirm(`${row.model} will be deactivated and removed from future registration choices. Continue?`)) return;
     setIsSavingCatalog(true);
 
     try {
@@ -436,15 +451,20 @@ const Settings = ({ user }) => {
           </div>
         </div>
       )}
-      <div className="stats-grid two">
-        <MetricCard label="Roles" value={userRoles.length} delta="Configured access roles" icon={ShieldCheck} tone="green" />
-        <MetricCard label="Alert Rules" value={thresholds.length} delta="Operational thresholds" icon={Bell} tone="purple" />
-      </div>
       <form className="panel account-settings-panel" onSubmit={handleSaveProfile}>
         <SectionHeader
           title="My Account"
           description="Profile details used across DroneOps, notifications, reports, and audit records."
-          action={<ActionButton icon={Save} variant="primary" type="submit" isLoading={isSaving} disabled={isSaving || imageUpload.isUploading}>Save Settings</ActionButton>}
+          action={isEditingProfile ? (
+            <div className="button-group compact">
+              <ActionButton type="button" onClick={handleCancelProfile} disabled={isSaving || imageUpload.isUploading}>Cancel</ActionButton>
+              <ActionButton icon={Save} variant="primary" type="submit" isLoading={isSaving} disabled={isSaving || imageUpload.isUploading || !form.name.trim() || !form.email.trim()}>
+                Save Settings
+              </ActionButton>
+            </div>
+          ) : (
+            <ActionButton icon={Pencil} type="button" onClick={handleEditProfile}>Edit</ActionButton>
+          )}
         />
         <div className="account-settings-layout">
           <div className="current-user-card">
@@ -460,11 +480,11 @@ const Settings = ({ user }) => {
           <div className="form-grid account-settings-form">
             <label className="field">
               <span>Name</span>
-              <input value={form.name} onChange={(event) => updateField("name", event.target.value)} required />
+              <input value={form.name} onChange={(event) => updateField("name", event.target.value)} disabled={!isEditingProfile} required />
             </label>
             <label className="field">
               <span>Email</span>
-              <input type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} required />
+              <input type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} disabled={!isEditingProfile} required />
             </label>
             <div className="profile-metric">
               <ShieldCheck size={18} />
@@ -477,7 +497,7 @@ const Settings = ({ user }) => {
               <strong>{organisation.name}</strong>
             </div>
             <label className="upload-field wide-field">
-              <input type="file" accept="image/*" onChange={handleProfileImageChange} disabled={isSaving || imageUpload.isUploading} />
+              <input type="file" accept="image/*" onChange={handleProfileImageChange} disabled={!isEditingProfile || isSaving || imageUpload.isUploading} />
               <span><ImagePlus size={18} /> Upload profile image</span>
               <small>
                 {imageUpload.isUploading
@@ -558,12 +578,11 @@ const Settings = ({ user }) => {
               </div>
             )}
           </div>
-          {!canEditOrganisation && <p className="settings-note">Only the System Administrator can change organisation details.</p>}
         </div>
         <div className="panel">
           <SectionHeader
             title="Alert Thresholds"
-            description="Telemetry trigger levels used by the backend alert engine."
+            description="Telemetry levels used for operational alerts."
             action={canEditThresholds ? (
               isEditingThresholds ? (
                 <div className="button-group compact">
@@ -602,7 +621,6 @@ const Settings = ({ user }) => {
               </div>
             ))}
           </div>
-          {!canEditThresholds && <p className="settings-note">Only the System Administrator can change operational alert thresholds.</p>}
         </div>
         {canManageCatalog && (
           <div className="panel wide">
@@ -806,17 +824,6 @@ const Settings = ({ user }) => {
             )}
           </div>
         )}
-        <div className="panel wide">
-          <SectionHeader title="Access Roles" description="Current role definitions used for account access control." />
-          <div className="role-grid">
-            {userRoles.map((item) => (
-              <article className="role-card" key={item.id}>
-                <h3>{item.label}</h3>
-                <p>{item.summary}</p>
-              </article>
-            ))}
-          </div>
-        </div>
       </div>
     </section>
   );

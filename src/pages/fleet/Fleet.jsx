@@ -51,25 +51,27 @@ const Fleet = ({ searchValue, user }) => {
     {
       key: "systemId",
       label: "ID",
+      className: "fleet-key-column",
       render: (drone) => <CopyableId value={drone.systemId} />
     },
     {
       key: "serialNumber",
       label: "Serial Number",
+      className: "fleet-key-column",
       render: (drone) => (
         <button className="link-button strong-link" type="button" onClick={() => navigate(`/fleet/${encodeURIComponent(drone.uuid ?? drone.id)}`)}>
           <span>{drone.serialNumber}</span>
         </button>
       )
     },
-    { key: "manufacturerSerialNumber", label: "Manufacturer Serial" },
-    { key: "model", label: "Model" },
-    { key: "manufacturer", label: "Manufacturer", filterable: true },
+    { key: "manufacturerSerialNumber", label: "Manufacturer Serial", className: "fleet-secondary-column" },
+    { key: "model", label: "Model", className: "fleet-secondary-column" },
+    { key: "manufacturer", label: "Manufacturer", filterable: true, className: "fleet-secondary-column" },
     { key: "status", label: "Status", filterable: true, render: (drone) => <StatusBadge>{drone.status}</StatusBadge> },
     { key: "battery", label: "Battery", render: (drone) => <BatteryReading drone={drone} /> },
-    { key: "flightHours", label: "Flight Hours" },
-    { key: "certificationStatus", label: "Certification", filterable: true, render: (drone) => <StatusBadge>{drone.certificationStatus}</StatusBadge> },
-    { key: "nextMaintenance", label: "Next Service" }
+    { key: "flightHours", label: "Flight Hours", className: "fleet-secondary-column" },
+    { key: "certificationStatus", label: "Certification", filterable: true, className: "fleet-secondary-column", render: (drone) => <StatusBadge>{drone.certificationStatus}</StatusBadge> },
+    { key: "nextMaintenance", label: "Next Service", className: "fleet-secondary-column" }
   ];
 
   const handleRegisterDroneClick = () => {
@@ -183,6 +185,7 @@ const Fleet = ({ searchValue, user }) => {
           ) : null}
         />
         <DataTable
+          tableClassName="fleet-inventory-table"
           columns={columns}
           rows={filteredDrones}
           getRowKey={(drone) => drone.uuid ?? drone.id}
@@ -195,11 +198,15 @@ const Fleet = ({ searchValue, user }) => {
 };
 
 const BatteryReading = ({ drone }) => {
-  const value = Number(drone.battery ?? 0);
+  const value = Number(drone.battery);
+
+  if (drone.battery === null || drone.battery === undefined || !Number.isFinite(value)) {
+    return <span className="battery-reading is-unknown"><strong>Unknown</strong></span>;
+  }
 
   return (
     <span className="battery-reading">
-      <strong>{value}%</strong>
+      <strong>{Math.min(100, Math.max(0, value))}%</strong>
     </span>
   );
 };
@@ -215,8 +222,8 @@ const normalizeDrone = (drone, telemetryRows = []) => {
     id: drone.droneCode ?? drone.id,
     serialNumber: drone.droneCode ?? drone.id,
     manufacturerSerialNumber: drone.serialNumber ?? "Not recorded",
-    battery: latestTelemetry?.battery.level ?? drone.latestTelemetry?.batteryLevel ?? drone.battery ?? 0,
-    signal: telemetryOffline ? 0 : latestTelemetry?.signal.strength ?? drone.signal ?? 0,
+    battery: latestTelemetry?.battery?.level ?? drone.latestTelemetry?.batteryLevel ?? drone.battery ?? null,
+    signal: telemetryOffline ? 0 : latestTelemetry?.signal?.strength ?? drone.signal ?? 0,
     telemetryOffline,
     latestTelemetry,
     health: drone.health ?? 100,

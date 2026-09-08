@@ -277,8 +277,9 @@
 :root[data-theme="light"] .status-pill.red,
 :root[data-theme="light"] .risk.high,
 :root[data-theme="light"] .risk.critical {
-  color: #c61732;
-  background: rgba(198, 23, 50, 0.12);
+  color: #a60f28;
+  background: #ffe4e8;
+  border: 1px solid #e88a98;
 }
 
 :root[data-theme="light"] .nav-item {
@@ -1350,6 +1351,46 @@ fieldset.auth-form-grid:disabled select {
   background: rgba(90, 149, 255, 0.1);
 }
 
+.organisation-code-status.pending {
+  border-color: rgba(137, 160, 190, 0.22);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.organisation-code-status.pending small {
+  color: #aab7c8;
+}
+
+.organisation-code-inline-confirm {
+  display: block;
+  margin-top: 6px;
+  color: #6ee7b7;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+:root[data-theme="light"] .auth-choice-row button.active {
+  color: #124a9d;
+  background: #dceaff;
+  border-color: #6d9ee8;
+}
+
+:root[data-theme="light"] .organisation-code-status.verified {
+  color: #075d3a;
+  background: #e1f7ed;
+  border-color: #62bf91;
+}
+
+:root[data-theme="light"] .organisation-code-status.verified svg,
+:root[data-theme="light"] .organisation-code-inline-confirm {
+  color: #067647;
+}
+
+:root[data-theme="light"] .organisation-code-result small {
+  color: #075d3a;
+  background: #d1f3e2;
+  border-color: #86d3ad;
+}
+
 .auth-form-grid .wide-field {
   grid-column: 1 / -1;
 }
@@ -1861,27 +1902,6 @@ body.modal-open {
   justify-content: flex-end;
   gap: 10px;
   width: 100%;
-}
-
-.profile-header-actions .status-badge {
-  align-self: flex-end;
-}
-
-.user-profile-status-card {
-  display: grid;
-  justify-items: end;
-  gap: 7px;
-  padding: 10px 12px;
-  background: color-mix(in srgb, var(--surface-muted) 78%, transparent);
-  border: 1px solid color-mix(in srgb, var(--blue) 14%, var(--line));
-  border-radius: 10px;
-}
-
-.user-profile-status-card span {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 750;
-  text-align: right;
 }
 
 .profile-aircraft-icon {
@@ -4041,6 +4061,10 @@ button.notification-item:focus-visible {
   min-width: 0;
 }
 
+.dashboard-resizable-row.single-pane {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .dashboard-resizable-pane {
   display: grid;
   min-width: 0;
@@ -4654,6 +4678,24 @@ tr:last-child td {
   background: var(--amber);
 }
 
+.battery-cell.is-unknown,
+.battery-reading.is-unknown {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+@media (max-width: 1100px) {
+  .fleet-inventory-table .fleet-secondary-column,
+  .fleet-overview-table .fleet-secondary-column,
+  .incident-register-table .incident-secondary-column {
+    display: none;
+  }
+}
+
+.required-mark {
+  color: var(--red);
+}
+
 .battery-reading {
   display: inline-flex;
   align-items: center;
@@ -5179,6 +5221,14 @@ tr:last-child td {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.profile-location-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .profile-location-header > span {
@@ -6256,6 +6306,40 @@ tr:last-child td {
   font-weight: 800;
 }
 
+.telemetry-status-note {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  color: var(--text-soft);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--blue) 8%, transparent), transparent 64%),
+    color-mix(in srgb, var(--surface-control) 76%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 8px;
+}
+
+.telemetry-status-note strong {
+  color: var(--text);
+}
+
+.telemetry-status-note span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.telemetry-status-note ul {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 5px;
+  margin: 2px 0 0;
+  padding-left: 18px;
+  color: var(--warning-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .operations-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
 
 .geofence-drawing-toolbar {
@@ -6276,6 +6360,91 @@ tr:last-child td {
   border-radius: 8px;
   font-size: 13px;
   font-weight: 800;
+}
+
+.mission-profile-map-shell {
+  position: relative;
+}
+
+.mission-map-overlay-controls {
+  position: absolute;
+  top: 78px;
+  right: 10px;
+  z-index: 500;
+  pointer-events: none;
+}
+
+.geofence-map-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: min(300px, calc(100vw - 32px));
+  pointer-events: auto;
+}
+
+.geofence-map-controls .secondary-button,
+.geofence-map-controls .icon-button,
+.geofence-map-controls > span {
+  min-height: 36px;
+}
+
+.telemetry-replay-map-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  background: color-mix(in srgb, var(--surface-solid) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  border-radius: 9px;
+  box-shadow: 0 6px 18px rgba(2, 8, 18, 0.24);
+  pointer-events: auto;
+}
+
+.telemetry-replay-map-controls input[type="range"] {
+  width: clamp(90px, 14vw, 180px);
+  margin: 0 2px;
+  accent-color: var(--blue);
+}
+
+.telemetry-replay-map-controls > span {
+  min-width: 58px;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.geofence-map-controls .secondary-button {
+  padding: 0 11px;
+  white-space: nowrap;
+}
+
+.geofence-map-controls > span {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  color: var(--text-soft);
+  background: color-mix(in srgb, var(--surface-solid) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(2, 8, 18, 0.2);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .mission-map-overlay-controls {
+    top: 72px;
+    right: 8px;
+  }
+
+  .geofence-map-controls {
+    max-width: 190px;
+  }
 }
 
 .operations-module .mission-profile-tabs { position: static; margin: 0; }
@@ -6373,6 +6542,9 @@ tr:last-child td {
 
 .operations-form fieldset { margin: 0; border: 1px solid var(--line); padding: 16px; border-radius: 8px; }
 .operations-form.form-grid { border: 0; padding: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.maintenance-form-dialog { width: min(860px, calc(100% - 24px)); max-width: 100%; }
+.maintenance-form-dialog .modal-body { min-width: 0; overflow-y: auto; overflow-x: hidden; }
+.maintenance-form-dialog .operations-form { min-width: 0; }
 .operations-form label:has(input[type="checkbox"]) { display: flex; align-items: center; gap: 8px; }
 .operations-split .mission-profile-map { height: 60vh; min-height: 420px; }
 
@@ -6861,6 +7033,90 @@ tr:last-child td {
   box-shadow: 0 0 0 8px rgba(239, 71, 111, 0.18), 0 14px 30px rgba(31, 4, 12, 0.38);
 }
 
+.mission-profile-map-marker.drone-logo-marker {
+  width: 42px;
+  height: 30px;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.mission-profile-map-marker.drone-logo-marker .map-drone-logo {
+  transform: scale(0.22);
+  transform-origin: center;
+  animation: none;
+}
+
+.mission-profile-map-marker.drone-logo-marker .route-picker-marker-tag {
+  left: 33px;
+  top: -2px;
+}
+
+.telemetry-replay-panel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.telemetry-replay-panel .section-header {
+  margin: 0;
+}
+
+.telemetry-replay-toolbar {
+  align-items: end;
+  gap: 10px;
+  margin: 0;
+  padding: 14px;
+  background: color-mix(in srgb, var(--surface-control) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 10px;
+}
+
+.telemetry-replay-toolbar .field {
+  flex: 1 1 190px;
+  min-width: 170px;
+  margin: 0;
+}
+
+.telemetry-replay-toolbar > .icon-button {
+  flex: 0 0 auto;
+  margin-bottom: 1px;
+}
+
+.telemetry-replay-toolbar > input[type="range"] {
+  flex: 1 1 220px;
+  min-width: 180px;
+  accent-color: var(--blue);
+  margin: 0 4px 12px;
+}
+
+.telemetry-replay-toolbar > span {
+  min-width: 74px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+}
+
+.telemetry-replay-panel > .telemetry-status-note,
+.telemetry-replay-panel > .auth-alert,
+.telemetry-replay-panel > .muted {
+  margin: 0;
+}
+
+.telemetry-replay-map {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 10px;
+}
+
+.telemetry-replay-map .map-workspace {
+  margin: 0;
+}
+
 @keyframes liveDronePulse {
   0% {
     opacity: 0.9;
@@ -7021,6 +7277,20 @@ tr:last-child td {
 .mission-live-map .mission-profile-map-empty,
 .mission-live-map .mission-profile-map {
   min-height: 360px;
+}
+
+.mission-live-map {
+  height: min(52vh, 520px);
+}
+
+.mission-live-map > .map-workspace,
+.mission-live-map .map-workspace-layout,
+.mission-live-map .map-workspace-canvas,
+.mission-live-map .mission-profile-map-shell,
+.mission-live-map .mission-profile-map-empty,
+.mission-live-map .mission-profile-map {
+  height: 100%;
+  min-height: 0;
 }
 
 .mission-live-map .mission-profile-map-shell,
@@ -7467,6 +7737,13 @@ tr:last-child td {
   min-height: 42px;
 }
 
+.assignment-guidance {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .selected-assignment-list {
   display: grid;
   gap: 7px;
@@ -7540,6 +7817,15 @@ tr:last-child td {
   background: color-mix(in srgb, var(--blue) 10%, var(--surface-raised));
   border: 1px solid color-mix(in srgb, var(--blue) 24%, var(--line));
   border-radius: 8px;
+}
+
+.selected-assignment-chip.invalid {
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface-raised));
+  border-color: color-mix(in srgb, var(--danger) 36%, var(--line));
+}
+
+.selected-assignment-chip.invalid small {
+  color: color-mix(in srgb, var(--danger) 68%, var(--text-soft));
 }
 
 .selected-assignment-chip div {
@@ -10864,6 +11150,59 @@ input[type="number"] {
   color: var(--blue);
 }
 
+.simulator-device-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(77, 141, 255, 0.28);
+  border-radius: 8px;
+  background: rgba(29, 111, 234, 0.1);
+}
+
+.simulator-device-option div {
+  display: grid;
+  gap: 4px;
+}
+
+.simulator-device-option span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.simulator-device-option strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.simulator-device-option small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.simulator-device-option button {
+  min-width: 82px;
+  border: 1px solid rgba(77, 141, 255, 0.4);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: var(--text);
+  background: rgba(15, 23, 42, 0.72);
+  font-weight: 900;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.simulator-device-option button:hover,
+.simulator-device-option button:focus-visible,
+.simulator-device-option button.active {
+  border-color: rgba(82, 211, 172, 0.72);
+  background: rgba(82, 211, 172, 0.16);
+  transform: translateY(-1px);
+}
+
 .field input[type="date"] {
   color-scheme: dark;
   min-width: 0;
@@ -12265,15 +12604,6 @@ input[type="number"]::-webkit-outer-spin-button {
     gap: 6px;
   }
 
-  .user-profile-status-card {
-    width: 100%;
-    justify-items: start;
-  }
-
-  .user-profile-status-card span {
-    text-align: left;
-  }
-
   .user-profile-header .profile-header-actions {
     grid-column: 1 / -1;
   }
@@ -12407,6 +12737,11 @@ input[type="number"]::-webkit-outer-spin-button {
   .risk-assessment-status {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .profile-location-actions {
+    justify-content: flex-start;
+    width: 100%;
   }
 
   .mission-profile-map-shell,
@@ -13984,4 +14319,335 @@ tr {
     font-size: 14px;
   }
 
+}
+
+@media (max-width: 640px) {
+  .modal-backdrop {
+    align-items: stretch;
+    padding: 6px;
+  }
+
+  .modal-dialog.profile-dialog,
+  .modal-dialog.registration-dialog.profile-dialog {
+    --profile-dialog-inset: 10px;
+    --profile-scrollbar-gutter: 0px;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    width: 100%;
+    max-width: 100%;
+    height: calc(100svh - 12px);
+    max-height: calc(100svh - 12px);
+    margin: 0;
+    overflow: hidden;
+    border-radius: 14px;
+  }
+
+  .modal-dialog.maintenance-form-dialog {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100svh - 12px);
+  }
+
+  .maintenance-form-dialog .operations-form.form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-dialog .modal-header,
+  .profile-dialog.user-profile-dialog .modal-header,
+  .profile-dialog.incident-profile-dialog .modal-header,
+  .profile-dialog.drone-profile-dialog .modal-header,
+  .profile-dialog.pilot-profile-dialog .modal-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 10px;
+    margin: 8px;
+    padding: 12px;
+    border-radius: 12px;
+  }
+
+  .profile-dialog .modal-header > :first-child,
+  .drone-profile-heading,
+  .user-profile-heading,
+  .pilot-profile-header > div:first-child {
+    min-width: 0;
+  }
+
+  .profile-dialog .modal-header .eyebrow {
+    font-size: 10px;
+    line-height: 1.1;
+  }
+
+  .profile-dialog .modal-header h2,
+  .user-profile-heading h2,
+  .pilot-profile-header h2 {
+    max-width: 100%;
+    margin-top: 3px;
+    font-size: clamp(20px, 7vw, 27px);
+    line-height: 1.04;
+    overflow-wrap: anywhere;
+  }
+
+  .profile-dialog .modal-header p:not(.eyebrow),
+  .user-profile-heading > p:not(.eyebrow),
+  .pilot-profile-header p:not(.eyebrow) {
+    display: -webkit-box;
+    max-width: 100%;
+    margin-top: 4px;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .drone-profile-heading {
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .profile-aircraft-icon.compact,
+  .user-profile-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 11px;
+  }
+
+  .profile-aircraft-icon.compact svg {
+    width: 23px;
+    height: 23px;
+  }
+
+  .profile-header-actions,
+  .pilot-profile-actions {
+    display: flex;
+    align-items: flex-end;
+    flex-direction: column;
+    gap: 7px;
+    width: auto;
+    min-width: 0;
+  }
+
+  .profile-header-buttons,
+  .pilot-profile-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .profile-header-buttons .secondary-button,
+  .pilot-profile-actions .secondary-button,
+  .profile-header-buttons .icon-button {
+    flex: 0 0 auto;
+    min-width: 40px;
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+    padding: 0;
+    border-radius: 10px;
+    font-size: 0;
+  }
+
+  .profile-header-buttons .secondary-button svg,
+  .pilot-profile-actions .secondary-button svg,
+  .profile-header-buttons .icon-button svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  .profile-header-actions .status-badge,
+  .pilot-status-pill {
+    max-width: 132px;
+    padding: 6px 9px;
+    font-size: 10px;
+    line-height: 1.1;
+    white-space: normal;
+  }
+
+  .profile-identity-list {
+    display: block;
+    margin-top: 8px;
+  }
+
+  .profile-identity-list > span {
+    width: min(100%, 220px);
+    min-height: 26px;
+    padding: 6px 8px;
+  }
+
+  .profile-identity-list .table-id-token,
+  .table-id-token {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .profile-dialog .modal-body {
+    min-height: 0;
+    padding: 0 10px 10px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: auto;
+  }
+
+  .modal-dialog .header-docked-tabs .mission-profile-tabs,
+  .mission-profile-tabs,
+  .incident-profile-tabs,
+  .drone-profile-dialog .drone-profile-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(72px, 1fr);
+    gap: 5px;
+    margin: 0 0 10px;
+    padding: 5px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
+    border: 1px solid color-mix(in srgb, var(--blue) 16%, var(--line));
+    border-radius: 11px;
+    box-shadow: 0 10px 24px rgba(2, 8, 18, 0.18);
+    scroll-snap-type: x proximity;
+  }
+
+  .modal-dialog .header-docked-tabs .mission-profile-tabs > button,
+  .mission-profile-tabs > button,
+  .incident-profile-tabs > button,
+  .drone-profile-dialog .drone-profile-tabs > button {
+    flex: none;
+    min-width: 72px;
+    max-width: none;
+    min-height: 38px;
+    padding: 7px 9px;
+    border-radius: 8px;
+    text-align: center;
+    scroll-snap-align: start;
+  }
+
+  .mission-profile-tabs button strong,
+  .mission-profile-tabs button span,
+  .incident-profile-tabs button strong,
+  .drone-profile-dialog .drone-profile-tabs button strong {
+    display: block;
+    overflow: hidden;
+    font-size: 11px;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mission-profile-tabs button small,
+  .incident-profile-tabs button small,
+  .drone-profile-dialog .drone-profile-tabs button small {
+    display: none;
+  }
+
+  .profile-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .profile-metric,
+  .profile-section,
+  .profile-location-card,
+  .mission-notes-panel,
+  .risk-assessment-form,
+  .risk-assessment-readout > div,
+  .pilot-summary-card,
+  .pilot-credentials-form,
+  .pilot-credentials-readout {
+    width: 100%;
+    max-width: 100%;
+    padding: 12px;
+    border-radius: 10px;
+  }
+
+  .profile-metric strong {
+    font-size: 17px;
+    line-height: 1.15;
+  }
+
+  .profile-metric span,
+  .profile-section dt,
+  .profile-section dd,
+  .pilot-licence dt,
+  .pilot-licence dd {
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .profile-grid,
+  .profile-edit-grid,
+  .user-profile-metrics,
+  .user-profile-detail-grid,
+  .pilot-profile-grid,
+  .pilot-summary-card,
+  .pilot-licence-fields,
+  .pilot-licence dl,
+  .drone-profile-sections .profile-section dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .pilot-summary-card {
+    align-items: start;
+  }
+
+  .pilot-summary-card p,
+  .pilot-summary-metrics {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .profile-location-map,
+  .drone-profile-route-map,
+  .incident-profile-map,
+  .incident-profile-map-empty,
+  .mission-profile-map-shell,
+  .mission-profile-map-empty,
+  .mission-profile-map {
+    min-height: 210px;
+  }
+
+  .profile-footer,
+  .modal-footer.profile-footer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    padding: 10px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  }
+
+  .profile-footer > .danger-button,
+  .profile-footer > .primary-button,
+  .profile-footer > .secondary-button,
+  .profile-footer .form-actions,
+  .profile-footer .profile-primary-actions,
+  .profile-footer .form-actions > button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .profile-footer .form-actions,
+  .profile-footer .profile-primary-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+    gap: 8px;
+  }
+
+  .profile-footer button {
+    justify-content: center;
+    min-height: 42px;
+    padding: 0 10px;
+    border-radius: 10px;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+
+  .profile-footer .danger-button {
+    min-height: 42px;
+  }
 }

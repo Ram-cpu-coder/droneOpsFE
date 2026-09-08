@@ -199,6 +199,7 @@ const Missions = ({ searchValue, user, pendingRouteAction, onRouteActionHandled 
 };
 
 const normalizeMission = (mission) => {
+  const localMissionId = mission.uuid ?? mission.systemId ?? mission.id;
   const assignedDroneRecords = getMissionDroneRecords(mission);
   const assignedPilotRecords = getMissionPilotRecords(mission);
   const droneRecord = assignedDroneRecords[0] ?? null;
@@ -206,11 +207,11 @@ const normalizeMission = (mission) => {
 
   return {
     ...mission,
-    uuid: mission.id,
-    systemId: mission.id,
+    uuid: localMissionId,
+    systemId: localMissionId,
     rawStatus: mission.status,
-    id: mission.missionCode ?? mission.id,
-    serialNumber: mission.missionCode ?? mission.id,
+    id: mission.missionCode ?? localMissionId,
+    serialNumber: mission.missionCode ?? localMissionId,
     drone: formatAssignmentLabel(assignedDroneRecords, "droneCode", mission.drone, "Unassigned"),
     drones: assignedDroneRecords,
     droneRecord,

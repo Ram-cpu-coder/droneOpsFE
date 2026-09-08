@@ -37,6 +37,7 @@ const passwordRules = [
     test: (value) => /[^A-Za-z0-9]/.test(value),
   },
 ];
+const ORGANIZATION_CODE_LENGTH = 12;
 
 const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
   // Signup form values.
@@ -65,6 +66,9 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
 
   // True only if all rules pass.
   const isPasswordValid = passwordStatus.every((rule) => rule.isValid);
+  const isJoinReady = form.organizationMode === "join" && Boolean(resolvedOrganization) && !organizationLookup.isLoading;
+  const isCreateReady = form.organizationMode === "create" && Boolean(form.organizationName.trim());
+  const canSubmit = !isLoading && isPasswordValid && (form.organizationMode === "join" ? isJoinReady : isCreateReady);
 
   useEffect(() => {
     if (form.organizationMode === "create") {
@@ -73,10 +77,10 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
       return;
     }
 
-    const code = form.organizationCode.trim();
+    const code = normalizeOrganizationCode(form.organizationCode);
     setResolvedOrganization(null);
 
-    if (code.length < 4) {
+    if (code.length !== ORGANIZATION_CODE_LENGTH) {
       setOrganizationLookup({ isLoading: false, error: "" });
       return;
     }
@@ -93,7 +97,7 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
       } catch (lookupError) {
         if (!isMounted) return;
         setResolvedOrganization(null);
-        setOrganizationLookup({ isLoading: false, error: lookupError.message });
+        setOrganizationLookup({ isLoading: false, error: "Invalid organisation code." });
       }
     }, 350);
 
@@ -107,10 +111,7 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
   const handleSubmit = (event) => {
     event.preventDefault();
 
-    if (isLoading) return;
-    if (!isPasswordValid) return;
-    if (form.organizationMode === "join" && !resolvedOrganization) return;
-    if (form.organizationMode === "create" && !form.organizationName.trim()) return;
+    if (!canSubmit) return;
 
     onSignup(form);
   };
@@ -216,24 +217,35 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
             <input
               value={form.organizationCode}
               onChange={(event) =>
-                setForm({ ...form, organizationCode: event.target.value })
+                setForm({ ...form, organizationCode: normalizeOrganizationCode(event.target.value) })
               }
-              placeholder="Organization code"
-              required
+              onBlur={() => {
+                const code = normalizeOrganizationCode(form.organizationCode);
+                if (code && code.length !== ORGANIZATION_CODE_LENGTH) {
+                  setOrganizationLookup({ isLoading: false, error: "Organisation code must be 12 characters." });
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || isJoinReady) return;
+                event.preventDefault();
+              }}
+              maxLength={ORGANIZATION_CODE_LENGTH}
+              placeholder="ORG-XXXXXXXX"
             />
+            {!organizationLookup.isLoading && !resolvedOrganization && !organizationLookup.error && form.organizationCode && form.organizationCode.length < ORGANIZATION_CODE_LENGTH && (
+              <div className="organisation-code-status pending">
+                <small>Enter all 12 characters before validation starts.</small>
+              </div>
+            )}
             {organizationLookup.isLoading && (
               <div className="organisation-code-status checking">
                 <small>Checking organisation code...</small>
               </div>
             )}
             {!organizationLookup.isLoading && resolvedOrganization && (
-              <div className="organisation-code-status verified">
-                <Check size={14} strokeWidth={3} />
-                <div className="organisation-code-result">
-                  <strong>{resolvedOrganization.name}</strong>
-                  <small>Verified organisation</small>
-                </div>
-              </div>
+              <small className="organisation-code-inline-confirm">
+                Joining {resolvedOrganization.name}
+              </small>
             )}
             {!organizationLookup.isLoading && organizationLookup.error && (
               <div className="organisation-code-status error">
@@ -306,7 +318,7 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
         icon={UserPlus}
         variant="primary"
         type="submit"
-        disabled={isLoading || !isPasswordValid || (form.organizationMode === "join" ? !resolvedOrganization : !form.organizationName.trim())}
+        disabled={!canSubmit}
         isLoading={isLoading}
       >
         {isLoading ? (form.organizationMode === "create" ? "Creating organisation..." : "Joining organisation...") : submitLabel}
@@ -327,5 +339,9 @@ const Signup = ({ error, isLoading, onSignup, onAuthViewChange }) => {
     </form>
   );
 };
+
+const normalizeOrganizationCode = (value = "") => (
+  value.toString().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, ORGANIZATION_CODE_LENGTH)
+);
 
 export default Signup;

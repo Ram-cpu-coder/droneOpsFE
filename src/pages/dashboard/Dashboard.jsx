@@ -37,22 +37,23 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
   const navigate = useNavigate();
   const [dashboardSplit, setDashboardSplit] = useState(getStoredDashboardSplit);
   const canRead = useCallback((permission) => hasClientPermission(user, permission), [user]);
+  const canReadTelemetry = canRead("telemetry:read");
   const loadDrones = useCallback(() => droneOpsApi.drones.list(), []);
   const loadMissions = useCallback(() => droneOpsApi.missions.list(), []);
   const loadIncidents = useCallback(() => droneOpsApi.incidents.list(), []);
   const loadAudit = useCallback(() => droneOpsApi.audit.list({ limit: 8 }), []);
   const loadTelemetry = useCallback(() => {
-    if (!canRead("telemetry:read")) return Promise.resolve([]);
+    if (!canReadTelemetry) return Promise.resolve([]);
     return droneOpsApi.telemetry.live();
-  }, [canRead]);
-  const { data: apiDrones, isLoading: isDronesLoading, isFallback: isDronesFallback } = useApiResource(loadDrones, [], { cacheKey: "drones:list", staleMs: 10000, enabled: canRead("drones:read") });
-  const { data: apiMissions, isLoading: isMissionsLoading, isFallback: isMissionsFallback } = useApiResource(loadMissions, [], { cacheKey: "missions:list", staleMs: 10000, enabled: canRead("missions:read") });
-  const { data: apiIncidents, isLoading: isIncidentsLoading, isFallback: isIncidentsFallback } = useApiResource(loadIncidents, [], { cacheKey: "incidents:list", staleMs: 10000, enabled: canRead("incidents:read") });
-  const { data: auditLogs, isLoading: isActivityLoading } = useApiResource(loadAudit, [], { cacheKey: "audit:recent", staleMs: 10000, enabled: canRead("audit:read") });
+  }, [canReadTelemetry]);
+  const { data: apiDrones, isLoading: isDronesLoading, isFallback: isDronesFallback } = useApiResource(loadDrones, [], { cacheKey: "drones:list", staleMs: 60000, enabled: canRead("drones:read") });
+  const { data: apiMissions, isLoading: isMissionsLoading, isFallback: isMissionsFallback } = useApiResource(loadMissions, [], { cacheKey: "missions:list", staleMs: 60000, enabled: canRead("missions:read") });
+  const { data: apiIncidents, isLoading: isIncidentsLoading, isFallback: isIncidentsFallback } = useApiResource(loadIncidents, [], { cacheKey: "incidents:list", staleMs: 60000, enabled: canRead("incidents:read") });
+  const { data: auditLogs, isLoading: isActivityLoading } = useApiResource(loadAudit, [], { cacheKey: "audit:recent", staleMs: 120000, enabled: canRead("audit:read") });
   const { data: telemetryRows } = useApiResource(
     loadTelemetry,
     [],
-    { cacheKey: `telemetry-live:${user?.organisationId ?? "unknown"}`, staleMs: 5000, enabled: canRead("telemetry:read") }
+    { cacheKey: `telemetry-live:${user?.organisationId ?? "unknown"}`, staleMs: 60000, enabled: canReadTelemetry }
   );
   const activeMissions = apiMissions.filter((mission) => ["In Progress", "ACTIVE"].includes(mission.status));
   const openIncidents = apiIncidents.filter((incident) => !["CLOSED", "Closed", "RESOLVED", "Resolved"].includes(incident.status));
@@ -147,7 +148,7 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
       </section>
 
       <section className="content-grid dashboard-grid">
-        <div className="dashboard-resizable-row" style={{ "--dashboard-drones-width": `${dashboardSplit}%` }}>
+        <div className={`dashboard-resizable-row${canReadTelemetry ? "" : " single-pane"}`} style={{ "--dashboard-drones-width": `${dashboardSplit}%` }}>
           <div className="dashboard-resizable-pane">
             <FleetOverviewTable
               drones={filteredDrones.slice(0, 5)}
@@ -155,34 +156,29 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
               onDroneSelect={(drone) => navigateFromDashboard(`/fleet/${encodeURIComponent(drone.uuid ?? drone.id)}`)}
             />
           </div>
-          <button
-            className="dashboard-resize-handle"
-            type="button"
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize drones and telemetry map sections"
-            aria-valuemin={MIN_DASHBOARD_SPLIT}
-            aria-valuemax={MAX_DASHBOARD_SPLIT}
-            aria-valuenow={Math.round(dashboardSplit)}
-            onPointerDown={handleDashboardSplitPointerDown}
-            onKeyDown={handleDashboardSplitKeyDown}
-          >
-            <span aria-hidden="true" />
-          </button>
-          <div className="dashboard-resizable-pane">
-            {canRead("telemetry:read") ? (
+          {canReadTelemetry && (
+            <>
+              <button
+                className="dashboard-resize-handle"
+                type="button"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize drones and telemetry map sections"
+                aria-valuemin={MIN_DASHBOARD_SPLIT}
+                aria-valuemax={MAX_DASHBOARD_SPLIT}
+                aria-valuenow={Math.round(dashboardSplit)}
+                onPointerDown={handleDashboardSplitPointerDown}
+                onKeyDown={handleDashboardSplitKeyDown}
+              >
+                <span aria-hidden="true" />
+              </button>
+              <div className="dashboard-resizable-pane">
               <Suspense fallback={<div className="panel map-panel map-loading"><LoadingLogo label="Loading telemetry map" /></div>}>
                 <GeospatialMap />
               </Suspense>
-            ) : (
-              <div className="panel map-panel map-loading map-deferred">
-                <div>
-                  <span className="eyebrow">Telemetry Map</span>
-                  <span>Telemetry access is not enabled for this role.</span>
-                </div>
               </div>
-            )}
-          </div>
+            </>
+          )}
         </div>
         <MissionQueue
           missions={dashboardMissions}
@@ -207,8 +203,8 @@ const normalizeDrone = (drone, telemetryRows = []) => {
     systemId: drone.id,
     id: drone.droneCode ?? drone.id,
     serialNumber: drone.droneCode ?? drone.id,
-    battery: latestTelemetry?.battery.level ?? drone.latestTelemetry?.batteryLevel ?? drone.battery ?? 0,
-    signal: latestTelemetry?.signal.strength ?? drone.signal ?? 0,
+    battery: latestTelemetry?.battery?.level ?? drone.latestTelemetry?.batteryLevel ?? drone.battery ?? null,
+    signal: latestTelemetry?.signal?.strength ?? drone.signal ?? 0,
     latestTelemetry,
     flightHours: drone.flightHours ?? 0,
     nextMaintenance: drone.nextMaintenance ?? "Not scheduled",

@@ -102,15 +102,12 @@ const Reports = ({ user, searchValue = "" }) => {
     try {
       const generated = await droneOpsApi.reports.generate(buildGeneratePayload());
       const reports = Array.isArray(generated) ? generated : [generated];
-      const firstReport = reports[0];
       window.dispatchEvent(new Event("droneops:activity-changed"));
       setReportRecords((current) => [
         ...reports,
         ...current.filter((item) => !reports.some((report) => item.id === report.id))
       ]);
       refresh();
-      if (firstReport?.id) navigate(`/reports/${encodeURIComponent(firstReport.id)}`);
-      setIsGenerateOpen(false);
       setToast({
         title: reports.length === 1 ? "Report generated" : "Reports generated",
         message: `${selectedGenerateLabel} created with the selected export scope.`
@@ -457,8 +454,11 @@ const normalizeReport = (report, index = 0) => {
     change: report.change ?? report.dataSnapshot?.summary?.change ?? "Stored audit snapshot",
     status: report.status ?? report.dataSnapshot?.summary?.status ?? "REVIEW",
     owner: report.owner ?? report.generatedBy?.name ?? report.dataSnapshot?.summary?.owner ?? "DroneOps",
+    generatedAt: report.createdAt ?? report.generatedAt,
+    generatedBy: report.generatedBy?.name ?? report.owner ?? "DroneOps",
     category: formatReportType(report.type),
-    scope: report.dataSnapshot?.scope
+    scope: report.dataSnapshot?.scope,
+    reportingPeriod: formatReportPeriod(report.dataSnapshot?.scope)
   };
 };
 
@@ -478,6 +478,14 @@ const getReportIdentity = (report) => report.id ?? report.uuid ?? toReportRouteI
 const formatReportStatus = (status = "") => status.toString().toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 const formatReportType = (type = "Snapshot") => type.toString().toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const formatReportPeriod = (scope) => {
+  if (!scope) return "All available data";
+  const from = scope.from ?? scope.startDate ?? scope.dateFrom;
+  const to = scope.to ?? scope.endDate ?? scope.dateTo;
+  if (from && to) return `${from} to ${to}`;
+  return from ? `From ${from}` : to ? `Through ${to}` : "All available data";
+};
 
 const toggleReportType = (types = [], type) => {
   if (types.includes(type)) {

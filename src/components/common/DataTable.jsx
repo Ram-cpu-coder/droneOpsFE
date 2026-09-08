@@ -13,7 +13,8 @@ const DataTable = ({
   sortable = true,
   paginated = true,
   pageSize = DEFAULT_PAGE_SIZE,
-  searchPlaceholder = "Search table"
+  searchPlaceholder = "Search table",
+  tableClassName = ""
 }) => {
   const [searchValue, setSearchValue] = useState("");
   const [columnFilters, setColumnFilters] = useState({});
@@ -143,14 +144,14 @@ const DataTable = ({
       )}
 
       <div className="table-wrap">
-        <table>
+        <table className={tableClassName}>
           <thead>
             <tr>
               {columns.map((column) => {
                 const isSorted = sortState.key === column.key;
                 const canSort = sortable && column.sortable !== false;
                 return (
-                  <th key={column.key}>
+                  <th key={column.key} className={column.className}>
                     {canSort ? (
                       <button
                         className={`table-sort-button ${isSorted ? "is-sorted" : ""}`}
@@ -192,7 +193,7 @@ const DataTable = ({
                 } : undefined}
               >
                 {columns.map((column) => (
-                  <td key={column.key} data-label={column.label}>
+                  <td key={column.key} className={column.className} data-label={column.label}>
                     {column.render ? column.render(row) : row[column.key]}
                   </td>
                 ))}

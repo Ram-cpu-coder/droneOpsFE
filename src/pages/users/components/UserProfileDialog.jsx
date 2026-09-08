@@ -128,13 +128,9 @@ const UserProfileDialog = ({ user, currentUser, canManage = false, onUpdated, on
               {canManage && !isEditing && (
                 <ActionButton icon={Pencil} type="button" onClick={() => setIsEditing(true)}>Edit</ActionButton>
               )}
-              <button className="icon-button" type="button" onClick={onClose} aria-label="Close user profile">
+              <button className="icon-button danger" type="button" onClick={onClose} aria-label="Close user profile" title="Close">
                 <X size={18} />
               </button>
-            </div>
-            <div className="user-profile-status-card">
-              <StatusBadge>{user.isVerified ? "Verified" : "Awaiting Approval"}</StatusBadge>
-              <span>{formatDateTime(user.lastLoginAt, "No login recorded")}</span>
             </div>
           </div>
         </div>

@@ -25,6 +25,7 @@ const themeOptions = [
   { id: "dark", label: "Dark", icon: Moon },
   { id: "light", label: "Light", icon: Sun }
 ];
+const NOTIFICATION_FALLBACK_REFRESH_MS = 300000;
 
 const TopBar = ({ title, description, routes = [], user, searchValue, themeMode, onSearchChange, onThemeModeChange }) => {
   const navigate = useNavigate();
@@ -49,7 +50,8 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
   const canRead = useCallback((permission) => hasClientPermission(user, permission), [user]);
 
   const loadNotifications = useCallback(async ({ force = false } = {}) => {
-    if (!force && lastLoadedAtRef.current && Date.now() - lastLoadedAtRef.current < 60000) return;
+    if (document.visibilityState !== "visible" && !force) return;
+    if (!force && lastLoadedAtRef.current && Date.now() - lastLoadedAtRef.current < NOTIFICATION_FALLBACK_REFRESH_MS) return;
 
     const requestId = notificationRequestRef.current + 1;
     notificationRequestRef.current = requestId;
@@ -88,7 +90,7 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
 
   useEffect(() => {
     loadNotifications();
-    const intervalId = window.setInterval(() => loadNotifications({ force: true }), 60000);
+    const intervalId = window.setInterval(() => loadNotifications(), NOTIFICATION_FALLBACK_REFRESH_MS);
     return () => window.clearInterval(intervalId);
   }, [loadNotifications]);
 

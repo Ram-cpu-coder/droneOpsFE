@@ -73,8 +73,8 @@ const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyI
     () => drones.map((drone) => ({
       value: drone.uuid ?? drone.id,
       label: drone.droneCode ?? drone.id,
-      title: [drone.manufacturer, drone.model].filter(Boolean).join(" ") || "Drone",
-      meta: formatReadableValue(drone.status),
+      title: `${drone.droneCode ?? drone.id} - ${drone.model ?? "Drone"}`,
+      meta: [drone.manufacturer, formatReadableValue(drone.status)].filter(Boolean).join(" | "),
       searchText: `${drone.droneCode ?? drone.id} ${drone.model ?? ""} ${drone.manufacturer ?? ""} ${drone.serialNumber ?? ""}`.toLowerCase()
     })),
     [drones]
@@ -94,7 +94,7 @@ const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyI
       value: owner.id,
       label: owner.name,
       title: owner.name,
-      meta: owner.email ?? formatReadableValue(owner.role),
+      meta: [formatReadableValue(owner.role), owner.email].filter(Boolean).join(" | "),
       searchText: `${owner.name} ${owner.email ?? ""} ${owner.role ?? ""}`.toLowerCase()
     })),
     [ownerOptions]
@@ -125,6 +125,12 @@ const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyI
     if (!error) return;
 
     window.requestAnimationFrame(() => {
+      const firstInvalid = formBodyRef.current?.querySelector(".has-error input, .has-error select, .has-error button");
+      if (firstInvalid) {
+        firstInvalid.scrollIntoView({ behavior: "smooth", block: "center" });
+        firstInvalid.focus?.();
+        return;
+      }
       formBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
       errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
@@ -249,7 +255,7 @@ const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyI
               <div className="assignment-picker-row">
                 <div className="assignment-picker-copy">
                   <span>Affected Drones</span>
-                  <strong>{selectedDrones.length ? `${selectedDrones.length} linked` : `${droneOptions.length} available`}</strong>
+                  <strong>{selectedDrones.length ? `${selectedDrones.length} linked` : `${droneOptions.length} drones`}</strong>
                 </div>
                 <MultiSearchableSelectField
                   label=""
@@ -306,7 +312,7 @@ const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyI
               <IncidentSummaryCard type="owner" item={selectedOwner} />
             </FormSection>
 
-            <FormSection icon={MapPinned} title="Incident Location" className="wide-form-section">
+            <FormSection icon={MapPinned} title="Incident Location" required className="wide-form-section">
               <IncidentLocationPicker value={form.locationPoint} onChange={(value) => updateField("locationPoint", value)} error={fieldErrors.locationPoint} />
             </FormSection>
 
@@ -341,7 +347,7 @@ const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyI
           <ReadinessBar items={readinessItems} isReady={isIncidentReady} />
           <div className="form-actions">
             <ActionButton onClick={onCancel}>Cancel</ActionButton>
-            <ActionButton icon={Save} variant="primary" type="submit" disabled={isSaving}>
+            <ActionButton icon={Save} variant="primary" type="submit" disabled={isSaving || !isIncidentReady}>
               {isSaving ? (mode === "edit" ? "Saving" : "Logging") : (mode === "edit" ? "Save Incident" : "Log Incident")}
             </ActionButton>
           </div>
@@ -353,11 +359,11 @@ const IncidentForm = ({ incident = null, mode = "create", initialValues = emptyI
   return createPortal(dialog, document.body);
 };
 
-const FormSection = ({ icon: Icon, title, children, className = "" }) => (
+const FormSection = ({ icon: Icon, title, children, className = "", required = false }) => (
   <section className={`form-section ${className}`}>
     <div className="form-section-title">
       <Icon size={18} />
-      <h3>{title}</h3>
+      <h3>{title}{required && <span className="required-mark" aria-hidden="true"> *</span>}</h3>
     </div>
     <div className="form-grid">{children}</div>
   </section>
@@ -366,7 +372,7 @@ const FormSection = ({ icon: Icon, title, children, className = "" }) => (
 const Field = ({ label, type = "text", placeholder = "", value, onChange, required = false, error = "" }) => (
   <label className={`field ${error ? "has-error" : ""}`}>
     <span>{label}</span>
-    <input type={type} value={value ?? ""} onChange={(event) => onChange?.(event.target.value)} placeholder={placeholder} required={required} />
+    <input type={type} value={value ?? ""} onChange={(event) => onChange?.(event.target.value)} placeholder={placeholder} required={required} aria-invalid={Boolean(error)} />
     {error && <small className="field-error">{error}</small>}
   </label>
 );
@@ -374,7 +380,7 @@ const Field = ({ label, type = "text", placeholder = "", value, onChange, requir
 const SelectField = ({ label, options, value, onChange, required = false, error = "" }) => (
   <label className={`field ${error ? "has-error" : ""}`}>
     <span>{label}</span>
-    <select value={value ?? ""} onChange={(event) => onChange?.(event.target.value)} required={required}>
+    <select value={value ?? ""} onChange={(event) => onChange?.(event.target.value)} required={required} aria-invalid={Boolean(error)}>
       <option value="" disabled>Select {label.toLowerCase()}</option>
       {options.map((option) => {
         const value = typeof option === "string" ? option : option.value;

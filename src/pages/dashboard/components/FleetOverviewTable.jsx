@@ -31,11 +31,13 @@ const FleetOverviewTable = ({ drones, isLoading = false, onDroneSelect }) => {
     {
       key: "systemId",
       label: "ID",
+      className: "fleet-key-column",
       render: (drone) => <CopyableId value={drone.systemId} />
     },
     {
       key: "serialNumber",
       label: "Serial Number",
+      className: "fleet-key-column",
       render: (drone) => (
         <button className="link-button strong-link" type="button" onClick={() => onDroneSelect?.(drone)}>
           <span>{drone.serialNumber ?? drone.id}</span>
@@ -51,8 +53,8 @@ const FleetOverviewTable = ({ drones, isLoading = false, onDroneSelect }) => {
         <div className="signal"><RadioTower size={15} /><span>{drone.signal}%</span></div>
       )
     },
-    { key: "flightHours", label: "Flight Hours" },
-    { key: "location", label: "Location" }
+    { key: "flightHours", label: "Flight Hours", className: "fleet-secondary-column" },
+    { key: "location", label: "Location", className: "fleet-secondary-column" }
   ];
 
   return (
@@ -90,6 +92,7 @@ const FleetOverviewTable = ({ drones, isLoading = false, onDroneSelect }) => {
         )}
       />
       <DataTable
+        tableClassName="fleet-overview-table"
         columns={columns}
         rows={filteredDrones}
         getRowKey={(drone) => drone.uuid ?? drone.id}

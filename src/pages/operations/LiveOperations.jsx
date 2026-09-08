@@ -9,6 +9,8 @@ import { getRealtimeSocket } from "../../services/realtimeClient";
 import { hasClientPermission } from "../../features/auth/accessControl";
 
 const blankZone=()=>({name:"",type:"WARNING",isActive:true,polygon:[]});
+const OPERATIONS_FALLBACK_REFRESH_MS = 300000;
+
 export default function LiveOperations({user}) {
   const [tab,setTab]=useState("live");
   const [zones,setZones]=useState([]);const [missions,setMissions]=useState([]);
@@ -19,18 +21,23 @@ export default function LiveOperations({user}) {
   const [missionId,setMissionId]=useState("");const [records,setRecords]=useState([]);
   const [index,setIndex]=useState(0);const [playing,setPlaying]=useState(false);const [speed,setSpeed]=useState(1);
   const [zone,setZone]=useState(blankZone);const [editingId,setEditingId]=useState(null);
+  const [telemetryStatus,setTelemetryStatus]=useState(null);
   const [drawing,setDrawing]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState("");const [message,setMessage]=useState("");
   const requestRef=useRef(0);
   const canManage=hasClientPermission(user,"geofences:manage");
-  const refreshZones=useCallback(async()=>{try{setZones(await droneOpsApi.geofences.list());}catch(e){setError(e.message);}},[]);
+  const refreshZones=useCallback(async()=>{if(document.visibilityState!=="visible")return;try{setZones(await droneOpsApi.geofences.list());}catch(e){setError(e.message);}},[]);
+  const refreshTelemetryStatus=useCallback(async()=>{if(document.visibilityState!=="visible")return;try{setTelemetryStatus(await droneOpsApi.telemetry.status());}catch(e){setTelemetryStatus({error:e.message});}},[]);
   useEffect(()=>{
-    refreshZones();droneOpsApi.missions.list().then(setMissions).catch(e=>setError(e.message));
+    refreshZones();refreshTelemetryStatus();droneOpsApi.missions.list().then(setMissions).catch(e=>setError(e.message));
     droneOpsApi.drones.list().then(setDrones).catch(e=>setError(e.message));
     const socket=getRealtimeSocket();socket.on("geofences:changed",refreshZones);
+    socket.on("operations:telemetry",refreshTelemetryStatus);
     socket.on("connect",refreshZones);
-    const timer=setInterval(refreshZones,15000);
-    return()=>{clearInterval(timer);socket.off("geofences:changed",refreshZones);socket.off("connect",refreshZones);};
-  },[refreshZones]);
+    socket.on("connect",refreshTelemetryStatus);
+    const timer=setInterval(refreshZones,OPERATIONS_FALLBACK_REFRESH_MS);
+    const telemetryTimer=setInterval(refreshTelemetryStatus,OPERATIONS_FALLBACK_REFRESH_MS);
+    return()=>{clearInterval(timer);clearInterval(telemetryTimer);socket.off("geofences:changed",refreshZones);socket.off("operations:telemetry",refreshTelemetryStatus);socket.off("connect",refreshZones);socket.off("connect",refreshTelemetryStatus);};
+  },[refreshZones,refreshTelemetryStatus]);
   useEffect(()=>{
     const request=++requestRef.current;setRecords([]);setIndex(0);setPlaying(false);
     const selectedId=replaySource==="mission"?missionId:droneId;
@@ -54,6 +61,7 @@ export default function LiveOperations({user}) {
   };
   const deleteZone=async()=>{if(!editingId)return;setBusy(true);setError("");setMessage("");try{await droneOpsApi.geofences.remove(editingId);setZones(rows=>rows.filter(row=>row.id!==editingId));setZone(blankZone());setEditingId(null);setDrawing(false);setMessage("Geofence deleted.");}catch(e){setError(e.message);}finally{setBusy(false);}};
   const mission=missions.find(m=>m.id===missionId);
+  const replaySelectionReady = Boolean(missionId && droneId);
   const manualZones=zones.filter(z=>z.source!=="GOVERNMENT");
   const governmentZones=zones.filter(z=>z.source==="GOVERNMENT");
   const editingZone=zones.find(z=>z.id===editingId);
@@ -70,28 +78,39 @@ export default function LiveOperations({user}) {
     </div>
     {(error||message)&&<div className="operations-feedback-row">{error&&<div role="alert" className="auth-alert">{error}</div>}{message&&<p role="status" className="operations-success-message">{message}</p>}</div>}
     {tab==="live"&&<GeospatialMap/>}
-    {tab==="replay"&&<div className="panel">
+    {tab==="replay"&&<div className="panel telemetry-replay-panel">
       <SectionHeader title="Telemetry Replay" action={<ActionButton icon={RefreshCw} disabled={busy} onClick={()=>setReload(value=>value+1)}>Refresh history</ActionButton>} />
-      <div className="operations-toolbar">
+      <div className="operations-toolbar telemetry-replay-toolbar">
         <label className="field">Source<select aria-label="Replay source" value={replaySource} onChange={e=>setReplaySource(e.target.value)}><option value="mission">Mission replay</option><option value="drone">Drone history</option></select></label>
-        {replaySource==="mission"?<label className="field">Mission<select aria-label="Replay mission" value={missionId} onChange={e=>setMissionId(e.target.value)}><option value="">Select mission</option>{missions.map(m=><option value={m.id} key={m.id}>{m.missionCode} - {m.name}</option>)}</select></label>:<label className="field">Drone<select aria-label="Replay drone" value={droneId} onChange={e=>setDroneId(e.target.value)}><option value="">Select drone</option>{drones.map(d=><option key={d.id} value={d.id}>{d.droneCode}</option>)}</select></label>}
-        <button type="button" className="icon-button" title={playing?"Pause replay":"Play replay"} aria-label={playing?"Pause replay":"Play replay"} disabled={records.length<2||index>=records.length-1} onClick={()=>setPlaying(p=>!p)}>{playing?<Pause size={18}/>:<Play size={18}/>}</button>
-        <button type="button" className="icon-button" title="Restart replay" aria-label="Restart replay" onClick={()=>{setIndex(0);setPlaying(false);}}><RotateCcw size={18}/></button>
-        <label className="field">Records per second<select value={speed} onChange={e=>setSpeed(Number(e.target.value))}>{[1,2,5,10].map(v=><option key={v}>{v}</option>)}</select></label>
-        <input aria-label="Replay position" type="range" min="0" max={Math.max(0,records.length-1)} value={index} disabled={!records.length} onChange={e=>{setPlaying(false);setIndex(Number(e.target.value));}}/>
-        <span>{records.length?`${index+1} / ${records.length}`:busy?"Loading telemetry...":"No recorded telemetry"}</span>
+        <label className="field">Mission<select aria-label="Replay mission" value={missionId} onChange={e=>setMissionId(e.target.value)}><option value="">Select mission</option>{missions.map(m=><option value={m.id} key={m.id}>{m.missionCode} - {m.name}</option>)}</select></label>
+        <label className="field">Drone<select aria-label="Replay drone" value={droneId} onChange={e=>setDroneId(e.target.value)}><option value="">Select drone</option>{drones.map(d=><option key={d.id} value={d.droneCode ?? d.id}>{d.droneCode}</option>)}</select></label>
       </div>
-      {!busy&&!records.length&&(replaySource==="mission"?missionId:droneId)&&<div className="auth-alert" role="status">{replaySource==="mission"?"No telemetry is linked to this mission. Drone history may contain separate simulator flights. Mission replay requires matching drone and Synctegral mission IDs.":"No saved telemetry was found for this drone."}</div>}
+      {!busy&&!records.length&&(replaySource==="mission"?missionId:droneId)&&<div className="auth-alert" role="status">{buildReplayEmptyMessage(replaySource, telemetryStatus)}</div>}
+      {telemetryStatus&&<TelemetryStatusNote status={telemetryStatus}/>}
       {replaySource==="drone"&&<p className="muted">Latest {records.length} saved packets (up to 2,000). Drone history may include different flights and is not proof of this mission's flight path.</p>}
       {records.length>0&&<p className="muted">{new Date(records[0].timestamp).toLocaleString()} to {new Date(records.at(-1).timestamp).toLocaleString()}</p>}
-      <MissionRouteMap key={`${replaySource}:${missionId}:${droneId}`} showEmptyMap geofences={zones} waypoints={replaySource==="mission"?mission?.plannedRoute?.waypoints??[]:[]} telemetry={records[index]??null} telemetryTrail={records.slice(0,index+1)} telemetryMode="recorded" context={{source:replaySource==="mission"?"Mission replay":"Drone history",mission:replaySource==="mission"?mission?.missionCode:undefined,timestamp:records[index]?.timestamp}}/>
+      <div className="telemetry-replay-map">
+        <MissionRouteMap key={`${replaySource}:${missionId}:${droneId}`} showEmptyMap geofences={zones} waypoints={replaySource==="mission"?mission?.plannedRoute?.waypoints??[]:[]} telemetry={records[index]??null} telemetryTrail={records.slice(0,index+1)} telemetryMode="recorded" context={{source:replaySource==="mission"?"Mission replay":"Drone history",mission:replaySource==="mission"?mission?.missionCode:undefined,timestamp:records[index]?.timestamp}}
+          mapOverlayControls={replaySelectionReady&&<div className="telemetry-replay-map-controls" aria-label="Replay controls">
+            <button type="button" className="icon-button" title={playing?"Pause replay":"Play replay"} aria-label={playing?"Pause replay":"Play replay"} disabled={records.length<2||index>=records.length-1} onClick={()=>setPlaying(p=>!p)}>{playing?<Pause size={16}/>:<Play size={16}/>}</button>
+            <button type="button" className="icon-button" title="Restart replay" aria-label="Restart replay" disabled={!records.length} onClick={()=>{setIndex(0);setPlaying(false);}}><RotateCcw size={16}/></button>
+            <input aria-label="Replay position" type="range" min="0" max={Math.max(0,records.length-1)} value={index} disabled={!records.length} onChange={e=>{setPlaying(false);setIndex(Number(e.target.value));}}/>
+            <span>{records.length?`${index+1} / ${records.length}`:busy?"Loading":"No records"}</span>
+          </div>}/>
+      </div>
     </div>}
     {tab==="zones"&&<div className="operations-split">
       <div>
         <MissionRouteMap showEmptyMap geofences={[...zones.filter(z=>z.id!==editingId),...(zone.polygon.length>=3?[{...zone,name:zone.name||"Unsaved geofence",isActive:true}]:[])]}
           waypoints={zone.polygon.map(([longitude,latitude],i)=>({longitude,latitude,label:`Boundary point ${i+1}`}))}
+          mapOverlayControls={<div className="geofence-map-controls">
+            {canManage&&<>
+              <button className="secondary-button" type="button" disabled={isGovernmentEditing} onClick={()=>setDrawing(v=>!v)}>{drawing?"Finish boundary":"Draw boundary"}</button>
+              <button type="button" className="icon-button" title="Undo boundary point" aria-label="Undo boundary point" disabled={!zone.polygon.length||isGovernmentEditing} onClick={()=>setZone(z=>({...z,polygon:z.polygon.slice(0,-1)}))}><Undo2 size={16}/></button>
+            </>}
+            <span>{zone.polygon.length} boundary points</span>
+          </div>}
           onMapClick={drawing&&canManage&&!isGovernmentEditing?point=>setZone(z=>({...z,polygon:[...z.polygon,point]})):undefined}/>
-        <div className="operations-toolbar geofence-drawing-toolbar">{canManage&&<><button className="secondary-button" type="button" disabled={isGovernmentEditing} onClick={()=>setDrawing(v=>!v)}>{drawing?"Finish boundary":"Draw boundary"}</button><button type="button" className="icon-button" title="Undo boundary point" aria-label="Undo boundary point" disabled={!zone.polygon.length||isGovernmentEditing} onClick={()=>setZone(z=>({...z,polygon:z.polygon.slice(0,-1)}))}><Undo2 size={18}/></button></>}<span>{zone.polygon.length} boundary points</span></div>
       </div>
       <aside>
         {canManage&&<form className="operations-form" onSubmit={saveZone}>
@@ -118,3 +137,29 @@ export default function LiveOperations({user}) {
     </div>}
   </div>;
 }
+
+const TelemetryStatusNote=({status})=>{
+  if(status.error)return <div className="auth-alert telemetry-status-note" role="status">Telemetry status unavailable: {status.error}</div>;
+  const latest=status.latestTelemetry?.timestamp?new Date(status.latestTelemetry.timestamp).toLocaleString():"No packet saved yet";
+  const issues=[
+    !status.synctegral?.customerKeyConfigured&&"Synctegral customer key is missing.",
+    status.connectorDrones===0&&"No drones are configured for a telemetry provider.",
+    status.missingExternalDeviceIds?.length>0&&`Missing Vendor Device ID: ${status.missingExternalDeviceIds.join(", ")}.`,
+    status.replay?.linkedRecords===0&&"Mission replay is empty until telemetry packets match a mission and assigned drone."
+  ].filter(Boolean);
+  return <section className="telemetry-status-note" aria-label="Telemetry integration status">
+    <strong>Telemetry status</strong>
+    <span>Latest saved: {latest}</span>
+    <span>Replay records: {status.replay?.linkedRecords??0} mission-linked / {status.replay?.unlinkedRecords??0} drone-only</span>
+    {issues.length>0&&<ul>{issues.map(issue=><li key={issue}>{issue}</li>)}</ul>}
+  </section>;
+};
+
+const buildReplayEmptyMessage=(source,status)=>{
+  if(status?.error)return `Replay cannot be checked because telemetry status failed: ${status.error}`;
+  if(!status?.synctegral?.customerKeyConfigured)return "No telemetry replay yet. Synctegral is not fully configured because DRONEOPS_CUSTOMER_KEY is missing or still a placeholder.";
+  if(status?.connectorDrones===0)return "No telemetry replay yet. Configure at least one drone with a telemetry provider and Vendor Device ID.";
+  if(status?.missingExternalDeviceIds?.length)return `No telemetry replay yet. Add Vendor Device ID for ${status.missingExternalDeviceIds.join(", ")}.`;
+  if(source==="mission")return "No telemetry is linked to this mission yet. Mission replay requires saved packets whose Synctegral mission ID matches this mission and whose drone ID matches an assigned drone.";
+  return "No saved telemetry was found for this drone. Start the connector worker/stream or use refresh while the simulator is publishing packets.";
+};

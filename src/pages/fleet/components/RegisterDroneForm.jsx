@@ -20,6 +20,7 @@ const certificationStatuses = [
   "GROUNDED_PENDING_INSPECTION"
 ];
 const telemetryProviders = ["NONE", "DJI", "AUTEL", "MAVLINK"];
+const simulatorDeviceId = "SIM-001";
 
 const initialForm = {
   model: "",
@@ -51,8 +52,13 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
   const [validationToast, setValidationToast] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({});
   const needsCertificationDetails = form.certificationStatus === "CERTIFIED";
+  const telemetryDeviceRequired = form.telemetryProvider !== "NONE";
+  const telemetryDeviceError = telemetryDeviceRequired && !form.externalDeviceId.trim()
+    ? "Vendor Device ID is required for this provider."
+    : undefined;
   const manufacturerOptions = modelCatalog.map((entry) => entry.manufacturer);
   const selectedModelOptions = getModelOptions(modelCatalog, form.manufacturer);
+  const formValidation = validateDroneRegistration(form);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -114,6 +120,10 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
         return { ...current, certificationStatus: value, status: "AWAITING_APPROVAL" };
       }
 
+      if (field === "telemetryProvider" && value === "NONE") {
+        return { ...current, telemetryProvider: value, externalDeviceId: "" };
+      }
+
       return { ...current, [field]: value };
     });
   };
@@ -145,7 +155,7 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
         manufacturer: form.manufacturer,
         serialNumber: form.serialNumber,
         batteryType: form.batteryType,
-        firmwareVersion: form.firmwareVersion,
+        firmwareVersion: form.firmwareVersion || undefined,
         status: form.status,
         flightHours: Number(form.flightHours || 0),
         purchaseDate: form.purchaseDate ? new Date(form.purchaseDate).toISOString() : undefined,
@@ -167,7 +177,12 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
         droneCode: registeredDrone.droneCode
       });
     } catch (requestError) {
-      setFieldErrors({});
+      const conflictFields = {
+        DUPLICATE_SERIAL_NUMBER: { serialNumber: "A drone with this serial number already exists." },
+        DUPLICATE_EXTERNAL_DEVICE_ID: { externalDeviceId: "This Vendor Device ID is already in use." },
+        DUPLICATE_DRONE_CODE: { droneCode: "A drone with this ID already exists." }
+      };
+      setFieldErrors(conflictFields[requestError.code] ?? {});
       showRegistrationError(requestError.message);
     } finally {
       setIsSaving(false);
@@ -207,7 +222,7 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
             <FormSection icon={Plane} title="Aircraft Identity" variant="primary">
               <SelectField label="Manufacturer" value={form.manufacturer} onChange={(value) => updateField("manufacturer", value)} options={manufacturerOptions} required disabled={!manufacturerOptions.length} />
               <SelectField label="Model" value={form.model} onChange={(value) => updateField("model", value)} options={selectedModelOptions.map((item) => item.model)} required disabled={!form.manufacturer || !selectedModelOptions.length} />
-              <Field label="Serial Number" value={form.serialNumber} onChange={(value) => updateField("serialNumber", value)} placeholder="From the aircraft body, box, or vendor record" required help="This is the manufacturer serial number. It must be unique." />
+              <Field label="Serial Number" value={form.serialNumber} onChange={(value) => updateField("serialNumber", value)} placeholder="From the aircraft body, box, or vendor record" required maxLength={100} error={fieldErrors.serialNumber} help="This is the manufacturer serial number. It must be unique." />
               <ReadOnlyField label="Battery Type" value={form.batteryType || "Select model first"} />
             </FormSection>
 
@@ -226,8 +241,8 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
             </FormSection>
 
             <FormSection icon={Cpu} title="Operations">
-              <Field label="Firmware Version" value={form.firmwareVersion} onChange={(value) => updateField("firmwareVersion", value)} placeholder="v12.4.1" />
-              <Field label="Flight Hours" type="number" value={form.flightHours} onChange={(value) => updateField("flightHours", value)} placeholder="0" min="0" />
+              <Field label="Firmware Version" value={form.firmwareVersion} onChange={(value) => updateField("firmwareVersion", value)} placeholder="v12.4.1" maxLength={50} error={fieldErrors.firmwareVersion} />
+              <Field label="Flight Hours" type="number" value={form.flightHours} onChange={(value) => updateField("flightHours", value)} placeholder="0" min="0" max="100000" error={fieldErrors.flightHours} />
               <Field label="Remote ID" value={form.remoteId} onChange={(value) => updateField("remoteId", value)} placeholder="Optional broadcast ID" help="Only enter this if the drone or compliance record provides it." />
             </FormSection>
 
@@ -258,9 +273,20 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
                       value={form.externalDeviceId}
                       onChange={(value) => updateField("externalDeviceId", value)}
                       placeholder={getExternalIdPlaceholder(form.telemetryProvider)}
+                      maxLength={120}
+                      required={telemetryDeviceRequired}
+                      error={fieldErrors.externalDeviceId || telemetryDeviceError}
                       help="This comes from the vendor portal, flight controller, or device management page."
                     />
                   )}
+                  <SimulatorDeviceOption
+                    isSelected={form.telemetryProvider === "MAVLINK" && form.externalDeviceId === simulatorDeviceId}
+                    onSelect={() => setForm((current) => ({
+                      ...current,
+                      telemetryProvider: "MAVLINK",
+                      externalDeviceId: simulatorDeviceId
+                    }))}
+                  />
                   <InfoNote text="Provider and device ID connect this drone to the correct vendor telemetry source." />
                 </div>
               )}
@@ -288,7 +314,7 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
           </label>
           <div className="form-actions">
             <ActionButton onClick={onCancel}>Cancel</ActionButton>
-            <ActionButton icon={Save} variant="primary" type="submit" disabled={isSaving || !isConfirmed}>
+            <ActionButton icon={Save} variant="primary" type="submit" disabled={isSaving || !isConfirmed || Boolean(formValidation)}>
               {isSaving ? "Registering" : "Register Drone"}
             </ActionButton>
           </div>
@@ -312,11 +338,11 @@ const FormSection = ({ icon: Icon, title, children, variant = "" }) => {
   );
 };
 
-const Field = ({ label, type = "text", placeholder = "", value, onChange, required = false, min, max, help, error }) => {
+const Field = ({ label, type = "text", placeholder = "", value, onChange, required = false, min, max, maxLength, help, error }) => {
   return (
     <label className={`field ${error ? "has-error" : ""}`}>
       <span>{label}</span>
-      <input type={type} value={value ?? ""} onChange={(event) => onChange?.(event.target.value)} placeholder={placeholder} required={required} min={min} max={max} />
+      <input type={type} value={value ?? ""} onChange={(event) => onChange?.(event.target.value)} placeholder={placeholder} required={required} min={min} max={max} maxLength={maxLength} aria-invalid={Boolean(error)} minLength={type === "text" && required ? 2 : undefined} />
       {error ? <small className="field-error">{error}</small> : help && <small>{help}</small>}
     </label>
   );
@@ -326,6 +352,19 @@ const InfoNote = ({ text }) => (
   <div className="field-note wide-field">
     <Info size={15} />
     <span>{text}</span>
+  </div>
+);
+
+const SimulatorDeviceOption = ({ isSelected, onSelect }) => (
+  <div className="simulator-device-option wide-field">
+    <div>
+      <span>Simulator device</span>
+      <strong>{simulatorDeviceId}</strong>
+      <small>Use this when connecting the drone to the local simulator telemetry stream.</small>
+    </div>
+    <button className={isSelected ? "active" : ""} type="button" onClick={onSelect}>
+      {isSelected ? "Selected" : "Use"}
+    </button>
   </div>
 );
 
@@ -367,9 +406,11 @@ const getModelOptions = (catalog, manufacturer) => (
   catalog.find((entry) => entry.manufacturer === manufacturer)?.models ?? []
 );
 
-const formatOptionLabel = (value = "") => (
-  value.toString().toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
-);
+const formatOptionLabel = (value = "") => {
+  const normalized = value.toString().trim().toUpperCase();
+  const knownLabels = { DJI: "DJI", MAVLINK: "MAVLink", RTK: "RTK", NONE: "None", AUTEL: "Autel" };
+  return knownLabels[normalized] ?? value.toString().toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+};
 
 const todayInputValue = () => new Date().toISOString().slice(0, 10);
 
@@ -386,6 +427,11 @@ const validateDroneRegistration = (form) => {
   const nextInspectionDue = toDateOnly(form.nextInspectionDue);
   const certificationExpiry = toDateOnly(form.certificationExpiry);
 
+  if (!form.serialNumber.trim()) return validationResult("Serial number is required.", { serialNumber: "Required." });
+  if (form.serialNumber.trim().length > 100 || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(form.serialNumber.trim())) return validationResult("Enter a valid serial number (maximum 100 characters).", { serialNumber: "Use letters, numbers, dots, hyphens, or underscores." });
+  if (form.firmwareVersion.trim().length > 50 || (form.firmwareVersion.trim() && !/^[A-Za-z0-9][A-Za-z0-9._+/-]*$/.test(form.firmwareVersion.trim()))) return validationResult("Enter a valid firmware version (maximum 50 characters).", { firmwareVersion: "Use a version such as v12.4.1." });
+  const flightHours = Number(form.flightHours);
+  if (!Number.isFinite(flightHours) || flightHours < 0 || flightHours > 100000) return validationResult("Flight hours must be between 0 and 100,000.", { flightHours: "Enter a realistic value." });
   if (!form.manufacturer) return validationResult("Manufacturer is required.");
   if (!form.model) return validationResult("Model is required.");
   if (!form.batteryType) return validationResult("Battery type could not be detected for this model.");

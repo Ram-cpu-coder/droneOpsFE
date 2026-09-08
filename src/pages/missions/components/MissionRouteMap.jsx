@@ -8,7 +8,7 @@ import { useOperationalGeofences } from "../../../hooks/useOperationalGeofences"
 
 const defaultCenter = { latitude: -33.8679, longitude: 151.2073 };
 
-const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = null, authorityAnalysis = null, telemetry = null, telemetryTrail = [], telemetryMode = "planned", incidentLocation = null, context = null, geofences: suppliedGeofences, onMapClick, showEmptyMap = false }) => {
+const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = null, authorityAnalysis = null, telemetry = null, telemetryTrail = [], telemetryMode = "planned", incidentLocation = null, context = null, geofences: suppliedGeofences, onMapClick, mapOverlayControls = null, showEmptyMap = false }) => {
   const operationalGeofences = useOperationalGeofences(suppliedGeofences === undefined);
   const geofences = suppliedGeofences ?? operationalGeofences.zones;
   const clickRef = useRef(onMapClick);
@@ -73,10 +73,15 @@ const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = nu
       };
       map.on("click", (event) => clickRef.current?.([event.latlng.lng,event.latlng.lat]));
 
-      resizeObserverRef.current = new ResizeObserver(() => map.invalidateSize());
+      const invalidateMapSize = () => {
+        window.requestAnimationFrame(() => map.invalidateSize({ pan: false }));
+      };
+      map.on("zoomend", () => updateDroneMarkerScale(map));
+      resizeObserverRef.current = new ResizeObserver(invalidateMapSize);
       resizeObserverRef.current.observe(mapContainerRef.current);
       mapRef.current = map;
       setMapReady(true);
+      invalidateMapSize();
     } catch (error) {
       setMapError(error.message || "Mission route map failed to load.");
     }
@@ -121,10 +126,18 @@ const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = nu
       telemetryMode,
       incidentPoint
     });
+    window.requestAnimationFrame(() => updateDroneMarkerScale(mapRef.current));
 
     if (!hasFittedRef.current) {
       fitMapToPoints(mapRef.current, mapPoints);
       hasFittedRef.current = true;
+    }
+
+    if (telemetryMode === "recorded" && hasCoordinates(latestTelemetryPoint)) {
+      mapRef.current.panTo(toLatLng(latestTelemetryPoint), {
+        animate: true,
+        duration: 0.35
+      });
     }
   }, [councilOverlay, incidentPoint, latestTelemetryPoint, locationPoints, mapPoints, mapReady, operatingArea, routePoints, telemetryMode, telemetryPoints]);
 
@@ -151,6 +164,7 @@ const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = nu
     </>}>
     <div className="mission-profile-map-shell leaflet-mission-map-shell">
       <div className="mission-profile-map leaflet-mission-map" ref={mapContainerRef} />
+      {mapOverlayControls && <div className="mission-map-overlay-controls">{mapOverlayControls}</div>}
       {!mapReady && !mapError && <div className="mission-profile-map-status">Loading mission route...</div>}
       {mapError && <div className="mission-profile-map-status error">{mapError}</div>}
     </div>
@@ -219,6 +233,7 @@ const renderMapLayers = ({ layers, routePoints, locationPoints, operatingArea, c
   });
 
   locationPoints.forEach((point) => {
+    if (point.markerClass === "area") return;
     L.marker(toLatLng(point), {
       icon: createMarkerIcon(point.markerLabel, `location ${point.markerClass}`, point.popupLabel)
     })
@@ -228,7 +243,7 @@ const renderMapLayers = ({ layers, routePoints, locationPoints, operatingArea, c
 
   if (hasCoordinates(latestTelemetryPoint)) {
     L.marker(toLatLng(latestTelemetryPoint), {
-      icon: createMarkerIcon("", `drone ${telemetryMode === "recorded" ? "recorded" : "live"}`, telemetryMode === "recorded" ? "Recorded aircraft position" : "Live aircraft position")
+      icon: createMarkerIcon("", "drone-logo-marker", telemetryMode === "recorded" ? "Recorded aircraft position" : "Live aircraft position")
     })
       .bindPopup(buildTelemetryPopup(latestTelemetryPoint))
       .addTo(layers.markers);
@@ -245,10 +260,21 @@ const renderMapLayers = ({ layers, routePoints, locationPoints, operatingArea, c
 
 const createMarkerIcon = (label, className, title) => L.divIcon({
   className: "leaflet-route-marker-wrapper",
-  html: `<button type="button" class="route-picker-marker mission-profile-map-marker ${className}" aria-label="${escapeAttribute(title)}"><span class="route-picker-marker-bubble">${escapeHtml(label)}</span><span class="route-picker-marker-tag">${escapeHtml(title)}</span></button>`,
-  iconSize: [28, 28],
-  iconAnchor: [14, 14]
+  html: className === "drone-logo-marker"
+    ? `<button type="button" class="route-picker-marker mission-profile-map-marker ${className}" aria-label="${escapeAttribute(title)}"><span class="map-drone-logo drone-logo" aria-hidden="true"><span class="drone-rotor rotor-left-top"></span><span class="drone-rotor rotor-right-top"></span><span class="drone-rotor rotor-left-bottom"></span><span class="drone-rotor rotor-right-bottom"></span><span class="drone-body"></span></span><span class="route-picker-marker-tag">${escapeHtml(title)}</span></button>`
+    : `<button type="button" class="route-picker-marker mission-profile-map-marker ${className}" aria-label="${escapeAttribute(title)}"><span class="route-picker-marker-bubble">${escapeHtml(label)}</span><span class="route-picker-marker-tag">${escapeHtml(title)}</span></button>`,
+  iconSize: className === "drone-logo-marker" ? [42, 30] : [28, 28],
+  iconAnchor: className === "drone-logo-marker" ? [21, 15] : [14, 14]
 });
+
+const updateDroneMarkerScale = (map) => {
+  if (!map) return;
+  const zoom = map.getZoom();
+  const zoomScale = Math.min(1.05, Math.max(0.7, 2 ** ((zoom - 14) * 0.2)));
+  map.getContainer().querySelectorAll(".drone-logo-marker .map-drone-logo").forEach((element) => {
+    element.style.transform = `scale(${(0.22 * zoomScale).toFixed(3)})`;
+  });
+};
 
 const buildTelemetryPopup = (point) => `
   <strong>${escapeHtml(point.label || "Aircraft")}</strong><br />

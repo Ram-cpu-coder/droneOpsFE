@@ -51,11 +51,13 @@ const Incidents = ({ searchValue, user }) => {
     {
       key: "systemId",
       label: "ID",
+      className: "incident-key-column",
       render: (incident) => <CopyableId value={incident.systemId} />
     },
     {
       key: "serialNumber",
       label: "Serial Number",
+      className: "incident-key-column",
       render: (incident) => (
         <button className="link-button strong-link" type="button" onClick={() => navigate(`/incidents/${encodeURIComponent(incident.uuid ?? incident.idRaw ?? incident.id)}`)}>
           <span>{incident.serialNumber}</span>
@@ -65,9 +67,9 @@ const Incidents = ({ searchValue, user }) => {
     { key: "title", label: "Issue" },
     { key: "severity", label: "Severity", filterable: true, render: (incident) => <StatusBadge type="risk">{incident.severity}</StatusBadge> },
     { key: "status", label: "Status", filterable: true, render: (incident) => <StatusBadge>{incident.status}</StatusBadge> },
-    { key: "owner", label: "Owner" },
-    { key: "source", label: "Source", filterable: true },
-    { key: "time", label: "Reported" }
+    { key: "owner", label: "Owner", className: "incident-secondary-column" },
+    { key: "source", label: "Source", filterable: true, className: "incident-secondary-column" },
+    { key: "time", label: "Reported", className: "incident-secondary-column" }
   ];
 
   const handleLogIncidentClick = () => {
@@ -154,6 +156,7 @@ const Incidents = ({ searchValue, user }) => {
           ) : null}
         />
         <DataTable
+          tableClassName="incident-register-table"
           columns={columns}
           rows={filteredIncidents}
           getRowKey={(incident) => incident.uuid ?? incident.idRaw ?? incident.id}

@@ -83,6 +83,10 @@ const UserManagement = ({ user, searchValue = "" }) => {
 
   const requestDeleteUser = (targetUser, event) => {
     event.stopPropagation();
+    if (targetUser.id === user?.id) {
+      showToast({ type: "error", title: "Account deletion blocked", message: "Assign another System Administrator before removing your account." });
+      return;
+    }
     setDeletingUser(targetUser);
   };
 
@@ -145,8 +149,6 @@ const UserManagement = ({ user, searchValue = "" }) => {
       render: (row) => {
         const isEditingRow = editingUserId === row.id;
         const isSavingRow = savingUserId === row.id;
-        const canDeleteRow = canManageUsers && row.id !== user?.id;
-
         return (
           <div className="table-actions user-table-actions">
             <button className="icon-button" type="button" onClick={(event) => {
@@ -192,9 +194,9 @@ const UserManagement = ({ user, searchValue = "" }) => {
                   className="icon-button danger"
                   type="button"
                   onClick={(event) => requestDeleteUser(row, event)}
-                  disabled={!canDeleteRow || isSavingRow}
+                  disabled={!canManageUsers || isSavingRow}
                   aria-label={`Delete ${row.name}`}
-                  title={canDeleteRow ? "Delete user" : "You cannot delete your own active account"}
+                  title={row.id === user?.id ? "You cannot delete your own active account" : "Delete user"}
                 >
                   <Trash2 size={16} />
                 </button>

@@ -11,6 +11,6 @@ export const getStatusTone = (status) => {
   const normalized = status?.toLowerCase();
   if (["active", "available", "in progress", "ready", "certified", "verified"].includes(normalized)) return "green";
   if (["in_mission", "charging", "scheduled", "review", "monitoring", "investigating", "awaiting_approval", "awaiting_renewal", "risk_assessment_completed", "risk assessment completed"].includes(normalized)) return "amber";
-  if (["maintenance", "grounded", "disconnected", "open", "unavailable", "grounded_pending_inspection"].includes(normalized)) return "red";
+  if (["maintenance", "overdue", "grounded", "disconnected", "open", "unavailable", "grounded_pending_inspection"].includes(normalized)) return "red";
   return "gray";
 };
