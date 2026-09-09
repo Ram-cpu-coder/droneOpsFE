@@ -1274,7 +1274,26 @@ const getDroneAssignmentBlockReason = (drone) => {
     return "certification has expired.";
   }
 
+  if (hasOfflineTelemetryRequirement(drone)) {
+    return "telemetry link is offline or stale.";
+  }
+
   return "";
+};
+
+const hasOfflineTelemetryRequirement = (drone) => {
+  const provider = String(drone.telemetryProvider ?? "NONE").toUpperCase();
+  if (!provider || provider === "NONE" || provider === "GENERIC_REST") return false;
+
+  const connectorStatus = String(drone.connectorStatus ?? "").toUpperCase();
+  if (connectorStatus === "OFFLINE") return true;
+  if (connectorStatus !== "ONLINE") return false;
+
+  if (!drone.lastTelemetryAt) return true;
+  const lastTelemetryAt = new Date(drone.lastTelemetryAt);
+  if (Number.isNaN(lastTelemetryAt.getTime())) return true;
+
+  return Date.now() - lastTelemetryAt.getTime() > 5 * 60 * 1000;
 };
 
 const getPilotAssignmentBlockReason = (pilot) => {

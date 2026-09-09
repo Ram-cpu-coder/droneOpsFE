@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   BadgeCheck,
   CalendarClock,
   Eye,
-  Mail,
   MapPin,
   Pencil,
   Plane,
@@ -12,7 +12,6 @@ import {
   Save,
   ShieldAlert,
   Trash2,
-  UserRound,
   X
 } from "lucide-react";
 import { useApiResource } from "../../hooks/useApiResource";
@@ -98,6 +97,7 @@ const findLastKnownLocation = (missions) => {
 };
 
 export default function Pilots({ user }) {
+  const navigate = useNavigate();
   const loader = useCallback(() => droneOpsApi.pilots.list(), []);
   const canManage = hasClientPermission(user, "pilots:manage");
   const canReadMissions = hasClientPermission(user, "missions:read") || hasClientPermission(user, "missions:assigned");
@@ -153,6 +153,9 @@ export default function Pilots({ user }) {
   const completedMissions = selectedMissions.filter((mission) => missionStatus(mission) === "COMPLETED");
   const assignedMissions = selectedMissions.filter((mission) => missionStatus(mission) !== "COMPLETED");
   const lastKnownLocation = findLastKnownLocation(selectedMissions);
+  const openMissionProfile = (mission) => {
+    navigate(`/missions/${encodeURIComponent(mission.uuid ?? mission.id)}`);
+  };
 
   const save = async (event) => {
     event.preventDefault();
@@ -267,20 +270,6 @@ export default function Pilots({ user }) {
             </div>
             <div className="modal-body">
               <div className="pilot-profile-grid">
-                <section className="pilot-summary-card">
-                  <div className="pilot-avatar" aria-hidden="true"><UserRound size={24} /></div>
-                  <div>
-                    <h3>Operational readiness</h3>
-                    <p><Mail size={14} />{selected.email}</p>
-                  </div>
-                  <div className="pilot-summary-metrics">
-                    <span><strong>{selected.pilotCredentials?.licences?.length ?? 0}</strong><small>licences</small></span>
-                    <span className={`pilot-status-pill ${statusTone(selected.pilotCredentials?.certificationExpiry)}`}><strong>{validity(selected.pilotCredentials?.certificationExpiry)}</strong><small>certification</small></span>
-                    <span><strong>{completedMissions.length}</strong><small>completed</small></span>
-                    <span><strong>{assignedMissions.length}</strong><small>assigned</small></span>
-                  </div>
-                </section>
-
                 <section className="pilot-operational-grid" aria-label="Pilot operational details">
                   <article>
                     <Plane size={17} />
@@ -379,11 +368,17 @@ export default function Pilots({ user }) {
                   </div>
                   {!selectedMissions.length && <p className="empty-state">No mission assignments recorded.</p>}
                   {selectedMissions.slice(0, 6).map((mission) => (
-                    <article className="pilot-mission-card" key={mission.id}>
+                    <button
+                      className="pilot-mission-card"
+                      type="button"
+                      key={mission.id}
+                      onClick={() => openMissionProfile(mission)}
+                      aria-label={`Open mission profile for ${formatMissionLabel(mission)}`}
+                    >
                       <span>{missionStatus(mission) || "PLANNED"}</span>
                       <strong>{formatMissionLabel(mission)}</strong>
                       <small>{dateValue(mission.plannedStartAt ?? mission.createdAt) || "No date recorded"}</small>
-                    </article>
+                    </button>
                   ))}
                 </section>
               </div>

@@ -3996,15 +3996,15 @@ button.notification-item:focus-visible {
   width: 58px;
   height: 58px;
   place-items: center;
-  color: #1f2937;
-  background: #ffffff;
-  border: 1px solid rgba(148, 163, 184, 0.46);
+  color: var(--danger-text);
+  background: var(--surface-solid);
+  border: 1px solid var(--line-strong);
   border-radius: 999px;
-  box-shadow: 0 18px 42px rgba(2, 6, 23, 0.34), 0 0 0 8px rgba(255, 255, 255, 0.06);
+  box-shadow: var(--floating-shadow), 0 0 0 8px color-mix(in srgb, var(--surface-solid) 18%, transparent);
 }
 
 .floating-alert-button.has-alerts {
-  color: #b91c1c;
+  color: var(--danger-text);
   animation: operationalAlertPulse 1.9s ease-out infinite;
 }
 
@@ -4017,9 +4017,9 @@ button.notification-item:focus-visible {
   height: 24px;
   place-items: center;
   padding: 0 6px;
-  color: #ffffff;
-  background: #ef4444;
-  border: 2px solid #ffffff;
+  color: var(--on-accent);
+  background: var(--danger-text);
+  border: 2px solid var(--surface-solid);
   border-radius: 999px;
   font-size: 11px;
   font-weight: 900;
@@ -4028,20 +4028,27 @@ button.notification-item:focus-visible {
 
 .operational-alert-panel {
   position: fixed;
-  right: 24px;
+  right: 16px;
   bottom: 94px;
   z-index: 90;
   display: grid;
-  width: min(980px, calc(100vw - 48px));
+  width: min(900px, calc(100vw - 304px));
   max-height: min(760px, calc(100vh - 126px));
   gap: 16px;
   padding: 18px;
-  overflow: auto;
+  overflow: hidden auto;
   color: var(--text);
-  background: linear-gradient(145deg, rgba(15, 23, 42, 0.98), rgba(20, 31, 52, 0.98));
-  border: 1px solid color-mix(in srgb, var(--line) 92%, transparent);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--blue) 8%, transparent), transparent 58%),
+    var(--surface-raised);
+  border: 1px solid var(--line-strong);
   border-radius: 14px;
-  box-shadow: 0 28px 80px rgba(2, 6, 23, 0.52);
+  box-shadow: var(--floating-shadow);
+}
+
+.operational-alert-panel .data-table-shell,
+.operational-alert-panel .table-wrap {
+  min-width: 0;
 }
 
 .operational-alert-header {
@@ -4062,7 +4069,7 @@ button.notification-item:focus-visible {
 
 .alert-center-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
 }
 
@@ -4071,8 +4078,8 @@ button.notification-item:focus-visible {
   gap: 6px;
   min-height: 76px;
   padding: 14px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  background: var(--surface-control);
+  border: 1px solid var(--line);
   border-radius: 10px;
 }
 
@@ -4101,18 +4108,26 @@ button.notification-item:focus-visible {
 }
 
 .operational-alert-table {
-  min-width: 0;
+  min-width: 860px;
   table-layout: fixed;
 }
 
 .operational-alert-table th,
 .operational-alert-table td {
+  overflow: hidden;
   padding: 14px 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operational-alert-table th:last-child,
+.operational-alert-table td:last-child {
+  overflow: visible;
 }
 
 .operational-alert-table th:nth-child(1),
 .operational-alert-table td:nth-child(1) {
-  width: 27%;
+  width: 30%;
 }
 
 .operational-alert-table th:nth-child(2),
@@ -4136,23 +4151,55 @@ button.notification-item:focus-visible {
   width: 18%;
 }
 
+.operational-alert-table .strong-link {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .alert-profile-dialog {
-  width: min(740px, calc(100vw - 32px));
+  width: min(780px, calc(100vw - 32px));
+  overflow: hidden;
+}
+
+.alert-profile-dialog .modal-header,
+.alert-profile-dialog .modal-body,
+.alert-profile-dialog .modal-footer {
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.alert-profile-dialog .modal-header {
+  padding-top: 24px;
+  padding-bottom: 22px;
+}
+
+.alert-profile-dialog .modal-body {
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+
+.alert-profile-dialog .modal-footer {
+  padding-top: 22px;
+  padding-bottom: 22px;
 }
 
 .profile-detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
 }
 
 .profile-field {
   display: grid;
   gap: 8px;
   min-height: 84px;
-  padding: 14px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  padding: 18px;
+  background: var(--surface-control);
+  border: 1px solid var(--line);
   border-radius: 10px;
 }
 
@@ -4170,13 +4217,83 @@ button.notification-item:focus-visible {
   line-height: 1.45;
 }
 
+:root[data-theme="light"] .operational-alert-panel {
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--blue) 6%, transparent), transparent 62%),
+    rgba(255, 255, 255, 0.96);
+  border-color: rgba(93, 111, 136, 0.22);
+  box-shadow: 0 26px 72px rgba(18, 33, 61, 0.22);
+}
+
+:root[data-theme="light"] .alert-summary-tile,
+:root[data-theme="light"] .profile-field {
+  background: rgba(248, 251, 255, 0.86);
+  border-color: rgba(93, 111, 136, 0.2);
+}
+
+:root[data-theme="light"] .floating-alert-button {
+  color: #b42318;
+  background: #ffffff;
+  border-color: rgba(93, 111, 136, 0.22);
+  box-shadow: 0 18px 46px rgba(18, 33, 61, 0.18), 0 0 0 8px rgba(255, 255, 255, 0.58);
+}
+
+:root[data-theme="light"] .modal-backdrop:has(.alert-profile-dialog) {
+  background: rgba(226, 235, 247, 0.68);
+  backdrop-filter: blur(16px);
+}
+
+:root[data-theme="light"] .alert-profile-dialog {
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--blue) 5%, transparent), transparent 62%),
+    rgba(255, 255, 255, 0.97);
+  border-color: rgba(93, 111, 136, 0.22);
+  box-shadow: 0 28px 78px rgba(18, 33, 61, 0.22);
+}
+
+:root[data-theme="light"] .alert-profile-dialog .modal-header,
+:root[data-theme="light"] .alert-profile-dialog .modal-footer {
+  background: rgba(248, 251, 255, 0.84);
+  border-color: rgba(93, 111, 136, 0.18);
+}
+
+@media (max-width: 720px) {
+  .operational-alert-panel {
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100vh - 108px);
+    padding: 14px;
+  }
+
+  .operational-alert-header {
+    flex-direction: column;
+  }
+
+  .operational-alert-header .form-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .alert-profile-dialog .modal-header,
+  .alert-profile-dialog .modal-body,
+  .alert-profile-dialog .modal-footer {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .profile-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @keyframes operationalAlertPulse {
   0% {
-    box-shadow: 0 18px 42px rgba(2, 6, 23, 0.34), 0 0 0 0 rgba(239, 68, 68, 0.26);
+    box-shadow: var(--floating-shadow), 0 0 0 0 color-mix(in srgb, var(--danger-text) 26%, transparent);
   }
 
   100% {
-    box-shadow: 0 18px 42px rgba(2, 6, 23, 0.34), 0 0 0 18px rgba(239, 68, 68, 0);
+    box-shadow: var(--floating-shadow), 0 0 0 18px color-mix(in srgb, var(--danger-text) 0%, transparent);
   }
 }
 
@@ -4971,6 +5088,12 @@ tr:last-child td {
   .incident-register-table .incident-secondary-column {
     display: none;
   }
+}
+
+/* The dashboard pane is narrower than the browser viewport, so its overview
+   table needs its own compact column policy. */
+.dashboard-resizable-pane .fleet-overview-table .fleet-secondary-column {
+  display: none;
 }
 
 .required-mark {
@@ -6656,19 +6779,75 @@ tr:last-child td {
 }
 
 .geofence-map-controls {
-  display: flex;
+  display: grid;
+  justify-items: end;
   align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 6px;
-  max-width: min(300px, calc(100vw - 32px));
+  gap: 7px;
+  max-width: min(190px, calc(100vw - 32px));
   pointer-events: auto;
 }
 
-.geofence-map-controls .secondary-button,
-.geofence-map-controls .icon-button,
+.geofence-draw-control {
+  display: grid;
+  overflow: hidden;
+  width: 34px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(23, 32, 51, 0.22);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.18);
+}
+
+.geofence-draw-control button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: #172033;
+  background: rgba(255, 255, 255, 0.96);
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.geofence-draw-control button + button {
+  border-top: 1px solid rgba(23, 32, 51, 0.18);
+}
+
+.geofence-draw-control button.active {
+  color: #ffffff;
+  background: #2563eb;
+}
+
+.geofence-draw-control button.danger {
+  color: #dc2626;
+}
+
+.geofence-draw-control button.danger:hover:not(:disabled),
+.geofence-draw-control button.danger:focus-visible:not(:disabled) {
+  color: #ffffff;
+  background: #dc2626;
+}
+
+.geofence-draw-control button:hover:not(:disabled),
+.geofence-draw-control button:focus-visible:not(:disabled) {
+  color: #ffffff;
+  background: #2563eb;
+}
+
+.geofence-draw-control button:disabled {
+  color: rgba(71, 85, 105, 0.42);
+  cursor: not-allowed;
+  background: rgba(241, 245, 249, 0.9);
+}
+
+.geofence-draw-control button.danger:disabled {
+  color: rgba(220, 38, 38, 0.46);
+  background: rgba(254, 242, 242, 0.92);
+}
+
 .geofence-map-controls > span {
-  min-height: 36px;
+  min-height: 34px;
   color: #f8fafc;
   background: rgba(8, 18, 34, 0.94);
   border-color: rgba(147, 197, 253, 0.34);
@@ -6703,28 +6882,6 @@ tr:last-child td {
   white-space: nowrap;
 }
 
-.geofence-map-controls .secondary-button {
-  padding: 0 11px;
-  white-space: nowrap;
-}
-
-.geofence-map-controls .secondary-button:hover:not(:disabled),
-.geofence-map-controls .secondary-button:focus-visible:not(:disabled),
-.geofence-map-controls .icon-button:hover:not(:disabled),
-.geofence-map-controls .icon-button:focus-visible:not(:disabled) {
-  color: #ffffff;
-  background: rgba(29, 78, 216, 0.94);
-  border-color: rgba(191, 219, 254, 0.76);
-}
-
-.geofence-map-controls .secondary-button:disabled,
-.geofence-map-controls .icon-button:disabled {
-  color: rgba(248, 250, 252, 0.55);
-  background: rgba(15, 23, 42, 0.78);
-  border-color: rgba(148, 163, 184, 0.22);
-  opacity: 1;
-}
-
 .geofence-map-controls > span {
   display: inline-flex;
   align-items: center;
@@ -6743,7 +6900,7 @@ tr:last-child td {
   }
 
   .geofence-map-controls {
-    max-width: 190px;
+    max-width: 160px;
   }
 }
 
@@ -6845,6 +7002,11 @@ tr:last-child td {
 .maintenance-form-dialog { width: min(860px, calc(100% - 24px)); max-width: 100%; }
 .maintenance-form-dialog .modal-body { min-width: 0; overflow-y: auto; overflow-x: hidden; }
 .maintenance-form-dialog .operations-form { min-width: 0; }
+.registration-dialog .modal-body { min-height: 0; padding-bottom: 28px; }
+.registration-dialog .modal-footer { flex-wrap: wrap; }
+.registration-dialog .modal-footer .checkbox-row { min-width: min(360px, 100%); }
+.maintenance-form-dialog .modal-body { padding-bottom: 40px; }
+.maintenance-form-dialog .field-note { margin-top: 2px; }
 .operations-form label:has(input[type="checkbox"]) { display: flex; align-items: center; gap: 8px; }
 .operations-split .mission-profile-map { height: 60vh; min-height: 420px; }
 
@@ -7246,10 +7408,21 @@ tr:last-child td {
   grid-template-columns: minmax(96px, auto) minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
+  width: 100%;
   padding: 13px 14px;
+  color: inherit;
+  text-align: left;
   background: color-mix(in srgb, var(--surface-control) 72%, transparent);
   border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
   border-radius: 8px;
+  cursor: pointer;
+}
+
+.pilot-mission-card:hover,
+.pilot-mission-card:focus-visible {
+  background: color-mix(in srgb, var(--blue) 10%, var(--surface-control));
+  border-color: color-mix(in srgb, var(--blue) 46%, var(--line));
+  outline: none;
 }
 
 .pilot-mission-card span {
@@ -11630,10 +11803,15 @@ input[type="number"] {
   gap: 6px;
 }
 
-.field span {
+.field > span,
+.field > label {
   color: #aab7c8;
   font-size: 12px;
   font-weight: 700;
+}
+
+.field > label {
+  cursor: pointer;
 }
 
 .field input,

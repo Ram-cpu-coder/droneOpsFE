@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -20,6 +20,7 @@ const DataTable = ({
   const [columnFilters, setColumnFilters] = useState({});
   const [sortState, setSortState] = useState({ key: "", direction: "asc" });
   const [page, setPage] = useState(1);
+  const controlIdPrefix = `data-table-${useId().replace(/[^a-z0-9_-]/gi, "-")}`;
 
   const searchableColumns = useMemo(
     () => columns.filter((column) => column.searchable !== false),
@@ -113,9 +114,11 @@ const DataTable = ({
             <label className="data-table-search">
               <Search size={16} />
               <input
+                id={`${controlIdPrefix}-search`}
                 value={searchValue}
                 onChange={(event) => handleSearchChange(event.target.value)}
                 placeholder={searchPlaceholder}
+                aria-label={searchPlaceholder}
               />
             </label>
           )}
@@ -125,8 +128,10 @@ const DataTable = ({
                 <label className={`data-table-filter-field ${columnFilters[filter.key] ? "is-active" : ""}`} key={filter.key}>
                   <span>{filter.label}</span>
                   <select
+                    id={`${controlIdPrefix}-${filter.key}-filter`}
                     value={columnFilters[filter.key] ?? ""}
                     onChange={(event) => handleFilterChange(filter.key, event.target.value)}
+                    aria-label={`${filter.label} filter`}
                   >
                     <option value="">All</option>
                     {filter.options.map((option) => (

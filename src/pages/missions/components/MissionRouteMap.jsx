@@ -288,7 +288,7 @@ const updateDroneMarkerScale = (map) => {
   const zoom = map.getZoom();
   const zoomScale = Math.min(1.05, Math.max(0.7, 2 ** ((zoom - 14) * 0.2)));
   map.getContainer().querySelectorAll(".drone-logo-marker .map-drone-logo").forEach((element) => {
-    element.style.transform = `scale(${(0.22 * zoomScale).toFixed(3)})`;
+    element.style.transform = `translate(-50%, -50%) scale(${(0.22 * zoomScale).toFixed(3)})`;
   });
 };
 

@@ -6,7 +6,8 @@ const Sidebar = ({ activeRoute, routes, user, isCollapsed = false, onCollapsedCh
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const safeRoutes = Array.isArray(routes) ? routes : [];
   const primaryRoutes = safeRoutes.filter((route) => !route.secondary);
-  const secondaryRoutes = safeRoutes.filter((route) => route.secondary);
+  const secondaryRoutes = safeRoutes.filter((route) => route.secondary && route.id !== "settings");
+  const profileLabel = user?.name?.trim() || user?.email || "Profile";
   const handleNavigate = (routeId) => {
     onNavigate(routeId);
     setIsMobileNavOpen(false);
@@ -44,11 +45,11 @@ const Sidebar = ({ activeRoute, routes, user, isCollapsed = false, onCollapsedCh
         </nav>
 
         <div className="sidebar-footer">
-          <button className="nav-item profile" type="button" onClick={() => handleNavigate("settings")} aria-label="Profile" title="Profile">
+          <button className="nav-item profile" type="button" onClick={() => handleNavigate("settings")} aria-label={profileLabel} title={profileLabel}>
             <span className="sidebar-profile-avatar" aria-hidden="true">
               {user?.profileImageUrl ? <img src={user.profileImageUrl} alt="" /> : getInitials(user?.name)}
             </span>
-            <span>Profile</span>
+            <span>{profileLabel}</span>
           </button>
           {secondaryRoutes.map((route) => (
             <SidebarButton

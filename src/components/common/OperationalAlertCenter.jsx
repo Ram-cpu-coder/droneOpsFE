@@ -1,28 +1,37 @@
-import { AlertTriangle, CalendarClock, Eye, RefreshCw, Search, Trash2, Wrench, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, CalendarClock, Eye, MapPinned, RefreshCw, Search, Trash2, UserRoundCheck, Wrench, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { hasClientPermission } from "../../features/auth/accessControl";
 import { droneOpsApi } from "../../services/droneOpsApi";
 import ActionButton from "./ActionButton";
 import DataTable from "./DataTable";
 import StatusBadge from "./StatusBadge";
+import { formatDateOnly } from "../../utils/formatters";
 
 const DISMISSED_ALERTS_KEY = "droneops-dismissed-operational-alerts";
+const READ_ALERTS_KEY = "droneops-read-operational-alerts";
 
 const OperationalAlertCenter = ({ user }) => {
   const navigate = useNavigate();
+  const alertButtonRef = useRef(null);
+  const alertPanelRef = useRef(null);
   const [isOpen, setIsOpen] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [drones, setDrones] = useState([]);
   const [maintenanceRecords, setMaintenanceRecords] = useState([]);
   const [incidents, setIncidents] = useState([]);
+  const [geofences, setGeofences] = useState([]);
+  const [pilots, setPilots] = useState([]);
   const [dismissedIds, setDismissedIds] = useState(() => readDismissedAlertIds());
+  const [readIds, setReadIds] = useState(() => readStoredAlertIds(READ_ALERTS_KEY));
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
   const canReadDrones = hasClientPermission(user, "drones:read") || hasClientPermission(user, "fleet:read");
   const canReadMaintenance = hasClientPermission(user, "maintenance:read") || hasClientPermission(user, "maintenance:manage");
   const canReadIncidents = hasClientPermission(user, "incidents:read") || hasClientPermission(user, "incidents:manage");
+  const canReadGeofences = hasClientPermission(user, "geofences:read") || hasClientPermission(user, "telemetry:read");
+  const canReadPilots = hasClientPermission(user, "pilots:read") || hasClientPermission(user, "users");
 
   const loadAlerts = useCallback(async () => {
     if (!user) return;
@@ -30,21 +39,25 @@ const OperationalAlertCenter = ({ user }) => {
     setError("");
 
     try {
-      const [droneRows, maintenanceRows, incidentRows] = await Promise.all([
+      const [droneRows, maintenanceRows, incidentRows, geofenceRows, pilotRows] = await Promise.all([
         canReadDrones ? droneOpsApi.drones.list().catch(() => []) : [],
         canReadMaintenance ? droneOpsApi.maintenance.list().catch(() => []) : [],
-        canReadIncidents ? droneOpsApi.incidents.list().catch(() => []) : []
+        canReadIncidents ? droneOpsApi.incidents.list().catch(() => []) : [],
+        canReadGeofences ? droneOpsApi.geofences.list().catch(() => []) : [],
+        canReadPilots ? droneOpsApi.pilots.list().catch(() => []) : []
       ]);
 
       setDrones(Array.isArray(droneRows) ? droneRows : []);
       setMaintenanceRecords(Array.isArray(maintenanceRows) ? maintenanceRows : []);
       setIncidents(Array.isArray(incidentRows) ? incidentRows : []);
+      setGeofences(Array.isArray(geofenceRows) ? geofenceRows : []);
+      setPilots(Array.isArray(pilotRows) ? pilotRows : []);
     } catch (requestError) {
       setError(requestError.message ?? "Operational alerts could not be loaded.");
     } finally {
       setIsLoading(false);
     }
-  }, [canReadDrones, canReadIncidents, canReadMaintenance, user]);
+  }, [canReadDrones, canReadGeofences, canReadIncidents, canReadMaintenance, canReadPilots, user]);
 
   useEffect(() => {
     loadAlerts();
@@ -58,12 +71,42 @@ const OperationalAlertCenter = ({ user }) => {
     };
   }, [loadAlerts]);
 
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const closeOnOutsideClick = (event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (alertPanelRef.current?.contains(target) || alertButtonRef.current?.contains(target)) return;
+      setIsOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsideClick, true);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick, true);
+  }, [isOpen]);
+
   const alerts = useMemo(() => (
-    buildOperationalAlerts({ drones, maintenanceRecords, incidents })
+    buildOperationalAlerts({ drones, maintenanceRecords, incidents, geofences, pilots, user })
       .filter((alert) => !dismissedIds.includes(alert.id))
-  ), [dismissedIds, drones, incidents, maintenanceRecords]);
+  ), [dismissedIds, drones, geofences, incidents, maintenanceRecords, pilots, user]);
 
   const alertCount = alerts.length;
+  const unreadCount = alerts.filter((alert) => !readIds.includes(alert.id)).length;
+
+  const markAlertRead = (alert) => {
+    if (!alert || readIds.includes(alert.id)) return;
+    setReadIds((current) => {
+      if (current.includes(alert.id)) return current;
+      const next = [...current, alert.id];
+      window.localStorage.setItem(READ_ALERTS_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const openAlertProfile = (alert) => {
+    markAlertRead(alert);
+    setSelectedAlert(alert);
+  };
 
   const dismissAlert = (alert) => {
     setDismissedIds((current) => {
@@ -72,10 +115,13 @@ const OperationalAlertCenter = ({ user }) => {
       window.localStorage.setItem(DISMISSED_ALERTS_KEY, JSON.stringify(next));
       return next;
     });
+    markAlertRead(alert);
     setSelectedAlert(null);
   };
 
   const handlePrimaryAction = (alert) => {
+    markAlertRead(alert);
+
     if (alert.action?.type === "schedule-maintenance") {
       navigate("/maintenance", { state: { scheduleMaintenance: { droneId: alert.action.droneId } } });
       setIsOpen(false);
@@ -97,6 +143,18 @@ const OperationalAlertCenter = ({ user }) => {
     if (alert.action?.type === "open-drone") {
       navigate(`/fleet/${encodeURIComponent(alert.action.droneId)}`);
       setIsOpen(false);
+      return;
+    }
+
+    if (alert.action?.type === "open-geofences") {
+      navigate("/live-operations", { state: { showGeofences: true, geofenceId: alert.action.geofenceId } });
+      setIsOpen(false);
+      return;
+    }
+
+    if (alert.action?.type === "open-pilots") {
+      navigate("/pilots", { state: { pilotId: alert.action.pilotId } });
+      setIsOpen(false);
     }
   };
 
@@ -105,7 +163,7 @@ const OperationalAlertCenter = ({ user }) => {
       key: "title",
       label: "Alert",
       render: (alert) => (
-        <button className="link-button strong-link" type="button" onClick={() => setSelectedAlert(alert)}>
+        <button className="link-button strong-link" type="button" onClick={() => openAlertProfile(alert)}>
           {alert.title}
         </button>
       )
@@ -122,7 +180,7 @@ const OperationalAlertCenter = ({ user }) => {
       searchable: false,
       render: (alert) => (
         <div className="row-actions">
-          <button className="icon-button compact" type="button" onClick={() => setSelectedAlert(alert)} aria-label={`View ${alert.title}`} title="View profile">
+          <button className="icon-button compact" type="button" onClick={() => openAlertProfile(alert)} aria-label={`View ${alert.title}`} title="View profile">
             <Eye size={15} />
           </button>
           {alert.action && (
@@ -141,22 +199,23 @@ const OperationalAlertCenter = ({ user }) => {
   return (
     <>
       <button
+        ref={alertButtonRef}
         className={`floating-alert-button ${alertCount ? "has-alerts" : ""}`}
         type="button"
         onClick={() => setIsOpen(true)}
-        aria-label={`Operational alerts ${alertCount}`}
+        aria-label={`Operational alerts ${unreadCount} unread`}
       >
         <AlertTriangle size={23} />
-        {alertCount > 0 && <span>{alertCount > 99 ? "99+" : alertCount}</span>}
+        {unreadCount > 0 && <span>{unreadCount > 99 ? "99+" : unreadCount}</span>}
       </button>
 
       {isOpen && (
-        <div className="operational-alert-panel" role="dialog" aria-modal="true" aria-label="Operational alert center">
+        <div ref={alertPanelRef} className="operational-alert-panel" role="dialog" aria-modal="true" aria-label="Operational alert center">
           <div className="operational-alert-header">
             <div>
               <p className="eyebrow">Operations Watch</p>
               <h2>Alert Center</h2>
-              <p>Maintenance, inspection, overdue service, and open incident alerts.</p>
+              <p>Maintenance, geofence, grounding, licence, and open incident alerts.</p>
             </div>
             <div className="form-actions">
               <ActionButton icon={RefreshCw} isLoading={isLoading} onClick={loadAlerts}>Refresh</ActionButton>
@@ -170,6 +229,7 @@ const OperationalAlertCenter = ({ user }) => {
 
           <div className="alert-center-summary">
             <SummaryTile label="Open alerts" value={alertCount} />
+            <SummaryTile label="Unread" value={unreadCount} />
             <SummaryTile label="Critical" value={alerts.filter((alert) => alert.severity === "CRITICAL").length} />
             <SummaryTile label="Maintenance" value={alerts.filter((alert) => alert.category === "Maintenance").length} />
           </div>
@@ -241,9 +301,10 @@ const ProfileField = ({ label, value }) => (
   </div>
 );
 
-const buildOperationalAlerts = ({ drones, maintenanceRecords, incidents }) => {
+const buildOperationalAlerts = ({ drones, maintenanceRecords, incidents, geofences, pilots, user }) => {
   const now = new Date();
   const alerts = [];
+  const isAdmin = userCanSeeOrganisationAlerts(user);
 
   drones.forEach((drone) => {
     const droneCode = drone.droneCode ?? drone.serialNumber ?? drone.id;
@@ -252,6 +313,26 @@ const buildOperationalAlerts = ({ drones, maintenanceRecords, incidents }) => {
     const flightHours = Number(drone.flightHours);
     const isOverdue = Boolean(drone.maintenanceOverdue || (nextService && nextService < now));
     const crossedThreshold = Number.isFinite(threshold) && threshold > 0 && Number.isFinite(flightHours) && flightHours >= threshold;
+    const status = String(drone.status ?? "").toUpperCase();
+    const certificationStatus = String(drone.certificationStatus ?? "").toUpperCase();
+    const changedAt = getAlertDate(drone.updatedAt, drone.createdAt, nextService);
+
+    if (status === "GROUNDED" || certificationStatus === "GROUNDED_PENDING_INSPECTION") {
+      alerts.push({
+        id: `drone-grounded-${drone.id}`,
+        title: `${droneCode} is grounded`,
+        message: "This drone has been grounded and must not be assigned to missions until cleared.",
+        category: "Grounding",
+        severity: "CRITICAL",
+        status: "GROUNDED",
+        asset: droneCode,
+        dueLabel: formatDate(changedAt) || "Now",
+        evidence: `Fleet status: ${drone.status ?? "Grounded"}; certification: ${drone.certificationStatus ?? "Not recorded"}`,
+        recommendation: "Open the fleet or maintenance record, resolve the grounding reason, and release the drone only after approval.",
+        createdAt: changedAt?.toISOString?.() ?? "",
+        action: { type: "schedule-maintenance", label: "Schedule service", shortLabel: "Schedule", droneId: drone.id, icon: CalendarClock }
+      });
+    }
 
     if (isOverdue) {
       alerts.push({
@@ -265,6 +346,7 @@ const buildOperationalAlerts = ({ drones, maintenanceRecords, incidents }) => {
         dueLabel: formatDate(nextService) || "Past due",
         evidence: `Next service: ${formatDate(nextService) || "Not scheduled"}`,
         recommendation: "Schedule or complete maintenance before assigning this drone to another mission.",
+        createdAt: (nextService ?? changedAt)?.toISOString?.() ?? "",
         action: { type: "schedule-maintenance", label: "Schedule service", shortLabel: "Schedule", droneId: drone.id, icon: CalendarClock }
       });
     }
@@ -281,11 +363,12 @@ const buildOperationalAlerts = ({ drones, maintenanceRecords, incidents }) => {
         dueLabel: `${flightHours} / ${threshold} hours`,
         evidence: `Flight hours: ${flightHours}; threshold: ${threshold}`,
         recommendation: "Schedule an inspection and keep this drone out of normal mission eligibility if required by policy.",
+        createdAt: changedAt?.toISOString?.() ?? "",
         action: { type: "schedule-maintenance", label: "Schedule service", shortLabel: "Schedule", droneId: drone.id, icon: CalendarClock }
       });
     }
 
-    if (String(drone.status ?? "").toUpperCase() === "MAINTENANCE") {
+    if (status === "MAINTENANCE") {
       alerts.push({
         id: `drone-maintenance-${drone.id}`,
         title: `${droneCode} is in maintenance`,
@@ -297,6 +380,7 @@ const buildOperationalAlerts = ({ drones, maintenanceRecords, incidents }) => {
         dueLabel: formatDate(nextService) || "In progress",
         evidence: `Fleet status: ${drone.status}`,
         recommendation: "Review the maintenance record and release the drone only after service is completed.",
+        createdAt: changedAt?.toISOString?.() ?? "",
         action: { type: "open-maintenance", label: "Open maintenance", shortLabel: "Open", icon: Wrench }
       });
     }
@@ -319,6 +403,7 @@ const buildOperationalAlerts = ({ drones, maintenanceRecords, incidents }) => {
       dueLabel: formatDate(dueAt),
       evidence: `Maintenance status: ${record.status}`,
       recommendation: "Open the maintenance page, update the record, and complete or reschedule the work.",
+      createdAt: getAlertDate(record.updatedAt, record.createdAt, dueAt)?.toISOString?.() ?? "",
       action: { type: "open-maintenance", label: "Open maintenance", shortLabel: "Open", icon: Wrench }
     });
   });
@@ -336,14 +421,91 @@ const buildOperationalAlerts = ({ drones, maintenanceRecords, incidents }) => {
       severity,
       status: incident.status ?? "OPEN",
       asset: incident.drone?.droneCode ?? incident.mission?.missionCode ?? "Operations",
-      dueLabel: incident.createdAt ? new Date(incident.createdAt).toLocaleDateString() : "Open",
+      dueLabel: incident.createdAt ? formatDateOnly(incident.createdAt, "Open") : "Open",
       evidence: incident.location ?? "Incident register",
       recommendation: "Open the incident profile and update owner, status, or corrective action.",
+      createdAt: getAlertDate(incident.updatedAt, incident.createdAt)?.toISOString?.() ?? "",
       action: { type: "open-incident", label: "Open incident", shortLabel: "Open", incidentId: incident.id, icon: Search }
     });
   });
 
-  return alerts.sort((left, right) => severityRank(right.severity) - severityRank(left.severity));
+  geofences.forEach((geofence) => {
+    const changedAt = getAlertDate(geofence.updatedAt, geofence.createdAt);
+    const type = String(geofence.type ?? "GEOFENCE").toUpperCase();
+    const source = String(geofence.source ?? "Manual").replaceAll("_", " ");
+    alerts.push({
+      id: `geofence-${geofence.id}-${geofence.updatedAt ?? geofence.createdAt ?? "created"}`,
+      title: `${geofence.name ?? "Geofence"} operational boundary ${geofence.isActive === false ? "inactive" : "active"}`,
+      message: `${type.replaceAll("_", " ")} geofence is ${geofence.isActive === false ? "inactive" : "active"} and available to mission planning and operational maps.`,
+      category: "Geofence",
+      severity: type === "RESTRICTED" ? "HIGH" : "LOW",
+      status: geofence.isActive === false ? "INACTIVE" : "ACTIVE",
+      asset: geofence.name ?? "Geofence",
+      dueLabel: formatDate(changedAt) || "Created",
+      evidence: `${source} boundary with ${Array.isArray(geofence.polygon) ? geofence.polygon.length : 0} points`,
+      recommendation: "Review the boundary if it affects mission planning, warning zones, or restricted flight paths.",
+      createdAt: changedAt?.toISOString?.() ?? "",
+      action: { type: "open-geofences", label: "Open geofences", shortLabel: "Open", geofenceId: geofence.id, icon: MapPinned }
+    });
+  });
+
+  pilots
+    .filter((pilot) => isAdmin || String(pilot.id) === String(user?.id))
+    .forEach((pilot) => {
+      const credentials = pilot.pilotCredentials && typeof pilot.pilotCredentials === "object" ? pilot.pilotCredentials : {};
+      addCredentialExpiryAlert(alerts, {
+        id: `pilot-certification-${pilot.id}`,
+        pilot,
+        label: "Remote pilot certification",
+        number: "Certification",
+        expiresAt: credentials.certificationExpiry,
+        now
+      });
+
+      (Array.isArray(credentials.licences) ? credentials.licences : []).forEach((licence, index) => {
+        addCredentialExpiryAlert(alerts, {
+          id: `pilot-licence-${pilot.id}-${index}-${licence.number ?? "unknown"}`,
+          pilot,
+          label: licence.type || "Pilot licence",
+          number: licence.number || "Licence number not recorded",
+          expiresAt: licence.expiresAt,
+          now
+        });
+      });
+    });
+
+  return alerts.sort((left, right) => {
+    const dateDifference = Date.parse(right.createdAt || 0) - Date.parse(left.createdAt || 0);
+    if (dateDifference) return dateDifference;
+    return severityRank(right.severity) - severityRank(left.severity);
+  });
+};
+
+const addCredentialExpiryAlert = (alerts, { id, pilot, label, number, expiresAt, now }) => {
+  const expiry = expiresAt ? new Date(expiresAt) : null;
+  if (!expiry || Number.isNaN(expiry.getTime())) return;
+  expiry.setHours(23, 59, 59, 999);
+
+  const daysUntilExpiry = Math.ceil((expiry - now) / 86400000);
+  if (daysUntilExpiry > 30) return;
+
+  const isExpired = daysUntilExpiry < 0;
+  alerts.push({
+    id: `${id}-${expiry.toISOString().slice(0, 10)}`,
+    title: `${pilot.name ?? "Pilot"} ${label.toLowerCase()} ${isExpired ? "expired" : "expires soon"}`,
+    message: isExpired
+      ? "This pilot has an expired credential and should not be assigned to missions."
+      : `This pilot credential expires in ${daysUntilExpiry} day${daysUntilExpiry === 1 ? "" : "s"}.`,
+    category: "Pilot licence",
+    severity: isExpired ? "HIGH" : "MEDIUM",
+    status: isExpired ? "EXPIRED" : "EXPIRING_SOON",
+    asset: pilot.name ?? pilot.email ?? "Pilot",
+    dueLabel: formatDate(expiry),
+    evidence: `${label}: ${number}`,
+    recommendation: "Update pilot credentials before allowing new mission assignments.",
+    createdAt: expiry.toISOString(),
+    action: { type: "open-pilots", label: "Open pilot profile", shortLabel: "Open", pilotId: pilot.id, icon: UserRoundCheck }
+  });
 };
 
 const severityRank = (severity) => ({
@@ -353,18 +515,36 @@ const severityRank = (severity) => ({
   LOW: 1
 })[severity] ?? 0;
 
-const formatDate = (date) => {
-  if (!date || Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString();
+const getAlertDate = (...values) => {
+  for (const value of values) {
+    if (!value) continue;
+    const date = value instanceof Date ? value : new Date(value);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  return new Date();
 };
 
-const readDismissedAlertIds = () => {
+const formatDate = (date) => {
+  if (!date || Number.isNaN(date.getTime())) return "";
+  return formatDateOnly(date);
+};
+
+const userCanSeeOrganisationAlerts = (user) => (
+  hasClientPermission(user, "*")
+  || hasClientPermission(user, "users")
+  || hasClientPermission(user, "pilots:manage")
+  || ["SYSTEM_ADMINISTRATOR", "OPERATIONS_MANAGER"].includes(String(user?.role ?? "").toUpperCase())
+);
+
+const readStoredAlertIds = (key) => {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(DISMISSED_ALERTS_KEY) ?? "[]");
+    const parsed = JSON.parse(window.localStorage.getItem(key) ?? "[]");
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
 };
+
+const readDismissedAlertIds = () => readStoredAlertIds(DISMISSED_ALERTS_KEY);
 
 export default OperationalAlertCenter;

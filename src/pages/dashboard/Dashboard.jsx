@@ -14,6 +14,7 @@ import { useFleetSearch } from "../../hooks/useFleetSearch";
 import { useApiResource } from "../../hooks/useApiResource";
 import { droneOpsApi } from "../../services/droneOpsApi";
 import { buildRecentActivityFromAudit } from "../../utils/activityStream";
+import { formatDateOnly } from "../../utils/formatters";
 
 const metricIcons = [Plane, Activity, AlertTriangle, MapPin];
 const GeospatialMap = lazy(() => import("../../components/maps/GeospatialMap"));
@@ -62,7 +63,7 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
   const dashboardMetrics = useMemo(() => {
     return [
       { label: "Total Drones", value: isDronesLoading ? "..." : String(apiDrones.length), delta: isDronesFallback ? "Backend unavailable" : "Live fleet records", tone: "blue" },
-      { label: "Active Missions", value: isMissionsLoading ? "..." : String(activeMissions.length), delta: isMissionsFallback ? "Backend unavailable" : `${apiMissions.length} live mission records`, tone: "green" },
+      { label: "Active Missions", value: isMissionsLoading ? "..." : String(activeMissions.length), delta: isMissionsFallback ? "Backend unavailable" : activeMissions.length ? "Currently in progress" : "No missions currently active", tone: "green" },
       { label: "Open Alerts", value: isIncidentsLoading ? "..." : String(openIncidents.length), delta: isIncidentsFallback ? "Backend unavailable" : "Live incident records", tone: "red" },
       { label: "Maintenance", value: isDronesLoading ? "..." : String(maintenanceDrones.length), delta: "Drones requiring review", tone: "purple" }
     ];
@@ -205,9 +206,10 @@ const normalizeDrone = (drone, telemetryRows = []) => {
     serialNumber: drone.droneCode ?? drone.id,
     battery: latestTelemetry?.battery?.level ?? drone.latestTelemetry?.batteryLevel ?? drone.battery ?? null,
     signal: latestTelemetry?.signal?.strength ?? drone.signal ?? 0,
+    telemetryOffline: !latestTelemetry || ["OFFLINE", "LOST"].includes(String(latestTelemetry.signal?.linkQuality ?? "").toUpperCase()),
     latestTelemetry,
     flightHours: drone.flightHours ?? 0,
-    nextMaintenance: drone.nextMaintenance ?? "Not scheduled",
+    nextMaintenance: formatDateOnly(drone.nextMaintenanceDate, drone.nextMaintenance ?? "Not scheduled"),
     location: latestTelemetry
       ? `${Number(latestTelemetry.location.latitude).toFixed(4)}, ${Number(latestTelemetry.location.longitude).toFixed(4)}`
       : normalizeDashboardLocation(drone.location)

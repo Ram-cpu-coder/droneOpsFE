@@ -339,12 +339,14 @@ const FormSection = ({ icon: Icon, title, children, variant = "" }) => {
 };
 
 const Field = ({ label, type = "text", placeholder = "", value, onChange, required = false, min, max, maxLength, help, error }) => {
+  const inputId = fieldId(label);
+  const descriptionId = `${inputId}-description`;
   return (
-    <label className={`field ${error ? "has-error" : ""}`}>
-      <span>{label}</span>
-      <input type={type} value={value ?? ""} onChange={(event) => onChange?.(event.target.value)} placeholder={placeholder} required={required} min={min} max={max} maxLength={maxLength} aria-invalid={Boolean(error)} minLength={type === "text" && required ? 2 : undefined} />
-      {error ? <small className="field-error">{error}</small> : help && <small>{help}</small>}
-    </label>
+    <div className={`field ${error ? "has-error" : ""}`}>
+      <label htmlFor={inputId}>{label}{required ? <span className="required-mark" aria-hidden="true"> *</span> : null}</label>
+      <input id={inputId} type={type} value={value ?? ""} onChange={(event) => onChange?.(event.target.value)} placeholder={placeholder} required={required} min={min} max={max} maxLength={maxLength} aria-invalid={Boolean(error)} aria-describedby={help || error ? descriptionId : undefined} minLength={type === "text" && required ? 2 : undefined} />
+      {(error || help) && <small id={descriptionId} className={error ? "field-error" : undefined}>{error || help}</small>}
+    </div>
   );
 };
 
@@ -369,26 +371,30 @@ const SimulatorDeviceOption = ({ isSelected, onSelect }) => (
 );
 
 const SelectField = ({ label, options, value, onChange, help, required = false, disabled = false }) => {
+  const selectId = fieldId(label);
+  const descriptionId = `${selectId}-description`;
   return (
-    <label className="field">
-      <span>{label}</span>
-      <select value={value ?? ""} onChange={(event) => onChange?.(event.target.value)} required={required} disabled={disabled}>
+    <div className="field">
+      <label htmlFor={selectId}>{label}{required ? <span className="required-mark" aria-hidden="true"> *</span> : null}</label>
+      <select id={selectId} value={value ?? ""} onChange={(event) => onChange?.(event.target.value)} required={required} disabled={disabled} aria-describedby={help ? descriptionId : undefined}>
         <option value="" disabled>Select {label.toLowerCase()}</option>
         {options.map((option) => (
           <option key={option} value={option}>{formatOptionLabel(option)}</option>
         ))}
       </select>
-      {help && <small>{help}</small>}
-    </label>
+      {help && <small id={descriptionId}>{help}</small>}
+    </div>
   );
 };
 
 const ReadOnlyField = ({ label, value }) => (
-  <label className="field">
-    <span>{label}</span>
-    <input value={value ?? ""} readOnly />
-  </label>
+  <div className="field">
+    <label htmlFor={fieldId(label)}>{label}</label>
+    <input id={fieldId(label)} value={value ?? ""} readOnly />
+  </div>
 );
+
+const fieldId = (label) => `register-drone-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
 
 const getExternalIdLabel = (provider) => {
   if (provider === "MAVLINK") return "MAVLink System ID";

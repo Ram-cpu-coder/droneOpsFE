@@ -8,6 +8,7 @@ import BatteryMeter from "../../../components/common/BatteryMeter";
 import CopyableId from "../../../components/common/CopyableId";
 import StatusBadge from "../../../components/common/StatusBadge";
 import { droneOpsApi } from "../../../services/droneOpsApi";
+import { formatDateOnly } from "../../../utils/formatters";
 import { exportDroneTelemetrySnapshot } from "../../../utils/droneProfileExport";
 import MissionRouteMap from "../../missions/components/MissionRouteMap";
 
@@ -799,7 +800,7 @@ const parseSavedLocation = (value) => {
 
 const formatDate = (value) => {
   if (!value) return "Not provided";
-  return new Date(value).toLocaleDateString();
+  return formatDateOnly(value, "Not provided");
 };
 
 const todayInputValue = () => new Date().toISOString().slice(0, 10);

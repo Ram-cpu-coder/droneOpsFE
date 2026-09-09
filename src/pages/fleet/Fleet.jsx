@@ -11,6 +11,7 @@ import { hasClientPermission } from "../../features/auth/accessControl";
 import { useApiResource } from "../../hooks/useApiResource";
 import { useFleetSearch } from "../../hooks/useFleetSearch";
 import { droneOpsApi } from "../../services/droneOpsApi";
+import { formatDateOnly } from "../../utils/formatters";
 import DroneProfileDialog from "./components/DroneProfileDialog";
 import RegisterDroneForm from "./components/RegisterDroneForm";
 
@@ -32,7 +33,7 @@ const Fleet = ({ searchValue, user }) => {
   const normalizedDrones = useMemo(() => apiDrones.map((drone) => normalizeDrone(drone, telemetryRows)), [apiDrones, telemetryRows]);
   const filteredDrones = useFleetSearch(normalizedDrones, searchValue);
   const metricDrones = isFallback ? [] : normalizedDrones;
-  const activeCount = metricDrones.filter((drone) => drone.status === "AVAILABLE").length;
+  const activeCount = metricDrones.filter((drone) => drone.status === "AVAILABLE" && !drone.telemetryOffline).length;
   const maintenanceCount = metricDrones.filter((drone) => drone.status === "MAINTENANCE").length;
   const routeDroneId = useMemo(() => getDetailId(location.pathname, "/fleet"), [location.pathname]);
   const profileReturnPath = location.state?.returnTo === "/dashboard" ? "/dashboard" : "/fleet";
@@ -67,7 +68,7 @@ const Fleet = ({ searchValue, user }) => {
     { key: "manufacturerSerialNumber", label: "Manufacturer Serial", className: "fleet-secondary-column" },
     { key: "model", label: "Model", className: "fleet-secondary-column" },
     { key: "manufacturer", label: "Manufacturer", filterable: true, className: "fleet-secondary-column" },
-    { key: "status", label: "Status", filterable: true, render: (drone) => <StatusBadge>{drone.status}</StatusBadge> },
+    { key: "status", label: "Status", filterable: true, render: (drone) => <StatusBadge>{getOperationalStatusLabel(drone)}</StatusBadge> },
     { key: "battery", label: "Battery", render: (drone) => <BatteryReading drone={drone} /> },
     { key: "flightHours", label: "Flight Hours", className: "fleet-secondary-column" },
     { key: "certificationStatus", label: "Certification", filterable: true, className: "fleet-secondary-column", render: (drone) => <StatusBadge>{drone.certificationStatus}</StatusBadge> },
@@ -211,6 +212,11 @@ const BatteryReading = ({ drone }) => {
   );
 };
 
+const getOperationalStatusLabel = (drone) => {
+  if (drone.status === "AVAILABLE" && drone.telemetryOffline) return "AVAILABLE_OFFLINE";
+  return drone.status;
+};
+
 const normalizeDrone = (drone, telemetryRows = []) => {
   const latestTelemetry = telemetryRows.find((row) => row.drone?.id === drone.id || row.drone?.droneCode === drone.droneCode)?.telemetry;
   const telemetryOffline = isTelemetryOffline(drone, latestTelemetry);
@@ -229,7 +235,7 @@ const normalizeDrone = (drone, telemetryRows = []) => {
     health: drone.health ?? 100,
     mission: drone.mission ?? "Standby",
     pilot: drone.pilot ?? "Unassigned",
-    nextMaintenance: drone.nextMaintenanceDate ? new Date(drone.nextMaintenanceDate).toLocaleDateString() : (drone.nextMaintenance ?? "Not scheduled")
+    nextMaintenance: formatDateOnly(drone.nextMaintenanceDate, drone.nextMaintenance ?? "Not scheduled")
   };
 };
 

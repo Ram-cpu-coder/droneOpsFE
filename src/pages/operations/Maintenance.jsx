@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Plus, RefreshCw, Save, X } from "lucide-react";
 import { useApiResource } from "../../hooks/useApiResource";
@@ -8,6 +8,7 @@ import DataTable from "../../components/common/DataTable";
 import SectionHeader from "../../components/common/SectionHeader";
 import ActionButton from "../../components/common/ActionButton";
 import StatusBadge from "../../components/common/StatusBadge";
+import { formatDateOnly } from "../../utils/formatters";
 
 const blank = (droneId = "") => ({
   droneId,
@@ -25,13 +26,22 @@ export default function Maintenance({ user }) {
   const load = useCallback(() => droneOpsApi.maintenance.list(), []);
   const loadDrones = useCallback(() => droneOpsApi.drones.list(), []);
   const { data: records, error, isLoading, refresh, setData } = useApiResource(load);
-  const { data: drones, error: droneError } = useApiResource(loadDrones);
+  const { data: drones, error: droneError, refresh: refreshDrones } = useApiResource(loadDrones);
   const [editing, setEditing] = useState(false);
   const [id, setId] = useState(null);
   const [form, setForm] = useState(blank);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
+  const feedbackTimerRef = useRef(null);
   const canManage = hasClientPermission(user, "maintenance:manage");
+
+  useEffect(() => () => window.clearTimeout(feedbackTimerRef.current), []);
+
+  const showFeedback = (message) => {
+    setFeedback(message);
+    window.clearTimeout(feedbackTimerRef.current);
+    feedbackTimerRef.current = window.setTimeout(() => setFeedback(""), 4500);
+  };
 
   const openSchedule = useCallback((droneId = "") => {
     setId(null);
@@ -53,7 +63,8 @@ export default function Maintenance({ user }) {
     try {
       await droneOpsApi.maintenance.release(recordId);
       await refresh();
-      setFeedback("Drone returned to service.");
+      await refreshDrones();
+      showFeedback("Drone returned to service.");
     } catch (e) {
       setFeedback(e.message);
     } finally {
@@ -89,8 +100,9 @@ export default function Maintenance({ user }) {
       };
       const record = id ? await droneOpsApi.maintenance.update(id, payload) : await droneOpsApi.maintenance.create(payload);
       setData((rows) => [record, ...rows.filter((row) => row.id !== record.id)]);
+      await refreshDrones();
       setEditing(false);
-      setFeedback("Maintenance record saved.");
+      showFeedback("Maintenance record saved.");
     } catch (e) {
       setFeedback(e.message);
     } finally {
@@ -104,8 +116,8 @@ export default function Maintenance({ user }) {
     displayStatus: !["COMPLETED", "CANCELLED"].includes(record.status) && record.dueAt && new Date(record.dueAt) < new Date()
       ? "OVERDUE"
       : record.status,
-    due: record.dueAt?.slice(0, 10) || "Not scheduled",
-    completed: record.completedAt?.slice(0, 10) || "--"
+    due: formatDateOnly(record.dueAt, "Not scheduled"),
+    completed: formatDateOnly(record.completedAt, "--")
   }));
   const columns = [
     { key: "droneCode", label: "Drone" },
@@ -169,8 +181,8 @@ export default function Maintenance({ user }) {
             { key: "droneCode", label: "Drone" },
             { key: "status", label: "Status", render: (drone) => <StatusBadge>{drone.maintenanceOverdue ? "OVERDUE" : drone.status}</StatusBadge> },
             { key: "flightHours", label: "Flight Hours" },
-            { key: "lastServicedDate", label: "Last serviced", render: (drone) => drone.lastServicedDate?.slice(0, 10) || "Not recorded" },
-            { key: "nextMaintenanceDate", label: "Next inspection", render: (drone) => drone.nextMaintenanceDate?.slice(0, 10) || "Not scheduled" },
+            { key: "lastServicedDate", label: "Last serviced", render: (drone) => formatDateOnly(drone.lastServicedDate, "Not recorded") },
+            { key: "nextMaintenanceDate", label: "Next inspection", render: (drone) => formatDateOnly(drone.nextMaintenanceDate, "Not scheduled") },
             { key: "certificationStatus", label: "Certification", render: (drone) => <StatusBadge>{drone.certificationStatus}</StatusBadge> }
           ]}
         />
@@ -210,6 +222,11 @@ export default function Maintenance({ user }) {
                       {["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "OVERDUE"].map((status) => <option key={status}>{status}</option>)}
                     </select>
                   </label>
+                )}
+                {canManage && form.status === "COMPLETED" && form.dueAt && new Date(`${form.dueAt}T00:00:00Z`) > new Date() && (
+                  <p className="field-note wide-field" role="status">
+                    This maintenance is being completed before its scheduled due date. The performed date will be recorded when you save.
+                  </p>
                 )}
                 <label className="field">Due date
                   <input type="date" value={form.dueAt} onChange={(e) => setForm((current) => ({ ...current, dueAt: e.target.value }))} />
