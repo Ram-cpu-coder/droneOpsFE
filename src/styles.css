@@ -5090,8 +5090,6 @@ tr:last-child td {
   }
 }
 
-/* The dashboard pane is narrower than the browser viewport, so its overview
-   table needs its own compact column policy. */
 .dashboard-resizable-pane .fleet-overview-table .fleet-secondary-column {
   display: none;
 }
@@ -13814,8 +13812,6 @@ input[type="number"]::-webkit-outer-spin-button {
   }
 }
 
-/* Shared semantic theme layer. Keep this after component and responsive rules so
-   new surfaces inherit every theme without needing one-off light-mode patches. */
 :root,
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -14264,7 +14260,6 @@ tr {
   scrollbar-color: color-mix(in srgb, var(--blue) 42%, transparent) transparent;
 }
 
-/* Mission profile final polish after the shared theme normalization. */
 .profile-dialog .profile-hero {
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--blue) 13%, transparent), color-mix(in srgb, var(--success-text) 7%, transparent)),
