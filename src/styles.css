@@ -1426,7 +1426,7 @@ fieldset.auth-form-grid:disabled select {
 }
 
 .upload-field input:disabled {
-  cursor: wait;
+  cursor: not-allowed;
 }
 
 .upload-field span {
@@ -2763,10 +2763,15 @@ body.modal-open {
 
 .system-feedback-content ul {
   margin-top: 12px;
-  padding-left: 18px;
+  padding-left: 0;
   color: var(--muted);
   font-size: 14px;
   line-height: 1.5;
+  list-style: none;
+}
+
+.system-feedback-content li + li {
+  margin-top: 6px;
 }
 
 .system-feedback-close {
@@ -4038,9 +4043,7 @@ button.notification-item:focus-visible {
   padding: 18px;
   overflow: hidden auto;
   color: var(--text);
-  background:
-    linear-gradient(145deg, color-mix(in srgb, var(--blue) 8%, transparent), transparent 58%),
-    var(--surface-raised);
+  background: var(--surface-solid);
   border: 1px solid var(--line-strong);
   border-radius: 14px;
   box-shadow: var(--floating-shadow);
@@ -4163,6 +4166,7 @@ button.notification-item:focus-visible {
 .alert-profile-dialog {
   width: min(780px, calc(100vw - 32px));
   overflow: hidden;
+  background: var(--surface-solid);
 }
 
 .alert-profile-dialog .modal-header,
@@ -4218,9 +4222,7 @@ button.notification-item:focus-visible {
 }
 
 :root[data-theme="light"] .operational-alert-panel {
-  background:
-    linear-gradient(145deg, color-mix(in srgb, var(--blue) 6%, transparent), transparent 62%),
-    rgba(255, 255, 255, 0.96);
+  background: #ffffff;
   border-color: rgba(93, 111, 136, 0.22);
   box-shadow: 0 26px 72px rgba(18, 33, 61, 0.22);
 }
@@ -4244,16 +4246,14 @@ button.notification-item:focus-visible {
 }
 
 :root[data-theme="light"] .alert-profile-dialog {
-  background:
-    linear-gradient(145deg, color-mix(in srgb, var(--blue) 5%, transparent), transparent 62%),
-    rgba(255, 255, 255, 0.97);
+  background: #ffffff;
   border-color: rgba(93, 111, 136, 0.22);
   box-shadow: 0 28px 78px rgba(18, 33, 61, 0.22);
 }
 
 :root[data-theme="light"] .alert-profile-dialog .modal-header,
 :root[data-theme="light"] .alert-profile-dialog .modal-footer {
-  background: rgba(248, 251, 255, 0.84);
+  background: #f8fbff;
   border-color: rgba(93, 111, 136, 0.18);
 }
 
@@ -6193,6 +6193,7 @@ tr:last-child td {
 }
 
 .current-user-avatar {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -6214,8 +6215,43 @@ tr:last-child td {
   object-fit: cover;
 }
 
+.current-user-avatar-remove {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+  border: 1px solid color-mix(in srgb, var(--danger-text) 48%, transparent);
+  border-radius: 999px;
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--danger-text) 24%, transparent);
+}
+
+.current-user-avatar-remove:hover:not(:disabled),
+.current-user-avatar-remove:focus-visible:not(:disabled) {
+  background: linear-gradient(135deg, #ff5d73, #c61732);
+  transform: translateY(-1px);
+}
+
+.current-user-avatar-remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .account-settings-form {
   align-content: start;
+}
+
+.profile-image-actions {
+  display: block;
+}
+
+.profile-image-actions .upload-field {
+  min-width: 0;
 }
 
 .settings-security-row {
@@ -13936,6 +13972,17 @@ tr {
 
 .upload-field small {
   color: var(--muted);
+}
+
+.upload-field:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.78;
+}
+
+.upload-field:has(input:disabled):hover,
+.upload-field:has(input:disabled):focus-within {
+  background: var(--surface-control);
+  border-color: var(--control-border);
 }
 
 .modal-dialog,
