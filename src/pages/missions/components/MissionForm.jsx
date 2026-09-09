@@ -967,6 +967,20 @@ const MultiSearchableSelectField = ({
           type="text"
           value={isOpen ? query : (selectedValues.length ? `${selectedValues.length} selected` : "")}
           onFocus={() => setIsOpen(true)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (!isOpen) {
+              setIsOpen(true);
+              return;
+            }
+            if (filteredOptions.length === 1) {
+              const option = filteredOptions[0];
+              toggleValue(typeof option === "string" ? option : option.value);
+              setQuery("");
+            }
+          }}
           onChange={(event) => {
             setQuery(event.target.value);
             setIsOpen(true);
