@@ -259,6 +259,7 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
 
   const searchRouteLocation = async (event) => {
     event?.preventDefault();
+    event?.stopPropagation();
     if (lockedRef.current) return;
     const query = searchQuery.trim();
     if (!query) {
@@ -297,6 +298,13 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
     } finally {
       setIsSearching(false);
     }
+  };
+
+  const handleSearchKeyDown = (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    event.stopPropagation();
+    searchRouteLocation(event);
   };
 
   const applySearchResult = (result) => {
@@ -380,13 +388,14 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
         </div>
 
         {showRouteSearch && (
-          <form
+          <div
             className="route-picker-search"
             ref={searchRef}
+            role="search"
             onClick={stopMapOverlayEvent}
             onDoubleClick={stopMapOverlayEvent}
             onMouseDown={stopMapOverlayEvent}
-            onSubmit={searchRouteLocation}
+            onKeyDown={handleSearchKeyDown}
           >
             <div className="route-picker-search-row">
               <Search size={16} />
@@ -402,7 +411,7 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
                   <X size={15} />
                 </button>
               )}
-              <button type="submit" disabled={isSearching}>
+              <button type="button" onClick={searchRouteLocation} disabled={isSearching}>
                 {isSearching ? <Loader2 size={15} className="spin-icon" /> : "Find"}
               </button>
             </div>
@@ -417,7 +426,7 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
                 ))}
               </div>
             )}
-          </form>
+          </div>
         )}
 
         <div className="route-picker-help" ref={helpRef} onClick={stopMapOverlayEvent} onDoubleClick={stopMapOverlayEvent} onMouseDown={stopMapOverlayEvent}>

@@ -5,6 +5,7 @@ import ActionButton from "../../../components/common/ActionButton";
 import CopyableId from "../../../components/common/CopyableId";
 import StatusBadge from "../../../components/common/StatusBadge";
 import { droneOpsApi } from "../../../services/droneOpsApi";
+import { formatDateOnly } from "../../../utils/formatters";
 import { exportSingleReport } from "../../../utils/reportExport";
 
 const exportableStatuses = new Set(["READY", "GENERATED"]);
@@ -453,6 +454,6 @@ const formatScopeRange = (scope) => {
   return "All available dates";
 };
 
-const formatDate = (value) => new Date(value).toLocaleDateString("en-AU");
+const formatDate = (value) => formatDateOnly(value, "Not provided");
 
 export default ReportProfileDialog;

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pause, Play, RadioTower, RotateCcw, Save, ShieldCheck, Trash2, Undo2, RefreshCw } from "lucide-react";
+import { Pause, PenLine, Play, RadioTower, RotateCcw, Save, ShieldCheck, Trash2, Undo2, RefreshCw } from "lucide-react";
 import DataTable from "../../components/common/DataTable";
 import GeospatialMap from "../../components/maps/GeospatialMap";
 import MissionRouteMap from "../missions/components/MissionRouteMap";
 import { droneOpsApi } from "../../services/droneOpsApi";
 import { getRealtimeSocket } from "../../services/realtimeClient";
 import { hasClientPermission } from "../../features/auth/accessControl";
+import { formatDateOnly } from "../../utils/formatters";
 
 const blankZone=()=>({name:"",type:"WARNING",isActive:true,polygon:[]});
 const OPERATIONS_FALLBACK_REFRESH_MS = 300000;
@@ -73,7 +74,7 @@ export default function LiveOperations({user}) {
     {key:"statusLabel",label:"Status",filterable:true},
     {key:"sourceLabel",label:"Source",filterable:true},
     {key:"pointCount",label:"Points"},
-    {key:"updatedAt",label:"Updated",render:z=>z.updatedAt?new Date(z.updatedAt).toLocaleDateString():"-"},
+    {key:"updatedAt",label:"Updated",render:z=>formatDateOnly(z.updatedAt,"-")},
     {key:"actions",label:"Actions",sortable:false,searchable:false,render:z=><div className="table-row-actions"><button type="button" className="secondary-button compact" onClick={()=>selectZone(z)}>Edit</button>{z.source!=="GOVERNMENT"&&<button type="button" className="danger-button compact" disabled={busy} onClick={()=>deleteZone(z.id)}>Delete</button>}</div>}
   ];
   const editingZone=zones.find(z=>z.id===editingId);
@@ -117,10 +118,10 @@ export default function LiveOperations({user}) {
           waypoints={zone.polygon.map(([longitude,latitude],i)=>({longitude,latitude,label:`Boundary point ${i+1}`}))}
           autoFit={false}
           mapOverlayControls={<div className="geofence-map-controls">
-            {canManage&&<>
-              <button className="secondary-button" type="button" disabled={isGovernmentEditing} onClick={()=>setDrawing(v=>!v)}>{drawing?"Finish boundary":"Draw boundary"}</button>
-              <button type="button" className="icon-button" title="Undo boundary point" aria-label="Undo boundary point" disabled={!zone.polygon.length||isGovernmentEditing} onClick={()=>setZone(z=>({...z,polygon:z.polygon.slice(0,-1)}))}><Undo2 size={16}/></button>
-            </>}
+            {canManage&&<div className="geofence-draw-control" role="group" aria-label="Geofence drawing controls">
+              <button className={drawing?"active":""} type="button" disabled={isGovernmentEditing} onClick={()=>setDrawing(v=>!v)} title={drawing?"Finish boundary":"Draw boundary"} aria-label={drawing?"Finish boundary":"Draw boundary"}><PenLine size={17}/></button>
+              <button type="button" className="danger" title="Undo boundary point" aria-label="Undo boundary point" disabled={!zone.polygon.length||isGovernmentEditing} onClick={()=>setZone(z=>({...z,polygon:z.polygon.slice(0,-1)}))}><Undo2 size={17}/></button>
+            </div>}
             <span>{zone.polygon.length} boundary points</span>
           </div>}
           onMapClick={drawing&&canManage&&!isGovernmentEditing?point=>setZone(z=>({...z,polygon:[...z.polygon,point]})):undefined}/>

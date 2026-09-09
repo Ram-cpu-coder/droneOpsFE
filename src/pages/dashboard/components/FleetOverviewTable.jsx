@@ -22,7 +22,7 @@ const FleetOverviewTable = ({ drones, isLoading = false, onDroneSelect }) => {
   const filteredDrones = useMemo(() => {
     if (activeFilter === "ALL") return drones;
     if (activeFilter === "OFFLINE") {
-      return drones.filter((drone) => ["DISCONNECTED", "GROUNDED"].includes(drone.status));
+      return drones.filter((drone) => ["DISCONNECTED", "GROUNDED"].includes(drone.status) || drone.telemetryOffline);
     }
     return drones.filter((drone) => drone.status === activeFilter);
   }, [activeFilter, drones]);
@@ -44,7 +44,7 @@ const FleetOverviewTable = ({ drones, isLoading = false, onDroneSelect }) => {
         </button>
       )
     },
-    { key: "status", label: "Status", render: (drone) => <StatusBadge>{drone.status}</StatusBadge> },
+    { key: "status", label: "Status", render: (drone) => <StatusBadge>{drone.telemetryOffline && drone.status === "AVAILABLE" ? "AVAILABLE_OFFLINE" : drone.status}</StatusBadge> },
     { key: "battery", label: "Battery", render: (drone) => <BatteryMeter value={drone.battery} /> },
     {
       key: "signal",
@@ -105,7 +105,7 @@ const FleetOverviewTable = ({ drones, isLoading = false, onDroneSelect }) => {
 
 const countForFilter = (filter, drones = []) => {
   if (filter === "ALL") return drones.length;
-  if (filter === "OFFLINE") return drones.filter((drone) => ["DISCONNECTED", "GROUNDED"].includes(drone.status)).length;
+  if (filter === "OFFLINE") return drones.filter((drone) => ["DISCONNECTED", "GROUNDED"].includes(drone.status) || drone.telemetryOffline).length;
   return drones.filter((drone) => drone.status === filter).length;
 };
 
