@@ -403,10 +403,10 @@ const getRequestContext = (path, method) => {
 
   return {
     context: resource.context,
-    loadingTitle: `${action.loading} ${resourceLabel}`,
+    loadingTitle: action.loadingTitle ?? `${action.loading} ${resourceLabel}`,
     loadingMessage: action.loadingMessage(resourceLabel),
     loadingDetails: action.loadingDetails,
-    successTitle: `${resourceLabel} ${action.success}`,
+    successTitle: action.successTitle ?? `${resourceLabel} ${action.success}`,
     successMessage: action.successMessage(resourceLabel),
     successDetails: action.successDetails
   };
@@ -430,6 +430,58 @@ const getRequestResource = (path) => {
 };
 
 const getRequestAction = (method, path) => {
+  if (path === "/auth/profile-image") {
+    return {
+      loading: "Uploading",
+      loadingTitle: "Uploading profile image",
+      loadingMessage: () => "DroneOps is uploading the selected profile image.",
+      loadingDetails: ["The image will be ready to save on the profile after upload."],
+      success: "uploaded",
+      successTitle: "Profile image uploaded",
+      successMessage: () => "Profile image uploaded. Save the profile to apply it.",
+      successDetails: ["The image preview has been refreshed."]
+    };
+  }
+
+  if (path === "/users/me" && (method === "PUT" || method === "PATCH")) {
+    return {
+      loading: "Saving",
+      loadingTitle: "Saving your profile",
+      loadingMessage: () => "DroneOps is saving your profile changes.",
+      loadingDetails: ["Name, email, and profile image changes are being validated."],
+      success: "saved",
+      successTitle: "Profile updated",
+      successMessage: () => "Your DroneOps profile has been updated.",
+      successDetails: ["Your account menu and profile page have been refreshed."]
+    };
+  }
+
+  if (/^\/users\/[^/]+$/.test(path) && (method === "PUT" || method === "PATCH")) {
+    return {
+      loading: "Saving",
+      loadingTitle: "Saving user profile",
+      loadingMessage: () => "DroneOps is saving this user profile.",
+      loadingDetails: ["Role, identity, and profile image changes are being validated."],
+      success: "saved",
+      successTitle: "User profile updated",
+      successMessage: () => "User profile updated successfully.",
+      successDetails: ["The users table and profile panel have been refreshed."]
+    };
+  }
+
+  if (path === "/settings/organisation/join-code/regenerate") {
+    return {
+      loading: "Generating",
+      loadingTitle: "Generating organisation code",
+      loadingMessage: () => "DroneOps is generating a new organisation join code.",
+      loadingDetails: ["The previous join code will no longer be valid once the new code is created."],
+      success: "generated",
+      successTitle: "Organisation code generated",
+      successMessage: () => "The new organisation join code is ready to share.",
+      successDetails: ["Only share this code with people who should join this workspace."]
+    };
+  }
+
   if (/^\/missions\/[^/]+\/risk-assessment$/.test(path)) {
     return {
       loading: "Saving",

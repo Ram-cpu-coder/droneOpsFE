@@ -170,13 +170,14 @@ const Settings = ({ user }) => {
 
   const handleProfileImageChange = async (event) => {
     const file = event.target.files?.[0];
-    if (!file || !isEditingProfile) return;
+    if (!file) return;
 
     setImageUpload({ isUploading: true, fileName: file.name, error: "" });
 
     try {
       const result = await authService.uploadProfileImage(file);
       updateField("profileImageUrl", result.profileImageUrl);
+      setIsEditingProfile(true);
       setImageUpload({ isUploading: false, fileName: file.name, error: "" });
       showToast({ type: "success", title: "Image ready", message: "Save changes to apply the new profile image." });
     } catch (error) {
@@ -184,6 +185,13 @@ const Settings = ({ user }) => {
     } finally {
       event.target.value = "";
     }
+  };
+
+  const handleRemoveProfileImage = () => {
+    updateField("profileImageUrl", "");
+    setImageUpload({ isUploading: false, fileName: "", error: "" });
+    setIsEditingProfile(true);
+    showToast({ type: "success", title: "Profile image removed", message: "Save changes to remove it from your account." });
   };
 
   const handleSaveProfile = async (event) => {
@@ -470,6 +478,18 @@ const Settings = ({ user }) => {
           <div className="current-user-card">
             <div className="current-user-avatar">
               {form.profileImageUrl ? <img src={form.profileImageUrl} alt="" /> : <span>{getInitials(form.name)}</span>}
+              {isEditingProfile && form.profileImageUrl && (
+                <button
+                  className="current-user-avatar-remove"
+                  type="button"
+                  onClick={handleRemoveProfileImage}
+                  disabled={isSaving || imageUpload.isUploading}
+                  aria-label="Remove profile image"
+                  title="Remove profile image"
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
             </div>
             <div>
               <h3>{form.name || "DroneOps user"}</h3>
@@ -496,15 +516,17 @@ const Settings = ({ user }) => {
               <span>Organisation</span>
               <strong>{organisation.name}</strong>
             </div>
-            <label className="upload-field wide-field">
-              <input type="file" accept="image/*" onChange={handleProfileImageChange} disabled={!isEditingProfile || isSaving || imageUpload.isUploading} />
-              <span><ImagePlus size={18} /> Upload profile image</span>
-              <small>
-                {imageUpload.isUploading
-                  ? "Uploading image..."
-                  : imageUpload.fileName || (form.profileImageUrl ? "Profile image ready" : "Optional PNG, JPG, or WebP")}
-              </small>
-            </label>
+            <div className="profile-image-actions wide-field">
+              <label className="upload-field">
+                <input type="file" accept="image/*" onChange={handleProfileImageChange} disabled={isSaving || imageUpload.isUploading} />
+                <span><ImagePlus size={18} /> Upload profile image</span>
+                <small>
+                  {imageUpload.isUploading
+                    ? "Uploading image..."
+                    : imageUpload.fileName || (form.profileImageUrl ? "Profile image ready" : "Optional PNG, JPG, or WebP")}
+                </small>
+              </label>
+            </div>
             {imageUpload.error && <div className="auth-alert wide-field">{imageUpload.error}</div>}
             <div className="settings-security-row wide-field">
               <div>

@@ -28,6 +28,8 @@ const UserProfileDialog = ({ user, currentUser, canManage = false, onUpdated, on
   const canDelete = canManage && user.id !== currentUser?.id;
   const displayedProfileImage = isEditing ? form.profileImageUrl : user.profileImageUrl;
   const displayedName = isEditing ? form.name : user.name;
+  const hasProfileChanges = hasUserProfileChanges(user, form);
+  const canSaveProfile = hasProfileChanges && form.name.trim() && form.email.trim() && !isSaving && !imageUpload.isUploading;
 
   useEffect(() => {
     setForm(toFormState(user));
@@ -59,12 +61,17 @@ const UserProfileDialog = ({ user, currentUser, canManage = false, onUpdated, on
   const handleSave = async (event) => {
     event.preventDefault();
     setError("");
+
+    if (!hasProfileChanges) {
+      return;
+    }
+
     setIsSaving(true);
 
     try {
       const updated = await droneOpsApi.users.update(user.id, {
-        name: form.name,
-        email: form.email,
+        name: form.name.trim(),
+        email: form.email.trim(),
         role: apiRoleByRoleId[form.role] ?? form.role,
         profileImageUrl: form.profileImageUrl || null,
         isVerified: form.isVerified
@@ -76,6 +83,13 @@ const UserProfileDialog = ({ user, currentUser, canManage = false, onUpdated, on
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleCancelEdit = () => {
+    setForm(toFormState(user));
+    setIsEditing(false);
+    setError("");
+    setImageUpload({ isUploading: false, fileName: "", error: "" });
   };
 
   const handleDelete = async () => {
@@ -211,8 +225,17 @@ const UserProfileDialog = ({ user, currentUser, canManage = false, onUpdated, on
             <div className="form-actions">
               {isEditing ? (
                 <>
-                  <ActionButton type="button" onClick={() => setIsEditing(false)}>Cancel</ActionButton>
-                  <ActionButton icon={Pencil} variant="primary" type="submit" isLoading={isSaving} disabled={isSaving || imageUpload.isUploading}>Save User</ActionButton>
+                  <ActionButton type="button" onClick={handleCancelEdit}>Cancel</ActionButton>
+                  <ActionButton
+                    icon={Pencil}
+                    variant="primary"
+                    type="submit"
+                    isLoading={isSaving}
+                    disabled={!canSaveProfile}
+                    title={hasProfileChanges ? "Save user profile" : "Change a field before saving"}
+                  >
+                    Save User
+                  </ActionButton>
                 </>
               ) : (
                 <>
@@ -326,6 +349,16 @@ const toFormState = (user) => ({
   profileImageUrl: user.profileImageUrl ?? "",
   isVerified: Boolean(user.isVerified)
 });
+
+const hasUserProfileChanges = (user, form) => {
+  const current = toFormState(user);
+
+  return current.name.trim() !== form.name.trim()
+    || current.email.trim() !== form.email.trim()
+    || current.role !== form.role
+    || (current.profileImageUrl || "") !== (form.profileImageUrl || "")
+    || current.isVerified !== Boolean(form.isVerified);
+};
 
 const formatDateTime = (value, fallback = "Not provided") => {
   if (!value) return fallback;
