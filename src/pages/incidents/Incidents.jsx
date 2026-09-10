@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, ShieldCheck, UserRoundCheck, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, ShieldCheck, UserRoundCheck, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ActionButton from "../../components/common/ActionButton";
 import CopyableId from "../../components/common/CopyableId";
@@ -64,12 +64,43 @@ const Incidents = ({ searchValue, user }) => {
         </button>
       )
     },
-    { key: "title", label: "Issue" },
+    {
+      key: "typeLabel",
+      label: "Type",
+      className: "incident-type-column",
+      render: (incident) => (
+        <span className="incident-table-type">
+          <AlertTriangle size={16} aria-hidden="true" />
+          <span>{incident.typeLabel || "Incident"}</span>
+        </span>
+      )
+    },
+    {
+      key: "droneLabel",
+      label: "Drone",
+      className: "incident-drone-column",
+      render: (incident) => incident.droneLabel || "Not linked"
+    },
     { key: "severity", label: "Severity", filterable: true, render: (incident) => <StatusBadge type="risk">{incident.severity}</StatusBadge> },
     { key: "status", label: "Status", filterable: true, render: (incident) => <StatusBadge>{incident.status}</StatusBadge> },
-    { key: "owner", label: "Owner", className: "incident-secondary-column" },
-    { key: "source", label: "Source", filterable: true, className: "incident-secondary-column" },
-    { key: "time", label: "Reported", className: "incident-secondary-column" }
+    {
+      key: "time",
+      label: "Time",
+      className: "incident-time-column",
+      sortValue: (incident) => incident.createdAt || incident.time || "",
+      render: (incident) => (
+        <span className="incident-table-time">
+          <Clock3 size={16} aria-hidden="true" />
+          <span>{incident.time || "Not recorded"}</span>
+        </span>
+      )
+    },
+    {
+      key: "details",
+      label: "Description",
+      className: "incident-description-column",
+      render: (incident) => <span title={incident.details}>{incident.details || incident.title || "No description"}</span>
+    }
   ];
 
   const handleLogIncidentClick = () => {
@@ -194,12 +225,25 @@ const normalizeIncident = (incident) => ({
   serialNumber: incident.incidentCode ?? incident.id,
   owner: incident.assignedTo?.name ?? incident.reportedBy?.name ?? incident.owner ?? "Unassigned",
   place: incident.location ?? incident.place ?? "No location",
-  time: incident.createdAt ? new Date(incident.createdAt).toLocaleString() : incident.time,
-  details: incident.details ?? "No details captured yet.",
+  time: incident.createdAt ? formatIncidentTime(incident.createdAt) : incident.time,
+  details: incident.details ?? incident.title ?? "No details captured yet.",
   droneLabel: incident.drone?.droneCode ?? incident.drone ?? "",
   missionLabel: incident.mission?.missionCode ?? incident.mission?.name ?? incident.mission ?? "",
   typeLabel: incident.type?.toString().toLowerCase().replaceAll("_", " ")
 });
+
+const formatIncidentTime = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not recorded";
+
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+};
 
 const isSameIncident = (row, incident) => {
   const rowKeys = [row.id, row.uuid, row.idRaw, row.systemId, row.incidentCode, row.serialNumber].filter(Boolean).map(String);

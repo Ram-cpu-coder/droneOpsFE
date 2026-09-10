@@ -215,6 +215,11 @@ const App = () => {
   useEffect(() => {
     if (isBootstrapping) return;
 
+    if (resetPasswordToken) {
+      authRouteInitializedRef.current = true;
+      return;
+    }
+
     // If user is not logged in, keep them in auth pages.
     if (!session?.user) {
       if (location.pathname.startsWith("/reset-password/")) {
@@ -311,11 +316,12 @@ const App = () => {
     location.search,
     navigate,
     session,
+    resetPasswordToken,
   ]);
 
   // After restoring session, send user to dashboard once.
   useEffect(() => {
-    if (!restoredSession || restoredRouteHandledRef.current || !session?.user) {
+    if (resetPasswordToken || !restoredSession || restoredRouteHandledRef.current || !session?.user) {
       return;
     }
 
@@ -329,7 +335,7 @@ const App = () => {
       dispatch(routeChanged("dashboard"));
       navigate("/dashboard", { replace: true });
     }
-  }, [currentAppRoute, dispatch, location, location.pathname, navigate, restoredSession, session]);
+  }, [currentAppRoute, dispatch, location, location.pathname, navigate, resetPasswordToken, restoredSession, session]);
 
   // Navigate between app routes.
   const handleNavigate = useCallback(
@@ -412,6 +418,23 @@ const App = () => {
         <LoadingLogo label="Restoring DroneOps session" size="lg" />
         <p>Checking your session before loading operations data.</p>
       </div>
+    );
+  }
+
+  if (resetPasswordToken) {
+    return (
+      <Suspense fallback={<AuthFallback />}>
+        <SystemFeedbackDialog feedback={systemFeedback} onClose={() => setSystemFeedback(null)} />
+        <AuthShell
+          themeMode={themeMode}
+          onThemeModeChange={(mode) => dispatch(themeModeChanged(mode))}
+        >
+          <ResetPasswordConfirm
+            token={resetPasswordToken}
+            onAuthViewChange={handleAuthViewChange}
+          />
+        </AuthShell>
+      </Suspense>
     );
   }
 
