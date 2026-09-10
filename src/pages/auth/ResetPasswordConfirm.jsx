@@ -110,7 +110,7 @@ const ResetPasswordConfirm = ({ token, onAuthViewChange }) => {
             <CheckCircle2 size={26} />
           </div>
           <div className="verification-content">
-            <strong>Password updated</strong>
+            <strong>Password changed successfully</strong>
             <p>{message}</p>
           </div>
         </div>
@@ -132,7 +132,7 @@ const ResetPasswordConfirm = ({ token, onAuthViewChange }) => {
               required
             />
             <button
-              className="password-toggle"
+              className="field-trailing-button password-toggle"
               type="button"
               onClick={() => setShowPassword((current) => !current)}
               aria-label={showPassword ? "Hide password" : "Show password"}
@@ -153,7 +153,7 @@ const ResetPasswordConfirm = ({ token, onAuthViewChange }) => {
               required
             />
             <button
-              className="password-toggle"
+              className="field-trailing-button password-toggle"
               type="button"
               onClick={() => setShowConfirmPassword((current) => !current)}
               aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
