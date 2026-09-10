@@ -105,49 +105,6 @@ export const userRoles = [
   }
 ];
 
-export const demoUsers = [
-  {
-    id: "usr-001",
-    name: "Olivia Hart",
-    email: "ops@droneops.test",
-    password: "Password123!",
-    role: "operations_manager",
-    organization: "DroneOps NSW",
-    isVerified: true,
-    avatar: "OH"
-  },
-  {
-    id: "usr-002",
-    name: "Maya Chen",
-    email: "pilot@droneops.test",
-    password: "Password123!",
-    role: "remote_pilot",
-    organization: "DroneOps NSW",
-    isVerified: true,
-    avatar: "MC"
-  },
-  {
-    id: "usr-003",
-    name: "Sam Wright",
-    email: "maintenance@droneops.test",
-    password: "Password123!",
-    role: "maintenance_coordinator",
-    organization: "DroneOps NSW",
-    isVerified: true,
-    avatar: "SW"
-  },
-  {
-    id: "usr-004",
-    name: "Priya Rao",
-    email: "unverified@droneops.test",
-    password: "Password123!",
-    role: "compliance_officer",
-    organization: "DroneOps NSW",
-    isVerified: false,
-    avatar: "PR"
-  }
-];
-
 export const platformHighlights = [
   {
     title: "Fleet Governance",

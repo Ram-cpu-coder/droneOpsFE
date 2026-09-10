@@ -35,6 +35,15 @@ const SESSION_KEY = "droneops_session";
 // Stores active GET requests to avoid duplicate calls.
 const inFlightGetRequests = new Map();
 let refreshTokenRequest = null;
+let accessTokenMemory = "";
+
+export const setAccessToken = (token = "") => {
+  accessTokenMemory = token ?? "";
+};
+
+export const clearAccessToken = () => {
+  accessTokenMemory = "";
+};
 
 // Reads session from localStorage.
 const getSession = () => {
@@ -44,8 +53,16 @@ const getSession = () => {
 
   try {
     const session = JSON.parse(rawSession);
+    const safeSession = { ...session };
+    const hadSensitiveToken = Boolean(safeSession.accessToken || safeSession.refreshToken);
+    delete safeSession.accessToken;
+    delete safeSession.refreshToken;
 
-    return session;
+    if (hadSensitiveToken) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify(safeSession));
+    }
+
+    return safeSession;
   } catch {
     // Clear broken session data.
     localStorage.removeItem(SESSION_KEY);
@@ -55,7 +72,7 @@ const getSession = () => {
 
 // Gets access token from saved session.
 export const getAccessToken = () => {
-  return getSession()?.accessToken ?? "";
+  return accessTokenMemory;
 };
 
 // Checks if request should trigger activity refresh.
@@ -140,7 +157,7 @@ const refreshAccessToken = async () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify(session.refreshToken ? { refreshToken: session.refreshToken } : {}),
+      body: JSON.stringify({}),
     });
 
     const payload = await response.json().catch(() => ({}));
@@ -148,6 +165,7 @@ const refreshAccessToken = async () => {
     // If refresh fails, force logout.
     if (!response.ok) {
       localStorage.removeItem(SESSION_KEY);
+      clearAccessToken();
       window.dispatchEvent(new CustomEvent("droneops:session-expired", {
         detail: {
           message: "Your session has expired. Please sign in again.",
@@ -159,14 +177,13 @@ const refreshAccessToken = async () => {
     // Save refreshed session.
     const nextSession = {
       ...session,
-      accessToken: payload.data.accessToken,
-      refreshToken: payload.data.refreshToken ?? session.refreshToken,
       user: payload.data.user ?? session.user,
     };
 
+    setAccessToken(payload.data.accessToken);
     localStorage.setItem(SESSION_KEY, JSON.stringify(nextSession));
 
-    return nextSession.accessToken;
+    return payload.data.accessToken;
   })().finally(() => {
     refreshTokenRequest = null;
   });
@@ -194,6 +211,7 @@ const shouldShowRequestFailure = (path = "") => {
 
 const expireLocalSession = (message = "Your session has expired. Please sign in again.") => {
   localStorage.removeItem(SESSION_KEY);
+  clearAccessToken();
   window.dispatchEvent(new CustomEvent("droneops:session-expired", {
     detail: { message },
   }));
@@ -265,7 +283,7 @@ const request = async (path, options = {}, retry = true) => {
   // Handle failed response.
   if (!response.ok) {
     const errorText =
-      `${payload.message ?? ""} ${payload.code ?? ""} ${payload.stack ?? ""}`.toLowerCase();
+      `${payload.message ?? ""} ${payload.code ?? ""}`.toLowerCase();
 
     const isExpiredJwt =
       errorText.includes("jwt expired") ||

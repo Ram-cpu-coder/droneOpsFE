@@ -1,4 +1,4 @@
-import { apiClient, SESSION_KEY } from "../../services/apiClient";
+import { apiClient, clearAccessToken, SESSION_KEY, setAccessToken } from "../../services/apiClient";
 import { userRoles } from "../../data/authData";
 import { clearApiResourceCache } from "../../hooks/useApiResource";
 
@@ -104,6 +104,9 @@ const decorateUser = (user) => {
 */
 const persistSession = (session) => {
     const safeSession = { ...session };
+    setAccessToken(safeSession.accessToken ?? "");
+    delete safeSession.accessToken;
+    delete safeSession.refreshToken;
     const sessionText = JSON.stringify(safeSession);
 
     localStorage.setItem(SESSION_KEY, sessionText);
@@ -129,6 +132,7 @@ const toPersistableUser = (user = {}) => {
 */
 const clearSession = () => {
     localStorage.removeItem(SESSION_KEY);
+    clearAccessToken();
     clearApiResourceCache();
 };
 
@@ -209,10 +213,11 @@ export const authService = {
         try {
             const session = JSON.parse(rawSession);
             const safeSession = { ...session };
-            const hadRefreshToken = Boolean(safeSession.refreshToken);
+            const hadSensitiveToken = Boolean(safeSession.accessToken || safeSession.refreshToken);
+            delete safeSession.accessToken;
             delete safeSession.refreshToken;
 
-            if (hadRefreshToken) {
+            if (hadSensitiveToken) {
                 localStorage.setItem(SESSION_KEY, JSON.stringify(safeSession));
             }
 
@@ -254,7 +259,7 @@ export const authService = {
             let result;
 
             try {
-                result = await apiClient.post("/auth/refresh-token", session.refreshToken ? { refreshToken: session.refreshToken } : {});
+                result = await apiClient.post("/auth/refresh-token", {});
             } catch (error) {
                 const shouldRetry = isTransientNetworkError(error);
 
@@ -266,13 +271,12 @@ export const authService = {
                 // Wait shortly and try one more time.
                 await wait(1400);
 
-                result = await apiClient.post("/auth/refresh-token", session.refreshToken ? { refreshToken: session.refreshToken } : {});
+                result = await apiClient.post("/auth/refresh-token", {});
             }
 
             // Save the refreshed session.
             const newSession = {
                 accessToken: result.accessToken,
-                refreshToken: result.refreshToken ?? session.refreshToken,
                 user: decorateUser(result.user || session.user),
             };
 

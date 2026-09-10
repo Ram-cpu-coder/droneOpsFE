@@ -1072,6 +1072,8 @@ const InlineFormAlert = ({ message }) => (
   </div>
 );
 
+const InlineWarning = InlineFormAlert;
+
 const AssignmentRecoveryPanel = ({ blockedDrones = [], onOpenFleet, onOpenMaintenance, onOpenTelemetry }) => (
   <div className="assignment-recovery-panel" role="status">
     <div>
