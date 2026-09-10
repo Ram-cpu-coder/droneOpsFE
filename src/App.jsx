@@ -143,8 +143,9 @@ const App = () => {
 
   // Restore session when app starts.
   useEffect(() => {
+    if (resetPasswordToken) return;
     dispatch(sessionRestoreRequested());
-  }, [dispatch]);
+  }, [dispatch, resetPasswordToken]);
 
   // Handle expired session event.
   useEffect(() => {
@@ -213,12 +214,12 @@ const App = () => {
 
   // Main auth/app routing logic.
   useEffect(() => {
-    if (isBootstrapping) return;
-
     if (resetPasswordToken) {
       authRouteInitializedRef.current = true;
       return;
     }
+
+    if (isBootstrapping) return;
 
     // If user is not logged in, keep them in auth pages.
     if (!session?.user) {
@@ -412,7 +413,7 @@ const App = () => {
     currentAppRoute?.id ?? accessibleRoutes[0]?.id ?? activeRoute;
 
   // Loading screen while restoring session.
-  if (isBootstrapping || shouldResetRestoredRoute) {
+  if ((!resetPasswordToken && isBootstrapping) || shouldResetRestoredRoute) {
     return (
       <div className="app-boot-screen">
         <LoadingLogo label="Restoring DroneOps session" size="lg" />
