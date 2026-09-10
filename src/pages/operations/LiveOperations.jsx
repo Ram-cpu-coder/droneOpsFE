@@ -25,6 +25,7 @@ export default function LiveOperations({user}) {
   const [drawing,setDrawing]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState("");const [message,setMessage]=useState("");
   const [showGeofenceList,setShowGeofenceList]=useState(false);
   const requestRef=useRef(0);
+  const geofenceMapRef=useRef(null);
   const geofenceTableRef=useRef(null);
   const canManage=hasClientPermission(user,"geofences:manage");
   const refreshZones=useCallback(async()=>{if(document.visibilityState!=="visible")return;try{setZones(await droneOpsApi.geofences.list());}catch(e){setError(e.message);}},[]);
@@ -62,10 +63,11 @@ export default function LiveOperations({user}) {
     }catch(e){setError(e.message);}finally{setBusy(false);}
   };
   const deleteZone=async(targetId=editingId)=>{if(!targetId)return;setBusy(true);setError("");setMessage("");try{await droneOpsApi.geofences.remove(targetId);setZones(rows=>rows.filter(row=>row.id!==targetId));if(editingId===targetId){setZone(blankZone());setEditingId(null);setDrawing(false);}setMessage("Geofence deleted.");}catch(e){setError(e.message);}finally{setBusy(false);}};
-  const selectZone=(selectedZone)=>{setZone({name:selectedZone.name,type:selectedZone.type,isActive:selectedZone.isActive,polygon:selectedZone.polygon});setEditingId(selectedZone.id);setDrawing(false);};
+  const selectZone=(selectedZone)=>{setZone({name:selectedZone.name,type:selectedZone.type,isActive:selectedZone.isActive,polygon:selectedZone.polygon});setEditingId(selectedZone.id);setDrawing(false);window.requestAnimationFrame(()=>geofenceMapRef.current?.scrollIntoView({behavior:"smooth",block:"start"}));};
   const openGeofenceList=()=>{setShowGeofenceList(true);window.requestAnimationFrame(()=>geofenceTableRef.current?.scrollIntoView({behavior:"smooth",block:"start"}));};
   const mission=missions.find(m=>m.id===missionId);
   const replaySelectionReady = Boolean(missionId && droneId);
+  const canRefreshReplayHistory = replaySource === "mission" ? Boolean(missionId) : Boolean(droneId);
   const governmentZones=zones.filter(z=>z.source==="GOVERNMENT");
   const geofenceRows=zones.map(z=>({...z,sourceLabel:z.source==="GOVERNMENT"?(z.provider||"Government"):"DroneOps",pointCount:Array.isArray(z.polygon)?z.polygon.length:0,statusLabel:z.isActive?"Active":"Inactive"}));
   const geofenceColumns=[
@@ -75,7 +77,7 @@ export default function LiveOperations({user}) {
     {key:"sourceLabel",label:"Source",filterable:true},
     {key:"pointCount",label:"Points"},
     {key:"updatedAt",label:"Updated",render:z=>formatDateOnly(z.updatedAt,"-")},
-    {key:"actions",label:"Actions",sortable:false,searchable:false,render:z=><div className="table-row-actions"><button type="button" className="secondary-button compact" onClick={()=>selectZone(z)}>Edit</button>{z.source!=="GOVERNMENT"&&<button type="button" className="danger-button compact" disabled={busy} onClick={()=>deleteZone(z.id)}>Delete</button>}</div>}
+    {key:"actions",label:"Actions",sortable:false,searchable:false,render:z=><div className="table-row-actions"><button type="button" className="secondary-button compact" onClick={(event)=>{event.stopPropagation();selectZone(z);}}>Edit</button>{z.source!=="GOVERNMENT"&&<button type="button" className="danger-button compact" disabled={busy} onClick={(event)=>{event.stopPropagation();deleteZone(z.id);}}>Delete</button>}</div>}
   ];
   const editingZone=zones.find(z=>z.id===editingId);
   const isGovernmentEditing=editingZone?.source==="GOVERNMENT";
@@ -96,11 +98,11 @@ export default function LiveOperations({user}) {
         <label className="field">Source<select aria-label="Replay source" value={replaySource} onChange={e=>setReplaySource(e.target.value)}><option value="mission">Mission replay</option><option value="drone">Drone history</option></select></label>
         <label className="field">Mission<select aria-label="Replay mission" value={missionId} onChange={e=>setMissionId(e.target.value)}><option value="">Select mission</option>{missions.map(m=><option value={m.id} key={m.id}>{m.missionCode} - {m.name}</option>)}</select></label>
         <label className="field">Drone<select aria-label="Replay drone" value={droneId} onChange={e=>setDroneId(e.target.value)}><option value="">Select drone</option>{drones.map(d=><option key={d.id} value={d.droneCode ?? d.id}>{d.droneCode}</option>)}</select></label>
-        <button className="secondary-button telemetry-refresh-button" type="button" disabled={busy} onClick={()=>setReload(value=>value+1)}><RefreshCw size={16}/>Refresh history</button>
+        {canRefreshReplayHistory&&<button className="secondary-button telemetry-refresh-button" type="button" disabled={busy} onClick={()=>setReload(value=>value+1)}><RefreshCw size={16}/>Refresh history</button>}
       </div>
       {!busy&&!records.length&&(replaySource==="mission"?missionId:droneId)&&<div className="auth-alert" role="status">{buildReplayEmptyMessage(replaySource, telemetryStatus)}</div>}
       {telemetryStatus&&<TelemetryStatusNote status={telemetryStatus}/>}
-      {replaySource==="drone"&&<p className="muted">Latest {records.length} saved packets (up to 2,000). Drone history may include different flights and is not proof of this mission's flight path.</p>}
+      {replaySource==="drone"&&<p className="muted">{busy ? "Loading saved drone history..." : `Latest ${records.length} saved packets (up to 2,000). Drone history may include different flights and is not proof of this mission's flight path.`}</p>}
       {records.length>0&&<p className="muted">{new Date(records[0].timestamp).toLocaleString()} to {new Date(records.at(-1).timestamp).toLocaleString()}</p>}
       <div className="telemetry-replay-map">
         <MissionRouteMap key={`${replaySource}:${missionId}:${droneId}`} showEmptyMap geofences={zones} waypoints={replaySource==="mission"?mission?.plannedRoute?.waypoints??[]:[]} telemetry={records[index]??null} telemetryTrail={records.slice(0,index+1)} telemetryMode="recorded" context={{source:replaySource==="mission"?"Mission replay":"Drone history",mission:replaySource==="mission"?mission?.missionCode:undefined,timestamp:records[index]?.timestamp}}
@@ -113,8 +115,9 @@ export default function LiveOperations({user}) {
       </div>
     </div>}
     {tab==="zones"&&<div className="operations-split">
-      <div>
+      <div ref={geofenceMapRef}>
         <MissionRouteMap showEmptyMap geofences={[...zones.filter(z=>z.id!==editingId),...(zone.polygon.length>=3?[{...zone,name:zone.name||"Unsaved geofence",isActive:true}]:[])]}
+          focusedGeofence={editingZone}
           waypoints={zone.polygon.map(([longitude,latitude],i)=>({longitude,latitude,label:`Boundary point ${i+1}`}))}
           autoFit={false}
           mapOverlayControls={<div className="geofence-map-controls">

@@ -72,7 +72,10 @@ const Dashboard = ({ searchValue, user, onNavigate }) => {
   const normalizedDrones = useMemo(() => apiDrones.map((drone) => normalizeDrone(drone, telemetryRows)), [apiDrones, telemetryRows]);
   const filteredDrones = useFleetSearch(normalizedDrones, searchValue);
   const dashboardMissions = useMemo(
-    () => apiMissions.map(normalizeMissionCard).slice(0, 3),
+    () => apiMissions
+      .filter((mission) => !isTerminalMissionStatus(mission.status))
+      .map(normalizeMissionCard)
+      .slice(0, 3),
     [apiMissions]
   );
   const dashboardIncidents = useMemo(() => openIncidents.map(normalizeIncidentCard).slice(0, 2), [openIncidents]);
@@ -227,9 +230,10 @@ const normalizeMissionCard = (mission) => ({
   uuid: mission.uuid ?? mission.id,
   name: mission.name ?? mission.missionCode ?? "Untitled mission",
   drone: getMissionDroneLabel(mission) || "Unassigned drone",
-  eta: mission.eta ?? (mission.plannedStartAt ? new Date(mission.plannedStartAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Not scheduled"),
+  eta: mission.eta ?? (mission.plannedEndAt ? new Date(mission.plannedEndAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Not scheduled"),
   progress: Number(mission.progress ?? (mission.status === "COMPLETED" ? 100 : mission.status === "ACTIVE" ? 55 : 0)),
-  risk: mission.riskAssessment?.level ?? mission.risk ?? "Pending"
+  risk: mission.riskAssessment?.level ?? mission.risk ?? "Pending",
+  status: String(mission.status ?? mission.rawStatus ?? "").toUpperCase()
 });
 
 const getMissionDroneLabel = (mission) => (
@@ -248,5 +252,7 @@ const normalizeIncidentCard = (incident) => ({
   status: incident.status,
   severity: incident.severity
 });
+
+const isTerminalMissionStatus = (status) => ["COMPLETED", "ABORTED", "CANCELLED"].includes(String(status ?? "").toUpperCase());
 
 export default Dashboard;

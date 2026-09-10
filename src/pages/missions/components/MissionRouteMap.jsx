@@ -8,7 +8,7 @@ import { useOperationalGeofences } from "../../../hooks/useOperationalGeofences"
 
 const defaultCenter = { latitude: -33.8679, longitude: 151.2073 };
 
-const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = null, authorityAnalysis = null, telemetry = null, telemetryTrail = [], telemetryMode = "planned", incidentLocation = null, context = null, geofences: suppliedGeofences, onMapClick, mapOverlayControls = null, showEmptyMap = false, autoFit = true }) => {
+const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = null, authorityAnalysis = null, telemetry = null, telemetryTrail = [], telemetryMode = "planned", incidentLocation = null, context = null, geofences: suppliedGeofences, focusedGeofence = null, onMapClick, mapOverlayControls = null, showEmptyMap = false, autoFit = true }) => {
   const operationalGeofences = useOperationalGeofences(suppliedGeofences === undefined);
   const geofences = suppliedGeofences ?? operationalGeofences.zones;
   const clickRef = useRef(onMapClick);
@@ -106,6 +106,12 @@ const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = nu
       L.polygon(zone.polygon.map(([lng,lat])=>[lat,lng]),{color,weight:isGovernment?3:2,dashArray:isGovernment?"8 6":undefined,fillOpacity:isGovernment?0.1:0.14}).bindTooltip(label).addTo(layer);
     });
   }, [geofences,mapReady,mapPoints]);
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !Array.isArray(focusedGeofence?.polygon) || focusedGeofence.polygon.length < 3) return;
+    const bounds = L.latLngBounds(focusedGeofence.polygon.map(([longitude, latitude]) => [latitude, longitude]));
+    mapRef.current.fitBounds(bounds, { padding: [80, 80], maxZoom: 15, animate: true });
+  }, [focusedGeofence, mapReady]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !layersRef.current) return;

@@ -27,7 +27,7 @@ const MissionQueue = ({ canCreate = false, isLoading = false, missions = [], onC
                 <h4>{mission.name}</h4>
                 <StatusBadge type="risk">{mission.risk}</StatusBadge>
               </div>
-              <p>{mission.drone} on route. ETA {mission.eta}.</p>
+              <p>{getMissionQueueLine(mission)}</p>
               <ProgressBar value={mission.progress} />
             </div>
             <strong>{mission.progress}%</strong>
@@ -36,6 +36,15 @@ const MissionQueue = ({ canCreate = false, isLoading = false, missions = [], onC
       </div>
     </div>
   );
+};
+
+const getMissionQueueLine = (mission) => {
+  const status = String(mission.status ?? "").toUpperCase();
+  if (status === "ACTIVE") return `${mission.drone} on route. ETA ${mission.eta}.`;
+  if (status === "RISK_ASSESSMENT_COMPLETED") return `${mission.drone} cleared for start.`;
+  if (status === "APPROVED") return `${mission.drone} approved, risk assessment pending.`;
+  if (status === "AWAITING_AUTHORITY_APPROVAL") return `${mission.drone} waiting for authority permissions.`;
+  return `${mission.drone} planned for ${mission.eta}.`;
 };
 
 export default MissionQueue;

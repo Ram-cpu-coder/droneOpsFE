@@ -49,6 +49,8 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [modelCatalog, setModelCatalog] = useState([]);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState("");
   const [validationToast, setValidationToast] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({});
   const needsCertificationDetails = form.certificationStatus === "CERTIFIED";
@@ -80,10 +82,20 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
 
     droneOpsApi.drones.catalog()
       .then((catalog) => {
-        if (isMounted) setModelCatalog(Array.isArray(catalog) ? catalog : []);
+        if (isMounted) {
+          setModelCatalog(Array.isArray(catalog) ? catalog : []);
+          setCatalogError("");
+        }
       })
       .catch(() => {
-        if (isMounted) showRegistrationError("Drone model catalog could not be loaded. Please try again.");
+        if (isMounted) {
+          const message = "Drone model catalog could not be loaded. Please try again.";
+          setCatalogError(message);
+          showRegistrationError(message);
+        }
+      })
+      .finally(() => {
+        if (isMounted) setIsCatalogLoading(false);
       });
 
     return () => {
@@ -220,6 +232,9 @@ const RegisterDroneForm = ({ onRegistered, onCancel }) => {
         <div className="modal-body">
           <div className="form-layout modal-form-layout">
             <FormSection icon={Plane} title="Aircraft Identity" variant="primary">
+              {isCatalogLoading && <InfoNote text="Loading drone manufacturer and model catalog." />}
+              {!isCatalogLoading && catalogError && <InfoNote text={catalogError} />}
+              {!isCatalogLoading && !catalogError && !manufacturerOptions.length && <InfoNote text="No active drone models are available. Refresh the drone catalog before registering aircraft." />}
               <SelectField label="Manufacturer" value={form.manufacturer} onChange={(value) => updateField("manufacturer", value)} options={manufacturerOptions} required disabled={!manufacturerOptions.length} />
               <SelectField label="Model" value={form.model} onChange={(value) => updateField("model", value)} options={selectedModelOptions.map((item) => item.model)} required disabled={!form.manufacturer || !selectedModelOptions.length} />
               <Field label="Serial Number" value={form.serialNumber} onChange={(value) => updateField("serialNumber", value)} placeholder="From the aircraft body, box, or vendor record" required maxLength={100} error={fieldErrors.serialNumber} help="This is the manufacturer serial number. It must be unique." />
