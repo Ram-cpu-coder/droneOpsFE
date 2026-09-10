@@ -119,6 +119,10 @@ export default function Maintenance({ user }) {
     due: formatDateOnly(record.dueAt, "Not scheduled"),
     completed: formatDateOnly(record.completedAt, "--")
   }));
+  const serviceScheduleRows = drones.map((drone) => ({
+    ...drone,
+    operationalStatus: getOperationalScheduleStatus(drone)
+  }));
   const columns = [
     { key: "droneCode", label: "Drone" },
     {
@@ -136,6 +140,7 @@ export default function Maintenance({ user }) {
   ];
   const closed = ["COMPLETED", "CANCELLED"].includes(form.status) && records.some((record) => record.id === id && ["COMPLETED", "CANCELLED"].includes(record.status));
   const canSaveCurrentRecord = !closed && (!id || canManage);
+  const canSubmitMaintenance = canSaveCurrentRecord && !busy && Boolean(form.droneId && form.type.trim() && form.dueAt);
 
   return (
     <div className="page-stack operations-module">
@@ -175,11 +180,11 @@ export default function Maintenance({ user }) {
       <div className="panel">
         <SectionHeader title="Service Schedule" />
         <DataTable
-          rows={drones}
+          rows={serviceScheduleRows}
           getRowKey={(drone) => drone.id}
           columns={[
             { key: "droneCode", label: "Drone" },
-            { key: "status", label: "Status", render: (drone) => <StatusBadge>{drone.maintenanceOverdue ? "OVERDUE" : drone.status}</StatusBadge> },
+            { key: "operationalStatus", label: "Status", render: (drone) => <StatusBadge>{drone.operationalStatus}</StatusBadge> },
             { key: "flightHours", label: "Flight Hours" },
             { key: "lastServicedDate", label: "Last serviced", render: (drone) => formatDateOnly(drone.lastServicedDate, "Not recorded") },
             { key: "nextMaintenanceDate", label: "Next inspection", render: (drone) => formatDateOnly(drone.nextMaintenanceDate, "Not scheduled") },
@@ -229,7 +234,7 @@ export default function Maintenance({ user }) {
                   </p>
                 )}
                 <label className="field">Due date
-                  <input type="date" value={form.dueAt} onChange={(e) => setForm((current) => ({ ...current, dueAt: e.target.value }))} />
+                  <input required type="date" value={form.dueAt} onChange={(e) => setForm((current) => ({ ...current, dueAt: e.target.value }))} />
                 </label>
                 <label className="field">Notes
                   <textarea value={form.notes} onChange={(e) => setForm((current) => ({ ...current, notes: e.target.value }))} />
@@ -243,7 +248,7 @@ export default function Maintenance({ user }) {
             </div>
             <div className="modal-footer">
               {canSaveCurrentRecord && (
-                <ActionButton variant="primary" icon={Save} disabled={busy} isLoading={busy} type="submit">
+                <ActionButton variant="primary" icon={Save} disabled={!canSubmitMaintenance} isLoading={busy} type="submit">
                   Save maintenance
                 </ActionButton>
               )}
@@ -254,3 +259,20 @@ export default function Maintenance({ user }) {
     </div>
   );
 }
+
+const getOperationalScheduleStatus = (drone) => {
+  if (drone.maintenanceOverdue) return "OVERDUE";
+  if (drone.status === "AVAILABLE" && isTelemetryUnavailable(drone)) return "AVAILABLE_OFFLINE";
+  return drone.status;
+};
+
+const isTelemetryUnavailable = (drone) => {
+  if (!drone.telemetryProvider || ["NONE", "GENERIC_REST"].includes(String(drone.telemetryProvider))) return false;
+  if (drone.connectorStatus === "OFFLINE") return true;
+  if (drone.connectorStatus === "ONLINE" && !drone.lastTelemetryAt) return true;
+  if (drone.connectorStatus === "ONLINE" && drone.lastTelemetryAt) {
+    const lastTelemetryAt = new Date(drone.lastTelemetryAt);
+    return Number.isNaN(lastTelemetryAt.getTime()) || Date.now() - lastTelemetryAt.getTime() > 5 * 60 * 1000;
+  }
+  return false;
+};

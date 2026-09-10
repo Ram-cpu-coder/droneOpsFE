@@ -4258,10 +4258,18 @@ button.notification-item:focus-visible {
 }
 
 @media (max-width: 720px) {
+  .floating-alert-button {
+    right: 14px;
+    bottom: max(14px, env(safe-area-inset-bottom));
+    width: 52px;
+    height: 52px;
+  }
+
   .operational-alert-panel {
     right: 12px;
     left: 12px;
     width: auto;
+    bottom: 82px;
     max-height: calc(100vh - 108px);
     padding: 14px;
   }
@@ -8447,6 +8455,84 @@ tr:last-child td {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.assignment-recovery-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--warning) 9%, var(--surface-raised));
+  border: 1px solid color-mix(in srgb, var(--warning) 32%, var(--line));
+  border-radius: 8px;
+}
+
+.assignment-recovery-panel strong {
+  color: var(--text);
+}
+
+.assignment-recovery-panel p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.assignment-recovery-panel ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.assignment-recovery-panel li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--surface-muted) 72%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.assignment-recovery-panel li span,
+.assignment-recovery-panel li small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assignment-recovery-panel li span {
+  color: var(--text);
+  font-weight: 900;
+}
+
+.assignment-recovery-panel li small {
+  color: var(--muted);
+}
+
+.assignment-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.assignment-recovery-actions button {
+  min-height: 34px;
+  padding: 0 12px;
+  color: var(--text);
+  background: var(--surface-muted);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.assignment-recovery-actions button:hover {
+  color: var(--accent-text);
+  border-color: var(--accent-border);
 }
 
 .selected-assignment-list {
@@ -14723,7 +14809,7 @@ tr {
 
   .route-picker-help {
     right: 12px;
-    bottom: 54px;
+    bottom: 84px;
     max-width: min(300px, calc(100% - 24px));
   }
 

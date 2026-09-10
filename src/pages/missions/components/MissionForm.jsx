@@ -1,6 +1,7 @@
 import { AlertTriangle, ArrowLeft, ArrowRight, CalendarClock, CheckCircle2, ChevronDown, LoaderCircle, Lock, MapPinned, Route, Save, Search, ShieldCheck, Unlock, UserRound, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import ActionButton from "../../../components/common/ActionButton";
 import HeaderDockedTabs from "../../../components/common/HeaderDockedTabs";
 import { useApiResource } from "../../../hooks/useApiResource";
@@ -46,6 +47,7 @@ const routeAnalysisFeedbackId = "mission-route-analysis";
 const missionSaveFeedbackId = "mission-save";
 
 const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, onCreated, onUpdated, onCancel }) => {
+  const navigate = useNavigate();
   const [form, setForm] = useState(() => toFormState(mission));
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -91,6 +93,19 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
         searchText: `${drone.droneCode ?? drone.id} ${drone.model ?? ""} ${drone.manufacturer ?? ""} ${drone.serialNumber ?? ""}`.toLowerCase()
       })),
     [bookingContext, drones, form.droneIds]
+  );
+  const blockedDroneSummaries = useMemo(
+    () => drones
+      .map((drone) => {
+        const assignmentReason = getDroneAssignmentBlockReason(drone);
+        const bookingReason = isResourceBookedForMission(bookingContext, drone.id, "drone")
+          ? "already assigned during this mission window"
+          : "";
+        const reason = assignmentReason || bookingReason;
+        return reason ? { id: drone.id, code: drone.droneCode ?? drone.id, reason } : null;
+      })
+      .filter(Boolean),
+    [bookingContext, drones]
   );
 
   const pilotOptions = useMemo(
@@ -327,6 +342,11 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
     setActiveStepId(previousStep.id);
   };
 
+  const openRecoveryPage = (path, state = {}) => {
+    onCancel?.();
+    window.requestAnimationFrame(() => navigate(path, { state }));
+  };
+
   const buildDateTime = (date, time) => {
     if (!date || !time) return undefined;
     return new Date(`${date}T${time}`).toISOString();
@@ -537,6 +557,14 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
               <p className="assignment-guidance">
                 Only available, certified drones are listed for mission assignment.
               </p>
+              {!droneOptions.length && !selectedDrones.length && (
+                <AssignmentRecoveryPanel
+                  blockedDrones={blockedDroneSummaries}
+                  onOpenFleet={() => openRecoveryPage("/fleet")}
+                  onOpenMaintenance={() => openRecoveryPage("/maintenance")}
+                  onOpenTelemetry={() => openRecoveryPage("/operations", { tab: "live" })}
+                />
+              )}
               {droneAssignmentError && <InlineWarning message={droneAssignmentError} />}
               <SelectedAssignmentList type="drone" items={selectedDrones} getItemIssue={getDroneAssignmentBlockReason} onRemove={(id) => setForm((current) => {
                 const nextIds = current.droneIds.filter((droneId) => droneId !== id);
@@ -1041,6 +1069,30 @@ const InlineFormAlert = ({ message }) => (
   <div className="inline-form-alert">
     <AlertTriangle size={15} />
     <span>{message}</span>
+  </div>
+);
+
+const AssignmentRecoveryPanel = ({ blockedDrones = [], onOpenFleet, onOpenMaintenance, onOpenTelemetry }) => (
+  <div className="assignment-recovery-panel" role="status">
+    <div>
+      <strong>No drones are assignable right now</strong>
+      <p>DroneOps is blocking mission creation because every drone is offline, unavailable, uncertified, booked, or due for maintenance.</p>
+    </div>
+    {blockedDrones.length > 0 && (
+      <ul>
+        {blockedDrones.slice(0, 4).map((drone) => (
+          <li key={drone.id}>
+            <span>{drone.code}</span>
+            <small>{drone.reason}</small>
+          </li>
+        ))}
+      </ul>
+    )}
+    <div className="assignment-recovery-actions">
+      <button type="button" onClick={onOpenTelemetry}>Check telemetry</button>
+      <button type="button" onClick={onOpenMaintenance}>Open maintenance</button>
+      <button type="button" onClick={onOpenFleet}>Open fleet</button>
+    </div>
   </div>
 );
 
