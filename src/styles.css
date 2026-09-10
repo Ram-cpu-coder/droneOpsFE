@@ -5098,6 +5098,49 @@ tr:last-child td {
   }
 }
 
+.incident-register-table .incident-type-column {
+  min-width: 180px;
+}
+
+.incident-register-table .incident-drone-column {
+  min-width: 112px;
+  white-space: nowrap;
+}
+
+.incident-register-table .incident-time-column {
+  min-width: 190px;
+  white-space: nowrap;
+}
+
+.incident-register-table .incident-description-column {
+  min-width: 280px;
+  max-width: 420px;
+}
+
+.incident-table-type,
+.incident-table-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.incident-table-type svg {
+  color: var(--amber);
+  flex: 0 0 auto;
+}
+
+.incident-table-time svg {
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+
+.incident-description-column span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dashboard-resizable-pane .fleet-overview-table .fleet-secondary-column {
   display: none;
 }
