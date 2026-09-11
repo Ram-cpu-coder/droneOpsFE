@@ -1,6 +1,7 @@
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import { useEffect, useState } from "react";
+import AiAssistant from "../common/AiAssistant";
 import OperationalAlertCenter from "../common/OperationalAlertCenter";
 
 const AppLayout = ({
@@ -53,6 +54,7 @@ const AppLayout = ({
         {children}
       </main>
       <OperationalAlertCenter user={user} />
+      <AiAssistant />
     </div>
   );
 };

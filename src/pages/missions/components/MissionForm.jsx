@@ -1078,7 +1078,7 @@ const AssignmentRecoveryPanel = ({ blockedDrones = [], onOpenFleet, onOpenMainte
   <div className="assignment-recovery-panel" role="status">
     <div>
       <strong>No drones are assignable right now</strong>
-      <p>DroneOps is blocking mission creation because every drone is offline, unavailable, uncertified, booked, or due for maintenance.</p>
+      <p>DroneOps is blocking mission creation because every drone is unavailable, uncertified, already booked, or due for maintenance.</p>
     </div>
     {blockedDrones.length > 0 && (
       <ul>
@@ -1342,26 +1342,7 @@ const getDroneAssignmentBlockReason = (drone) => {
     return "certification has expired.";
   }
 
-  if (hasOfflineTelemetryRequirement(drone)) {
-    return "telemetry link is offline or stale.";
-  }
-
   return "";
-};
-
-const hasOfflineTelemetryRequirement = (drone) => {
-  const provider = String(drone.telemetryProvider ?? "NONE").toUpperCase();
-  if (!provider || provider === "NONE" || provider === "GENERIC_REST") return false;
-
-  const connectorStatus = String(drone.connectorStatus ?? "").toUpperCase();
-  if (connectorStatus === "OFFLINE") return true;
-  if (connectorStatus !== "ONLINE") return false;
-
-  if (!drone.lastTelemetryAt) return true;
-  const lastTelemetryAt = new Date(drone.lastTelemetryAt);
-  if (Number.isNaN(lastTelemetryAt.getTime())) return true;
-
-  return Date.now() - lastTelemetryAt.getTime() > 5 * 60 * 1000;
 };
 
 const getPilotAssignmentBlockReason = (pilot) => {
