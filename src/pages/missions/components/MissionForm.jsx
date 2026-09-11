@@ -266,7 +266,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
       const authorityAnalysis = authorityPlan?.geofenceConfig?.authorityAnalysis ?? authorityPlan?.plannedRoute?.routeAnalysis?.authorityAnalysis ?? null;
       const operationalGeofenceAnalysis = authorityPlan?.geofenceConfig?.operationalGeofenceAnalysis ?? authorityPlan?.plannedRoute?.routeAnalysis?.operationalGeofenceAnalysis ?? null;
 
-      if (authorityAnalysis?.status !== "READY") {
+      if (!isAcceptableAuthorityAnalysisStatus(authorityAnalysis)) {
         const message = authorityAnalysis?.message || "Council boundary analysis could not be completed from the official authority dataset.";
         setError(message);
         showFeedback({
@@ -1226,7 +1226,9 @@ const createRouteAnalysis = (form) => {
     councilCount,
     councilSummary: authorityAnalysis?.status === "READY"
       ? councilCount === 1 ? councils[0]?.authorityName ?? "1 council area" : `${councilCount} council areas`
-      : "Official council lookup required",
+      : authorityAnalysis?.status === "DISABLED"
+        ? "Council lookup disabled"
+        : "Official council lookup required",
     authorityAnalysis,
     operationalGeofenceAnalysis,
     operationalGeofenceSummary: operationalGeofenceAnalysis?.status === "WARNING"
@@ -1236,7 +1238,7 @@ const createRouteAnalysis = (form) => {
         : "Operational geofence check required",
     summary: points.length >= 2 ? `${formatDistance(distanceMeters)} editable route` : "Route needs start and end points",
     detail: points.length >= 2
-      ? authorityAnalysis?.status === "READY"
+      ? isAcceptableAuthorityAnalysisStatus(authorityAnalysis)
         ? [authorityAnalysis.message, operationalGeofenceAnalysis?.status === "WARNING" ? operationalGeofenceAnalysis.message : ""].filter(Boolean).join(" ")
         : "Use Analyse & Accept Route to check official NSW council/LGA boundary intersections."
       : "Select launch site, start point, and end point before creating the accepted mission path."
@@ -1272,8 +1274,15 @@ const getRouteAuthorities = (authorityAnalysis) => (
   Array.isArray(authorityAnalysis?.authorities) ? authorityAnalysis.authorities : []
 );
 
+const isAcceptableAuthorityAnalysisStatus = (authorityAnalysis) => (
+  !authorityAnalysis || ["READY", "DISABLED"].includes(String(authorityAnalysis.status ?? "").toUpperCase())
+);
+
 const getRouteAnalysisSuccessMessage = (authorityAnalysis, operationalGeofenceAnalysis) => {
   const operationalMessage = operationalGeofenceAnalysis?.status === "WARNING" ? ` ${operationalGeofenceAnalysis.message}` : "";
+  if (authorityAnalysis?.status === "DISABLED") {
+    return `The route has been accepted. Council boundary lookup is disabled, so no council permission areas were evaluated.${operationalMessage}`;
+  }
   const authorities = getRouteAuthorities(authorityAnalysis);
   if (!authorities.length) {
     return `The route has been accepted. No council permission areas were found for this flight path.${operationalMessage}`;
