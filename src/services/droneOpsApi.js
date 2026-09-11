@@ -1,6 +1,10 @@
 import { apiClient } from "./apiClient";
 
 export const droneOpsApi = {
+  ai: {
+    status: () => apiClient.get("/ai/status"),
+    chat: (payload) => apiClient.post("/ai/chat", payload)
+  },
   pilots: {
     list: () => apiClient.get("/pilots"),
     updateCredentials: (id, payload) => apiClient.put(`/pilots/${id}/credentials`, payload)

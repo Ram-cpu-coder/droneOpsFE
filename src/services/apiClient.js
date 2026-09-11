@@ -83,6 +83,7 @@ const shouldNotifyActivityChange = (method = "GET", path = "") => {
 
   if (path.startsWith("/reports/generate/preview")) return false;
   if (path.startsWith("/auth/organisation/resolve-code")) return false;
+  if (path.startsWith("/ai/")) return false;
 
   // Auth requests should not refresh activity data.
   const ignoredPaths = [
@@ -192,6 +193,8 @@ const refreshAccessToken = async () => {
 };
 
 const shouldShowRequestFailure = (path = "") => {
+  if (path.startsWith("/ai/")) return false;
+
   const ignoredPaths = [
     "/auth/login",
     "/auth/google",
