@@ -299,7 +299,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
         actionLabel: "Review permissions"
       });
     } catch (requestError) {
-      const message = requestError.message;
+      const message = getRequestErrorMessage(requestError, "Route analysis could not be completed. Please try again.");
       setError(message);
       showFeedback({
         id: routeAnalysisFeedbackId,
@@ -497,7 +497,7 @@ const MissionForm = ({ mission = null, mode = "create", canEditStatus = false, o
         });
       }
     } catch (requestError) {
-      const message = getMissionSubmitErrorMessage(requestError.message);
+      const message = getMissionSubmitErrorMessage(getRequestErrorMessage(requestError));
       setError(message);
       showFeedback({
         id: missionSaveFeedbackId,
@@ -793,7 +793,8 @@ const FormSection = ({ icon: Icon, title, children, className = "" }) => (
 );
 
 const RouteAnalysisPanel = ({ analysis, isAccepted, isAnalysing, approvals = {}, onApprovalChange, showPermissions = true }) => {
-  const authorities = getRouteAuthorities(analysis.authorityAnalysis);
+  const safeAnalysis = getSafeRouteAnalysis(analysis);
+  const authorities = getRouteAuthorities(safeAnalysis.authorityAnalysis);
   const approvedCount = authorities.filter((authority) => approvals[getAuthorityKey(authority)] === true).length;
   const statusLabel = isAnalysing
     ? "Analysing official council boundaries"
@@ -808,15 +809,15 @@ const RouteAnalysisPanel = ({ analysis, isAccepted, isAnalysing, approvals = {},
         <StatusIcon size={20} />
         <div>
           <span>{statusLabel}</span>
-          <strong>{isAnalysing ? "Checking NSW council/LGA boundaries..." : analysis.summary}</strong>
-          <small>{isAnalysing ? "Please wait while DroneOps asks the backend to check the official NSW boundary service." : isAccepted && authorities.length ? "Tick each council only after permission or approval has been received for this mission." : analysis.detail}</small>
+          <strong>{isAnalysing ? "Checking NSW council/LGA boundaries..." : safeAnalysis.summary}</strong>
+          <small>{isAnalysing ? "Please wait while DroneOps asks the backend to check the official NSW boundary service." : isAccepted && authorities.length ? "Tick each council only after permission or approval has been received for this mission." : safeAnalysis.detail}</small>
         </div>
       </div>
       <div className="route-analysis-metrics">
-        <span>{analysis.pointCount} points</span>
-        <span>{analysis.altitudeRange}</span>
-        <span>{isAccepted && authorities.length ? `${approvedCount}/${authorities.length} permissions` : analysis.councilSummary}</span>
-        <span>{analysis.operationalGeofenceSummary}</span>
+        <span>{safeAnalysis.pointCount} points</span>
+        <span>{safeAnalysis.altitudeRange}</span>
+        <span>{isAccepted && authorities.length ? `${approvedCount}/${authorities.length} permissions` : safeAnalysis.councilSummary}</span>
+        <span>{safeAnalysis.operationalGeofenceSummary}</span>
       </div>
       {showPermissions && isAccepted && authorities.length > 0 && (
         <CouncilPermissionChecklist authorities={authorities} approvals={approvals} onApprovalChange={onApprovalChange} />
@@ -826,7 +827,8 @@ const RouteAnalysisPanel = ({ analysis, isAccepted, isAnalysing, approvals = {},
 };
 
 const CouncilPermissionsStep = ({ analysis, isAccepted, approvals = {}, reviewed = false, onApprovalChange, onReviewedChange }) => {
-  const authorities = getRouteAuthorities(analysis.authorityAnalysis);
+  const safeAnalysis = getSafeRouteAnalysis(analysis);
+  const authorities = getRouteAuthorities(safeAnalysis.authorityAnalysis);
   const approvedCount = authorities.filter((authority) => approvals[getAuthorityKey(authority)] === true).length;
 
   if (!isAccepted) {
@@ -1015,7 +1017,7 @@ const MultiSearchableSelectField = ({
           }}
           placeholder={selectedValues.length ? "" : placeholder}
         />
-        <button type="button" className="combo-toggle" onClick={() => setIsOpen((current) => !current)} aria-label={`Toggle ${label.toLowerCase()} options`}>
+        <button type="button" className="combo-toggle" onClick={() => setIsOpen((current) => !current)} aria-label={`Toggle ${(label || placeholder || "select").toLowerCase()} options`}>
           <ChevronDown size={16} />
         </button>
       </div>
@@ -1245,6 +1247,26 @@ const createRouteAnalysis = (form) => {
   };
 };
 
+const fallbackRouteAnalysis = {
+  pointCount: 0,
+  distanceMeters: 0,
+  altitudeRange: "0-0 m AGL",
+  councilCount: 0,
+  councilSummary: "Official council lookup required",
+  authorityAnalysis: null,
+  operationalGeofenceAnalysis: null,
+  operationalGeofenceSummary: "Operational geofence check required",
+  summary: "Route needs start and end points",
+  detail: "Select launch site, start point, and end point before creating the accepted mission path."
+};
+
+const getSafeRouteAnalysis = (analysis) => ({
+  ...fallbackRouteAnalysis,
+  ...(analysis && typeof analysis === "object" ? analysis : {}),
+  authorityAnalysis: analysis?.authorityAnalysis ?? null,
+  operationalGeofenceAnalysis: analysis?.operationalGeofenceAnalysis ?? null
+});
+
 const sanitiseAuthorityAnalysis = (authorityAnalysis, approvals = {}) => {
   if (!authorityAnalysis || typeof authorityAnalysis !== "object") return null;
 
@@ -1279,7 +1301,7 @@ const isAcceptableAuthorityAnalysisStatus = (authorityAnalysis) => (
 );
 
 const getRouteAnalysisSuccessMessage = (authorityAnalysis, operationalGeofenceAnalysis) => {
-  const operationalMessage = operationalGeofenceAnalysis?.status === "WARNING" ? ` ${operationalGeofenceAnalysis.message}` : "";
+  const operationalMessage = operationalGeofenceAnalysis?.status === "WARNING" ? ` ${operationalGeofenceAnalysis.message ?? "Operational geofence warning found."}` : "";
   if (authorityAnalysis?.status === "DISABLED") {
     return `The route has been accepted. Council boundary lookup is disabled, so no council permission areas were evaluated.${operationalMessage}`;
   }
@@ -1434,6 +1456,13 @@ const timeWindowsOverlap = (first, second) => {
   if (Number.isNaN(first.start.getTime()) || Number.isNaN(first.end.getTime())) return false;
   if (Number.isNaN(second.start.getTime()) || Number.isNaN(second.end.getTime())) return false;
   return first.start < second.end && first.end > second.start;
+};
+
+const getRequestErrorMessage = (error, fallback = "Request failed. Please try again.") => {
+  if (typeof error === "string" && error.trim()) return error;
+  if (error?.message && typeof error.message === "string") return error.message;
+  if (error?.response?.data?.message && typeof error.response.data.message === "string") return error.response.data.message;
+  return fallback;
 };
 
 const getMissionSubmitErrorMessage = (message = "") => {
