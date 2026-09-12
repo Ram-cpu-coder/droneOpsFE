@@ -1241,7 +1241,7 @@ const createRouteAnalysis = (form) => {
     summary: points.length >= 2 ? `${formatDistance(distanceMeters)} editable route` : "Route needs start and end points",
     detail: points.length >= 2
       ? isAcceptableAuthorityAnalysisStatus(authorityAnalysis)
-        ? [authorityAnalysis.message, operationalGeofenceAnalysis?.status === "WARNING" ? operationalGeofenceAnalysis.message : ""].filter(Boolean).join(" ")
+        ? [authorityAnalysis?.message, operationalGeofenceAnalysis?.status === "WARNING" ? operationalGeofenceAnalysis?.message : ""].filter(Boolean).join(" ") || "Route analysis is ready for review."
         : "Use Analyse & Accept Route to check official NSW council/LGA boundary intersections."
       : "Select launch site, start point, and end point before creating the accepted mission path."
   };
@@ -1272,7 +1272,7 @@ const sanitiseAuthorityAnalysis = (authorityAnalysis, approvals = {}) => {
 
   return {
     status: authorityAnalysis.status,
-    message: authorityAnalysis.message,
+    message: authorityAnalysis?.message,
     source: authorityAnalysis.source,
     sourceUrl: authorityAnalysis.sourceUrl,
     sourceFeatureCount: authorityAnalysis.sourceFeatureCount,
