@@ -1,12 +1,11 @@
-// Backend API base URL.
 import { showFeedback } from "./feedbackBus";
 
 const configuredApiBaseUrl =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5001/api/v1";
+  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000/api/v1";
 
 const normalizeApiBaseUrl = (url) => {
   const trimmedUrl = String(url ?? "").trim().replace(/\/+$/, "");
-  if (!trimmedUrl) return "http://localhost:5001/api/v1";
+  if (!trimmedUrl) return "http://localhost:5000/api/v1";
   if (/\/api\/v\d+$/i.test(trimmedUrl)) return trimmedUrl;
   return `${trimmedUrl}/api/v1`;
 };
@@ -29,10 +28,8 @@ const API_BASE_URL = (() => {
   return normalizedApiBaseUrl;
 })();
 
-// localStorage key for saved session.
 const SESSION_KEY = "droneops_session";
 
-// Stores active GET requests to avoid duplicate calls.
 const inFlightGetRequests = new Map();
 let refreshTokenRequest = null;
 let accessTokenMemory = "";
@@ -45,7 +42,6 @@ export const clearAccessToken = () => {
   accessTokenMemory = "";
 };
 
-// Reads session from localStorage.
 const getSession = () => {
   const rawSession = localStorage.getItem(SESSION_KEY);
 
@@ -64,18 +60,15 @@ const getSession = () => {
 
     return safeSession;
   } catch {
-    // Clear broken session data.
     localStorage.removeItem(SESSION_KEY);
     return null;
   }
 };
 
-// Gets access token from saved session.
 export const getAccessToken = () => {
   return accessTokenMemory;
 };
 
-// Checks if request should trigger activity refresh.
 const shouldNotifyActivityChange = (method = "GET", path = "") => {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase())) {
     return false;
@@ -85,7 +78,6 @@ const shouldNotifyActivityChange = (method = "GET", path = "") => {
   if (path.startsWith("/auth/organisation/resolve-code")) return false;
   if (path.startsWith("/ai/")) return false;
 
-  // Auth requests should not refresh activity data.
   const ignoredPaths = [
     "/auth/login",
     "/auth/google",
@@ -105,7 +97,6 @@ const shouldShowOperationFeedback = (method, path) => (
   !["GET", "HEAD"].includes(method.toUpperCase()) && shouldNotifyActivityChange(method, path)
 );
 
-// Sends browser event after data changes.
 const notifyActivityChanged = (path, method) => {
   if (
     typeof window === "undefined" ||
@@ -121,7 +112,6 @@ const notifyActivityChanged = (path, method) => {
   );
 };
 
-// Converts validation errors into readable text.
 const formatValidationDetails = (details) => {
   const fieldErrors = details?.fieldErrors;
   const formErrors = Array.isArray(details?.formErrors) ? details.formErrors : [];
@@ -145,7 +135,6 @@ const formatValidationDetails = (details) => {
   return [fieldMessages, ...formErrors].filter(Boolean).join(" ");
 };
 
-// Gets a new access token using the HttpOnly refresh cookie.
 const refreshAccessToken = async () => {
   if (refreshTokenRequest) return refreshTokenRequest;
 
@@ -163,7 +152,6 @@ const refreshAccessToken = async () => {
 
     const payload = await response.json().catch(() => ({}));
 
-    // If refresh fails, force logout.
     if (!response.ok) {
       localStorage.removeItem(SESSION_KEY);
       clearAccessToken();
@@ -175,7 +163,6 @@ const refreshAccessToken = async () => {
       return null;
     }
 
-    // Save refreshed session.
     const nextSession = {
       ...session,
       user: payload.data.user ?? session.user,
@@ -220,7 +207,6 @@ const expireLocalSession = (message = "Your session has expired. Please sign in 
   }));
 };
 
-// Main request function used by all API methods.
 const request = async (path, options = {}, retry = true) => {
   const headers = new Headers(options.headers);
   const token = getAccessToken();
@@ -242,17 +228,14 @@ const request = async (path, options = {}, retry = true) => {
     });
   }
 
-  // Attach access token if user is logged in.
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  // Add JSON header unless sending files.
   if (shouldSendJsonBody) {
     headers.set("Content-Type", "application/json");
   }
 
-  // Send request to backend.
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers,
@@ -266,7 +249,6 @@ const request = async (path, options = {}, retry = true) => {
           : undefined,
   });
 
-  // 204 means success with no response body.
   if (response.status === 204) {
     notifyActivityChanged(path, method);
     if (shouldShowOperationFeedback(method, path)) {
@@ -283,7 +265,6 @@ const request = async (path, options = {}, retry = true) => {
 
   const payload = await response.json().catch(() => ({}));
 
-  // Handle failed response.
   if (!response.ok) {
     const errorText =
       `${payload.message ?? ""} ${payload.code ?? ""}`.toLowerCase();
@@ -298,7 +279,6 @@ const request = async (path, options = {}, retry = true) => {
       payload.code === "AUTH_REQUIRED" ||
       payload.code === "INVALID_TOKEN";
 
-    // If the access token is missing, invalid, or expired, refresh and retry once.
     if (retry && canRecoverAuth) {
       const nextToken = await refreshAccessToken();
 
@@ -307,7 +287,6 @@ const request = async (path, options = {}, retry = true) => {
       }
     }
 
-    // Show validation errors clearly.
     const validationMessage =
       payload.code === "VALIDATION_ERROR"
         ? formatValidationDetails(payload.details)
@@ -338,7 +317,6 @@ const request = async (path, options = {}, retry = true) => {
     throw requestError;
   }
 
-  // Notify app if data changed.
   notifyActivityChanged(path, method);
 
   const responseData = payload.data ?? payload;
@@ -361,7 +339,6 @@ const request = async (path, options = {}, retry = true) => {
     });
   }
 
-  // Return response data.
   return responseData;
 };
 
@@ -380,19 +357,16 @@ const getSyncFailureDetails = (responseData) => {
   ];
 };
 
-// Builds unique key for GET request cache.
 const getRequestKey = (path) => {
   const token = getAccessToken();
 
   return `${token ? token.slice(-16) : "anonymous"}:${path}`;
 };
 
-// GET request with duplicate-call protection.
 const get = (path) => {
   const requestKey = getRequestKey(path);
   const existingRequest = inFlightGetRequests.get(requestKey);
 
-  // Return existing request if same GET is already running.
   if (existingRequest) {
     return existingRequest;
   }
@@ -406,7 +380,6 @@ const get = (path) => {
   return nextRequest;
 };
 
-// Reusable API methods.
 export const apiClient = {
   get,
   post: (path, body) => request(path, { method: "POST", body }),

@@ -25,14 +25,14 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
   const helpRef = useRef(null);
   const pointsPanelRef = useRef(null);
   const activeIndexRef = useRef(0);
-  const activeToolRef = useRef("routePath");
+  const activeToolRef = useRef("launchSite");
   const lockedRef = useRef(locked);
   const routeFinishedRef = useRef(false);
   const locationPlanRef = useRef({});
   const routePointsRef = useRef([]);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState("");
-  const [activeTool, setActiveTool] = useState("routePath");
+  const [activeTool, setActiveTool] = useState(() => hasCoordinates(normalizeLocation(locationPlan.launchSite)) ? "routePath" : "launchSite");
   const [activeIndex, setActiveIndex] = useState(() => getFirstEmptyIndex(value));
   const [routeFinished, setRouteFinished] = useState(() => normalizeRoutePoints(value).filter(hasCoordinates).length >= 2);
   const [searchQuery, setSearchQuery] = useState("");
@@ -46,6 +46,7 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
   const launchSite = normalizeLocation(locationPlan.launchSite);
   const operatingArea = normalizeLocation(locationPlan.operatingArea);
   const councilOverlay = useMemo(() => createCouncilOverlay(analysis?.authorityAnalysis), [analysis]);
+  const launchSiteSelected = hasCoordinates(launchSite);
   const showRouteSearch = !locked;
   const canFinishRoute = routePoints.filter(hasCoordinates).length >= 2;
 
@@ -57,6 +58,18 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
     locationPlanRef.current = { launchSite, operatingArea };
     routePointsRef.current = routePoints;
   }, [activeIndex, activeTool, launchSite, locked, operatingArea, routeFinished, routePoints]);
+
+  useEffect(() => {
+    if (locked) return;
+    if (!launchSiteSelected && activeTool !== "launchSite") {
+      setActiveTool("launchSite");
+      return;
+    }
+    if (launchSiteSelected && activeTool === "launchSite" && routePoints.some((point) => !hasCoordinates(point))) {
+      setActiveTool("routePath");
+      setActiveIndex(getFirstEmptyIndex(routePoints));
+    }
+  }, [activeTool, launchSiteSelected, locked, routePoints]);
 
   useEffect(() => {
     if (mapRef.current || !mapContainerRef.current) return;
@@ -96,6 +109,7 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
           return;
         }
 
+        if (!hasCoordinates(locationPlanRef.current.launchSite)) return;
         setPoint(activeIndexRef.current, coordinates, { continueRoute: true });
       });
 
@@ -314,6 +328,10 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
 
     if (activeToolRef.current === "launchSite") {
       setLocationPoint("launchSite", { latitude, longitude });
+    } else if (!hasCoordinates(locationPlanRef.current.launchSite)) {
+      setActiveTool("launchSite");
+      setSearchError("Select the launch site before adding route points.");
+      return;
     } else {
       setPoint(activeIndexRef.current, { latitude, longitude }, { continueRoute: true });
     }
@@ -330,6 +348,10 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
   };
 
   function focusPoint(index) {
+    if (!launchSiteSelected) {
+      setActiveTool("launchSite");
+      return;
+    }
     setActiveTool("routePath");
     setActiveIndex(index);
     const point = routePointsRef.current[index];
@@ -360,14 +382,15 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
         >
           {toolOptions.map((tool) => {
             const Icon = tool.icon;
+            const isRouteToolLocked = tool.id === "routePath" && !launchSiteSelected;
             return (
               <button
                 key={tool.id}
                 type="button"
                 className={activeTool === tool.id ? "active" : ""}
                 onClick={() => setActiveTool(tool.id)}
-                disabled={locked}
-                title={tool.label}
+                disabled={locked || isRouteToolLocked}
+                title={isRouteToolLocked ? "Select launch site first" : tool.label}
               >
                 <Icon size={15} />
               </button>
@@ -378,7 +401,7 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
               <Route size={15} />
             </button>
           ) : (
-            <button type="button" onClick={finishRoute} disabled={locked || !canFinishRoute || routeFinished} title="Finish route">
+            <button type="button" onClick={finishRoute} disabled={locked || !launchSiteSelected || !canFinishRoute || routeFinished} title={launchSiteSelected ? "Finish route" : "Select launch site first"}>
               <CheckCircle2 size={15} />
             </button>
           )}
@@ -403,8 +426,8 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
                 type="search"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder={`Search ${getSearchTargetLabel(activeTool, activeIndex, routePoints.length).toLowerCase()}`}
-                aria-label={`Search ${getSearchTargetLabel(activeTool, activeIndex, routePoints.length)}`}
+                placeholder={`Search ${getSearchTargetLabel(activeTool, activeIndex, routePoints.length, launchSiteSelected).toLowerCase()}`}
+                aria-label={`Search ${getSearchTargetLabel(activeTool, activeIndex, routePoints.length, launchSiteSelected)}`}
               />
               {searchQuery && (
                 <button type="button" onClick={clearSearch} aria-label="Clear location search">
@@ -433,7 +456,7 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
           <Crosshair size={15} />
           <div>
             <strong>{getActiveToolLabel(activeTool, activePoint)}</strong>
-            <span>{locked ? "Accepted route is locked. Use Edit accepted route to change it." : getToolHelp(activeTool, activePoint)}</span>
+            <span>{locked ? "Accepted route is locked. Use Edit accepted route to change it." : getToolHelp(activeTool, activePoint, launchSiteSelected)}</span>
           </div>
         </div>
 
@@ -453,7 +476,14 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
           onMouseDown={stopMapOverlayEvent}
         >
           <LocationSummary label="Launch Site" value={launchSite} active={activeTool === "launchSite"} locked={locked} onSelect={() => setActiveTool("launchSite")} onClear={() => clearLocationPoint("launchSite")} />
-          <LocationSummary label="Operating Area" value={operatingArea} active={false} locked onSelect={null} onClear={null} />
+          {launchSiteSelected ? (
+            <LocationSummary label="Operating Area" value={operatingArea} active={false} locked onSelect={null} onClear={null} />
+          ) : (
+            <div className="route-picker-next-step">
+              <strong>Step 1</strong>
+              <span>Select the launch site on the map before entering route points.</span>
+            </div>
+          )}
           {hasCoordinates(operatingArea) && (
             <div className="operating-radius-control readonly">
               <span>Backend calculated radius</span>
@@ -466,38 +496,40 @@ const RoutePointMapPicker = ({ value = [], onChange, locationPlan = {}, onLocati
               <span>Start Route Again</span>
             </button>
           ) : (
-            <button className="route-picker-finish-button" type="button" onClick={finishRoute} disabled={locked || !canFinishRoute || routeFinished}>
+            <button className="route-picker-finish-button" type="button" onClick={finishRoute} disabled={locked || !launchSiteSelected || !canFinishRoute || routeFinished}>
               <CheckCircle2 size={15} />
               <span>Finish Route</span>
             </button>
           )}
-          <div className="route-point-list compact">
-            {routePoints.map((point, index) => (
-              <div className={`route-point-item ${index === activeIndex && activeTool === "routePath" ? "active" : ""}`} key={`${point.label}-${index}`}>
-                <button className="route-point-select" type="button" onClick={() => focusPoint(index)}>
-                  <span>{getMarkerLabel(index, routePoints.length)}</span>
-                  <div>
-                    <strong>{point.label || getPointLabel(index, routePoints.length)}</strong>
-                    <small>{formatPoint(point)}</small>
-                  </div>
-                </button>
-                {isStop(index, routePoints.length) && (
-                  <button
-                    className="route-point-remove"
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      removeStop(index);
-                    }}
-                    disabled={locked}
-                    aria-label={`Remove ${point.label}`}
-                  >
-                    <Trash2 size={14} />
+          {launchSiteSelected && (
+            <div className="route-point-list compact">
+              {routePoints.map((point, index) => (
+                <div className={`route-point-item ${index === activeIndex && activeTool === "routePath" ? "active" : ""}`} key={`${point.label}-${index}`}>
+                  <button className="route-point-select" type="button" onClick={() => focusPoint(index)}>
+                    <span>{getMarkerLabel(index, routePoints.length)}</span>
+                    <div>
+                      <strong>{point.label || getPointLabel(index, routePoints.length)}</strong>
+                      <small>{formatPoint(point)}</small>
+                    </div>
                   </button>
-                )}
-              </div>
-            ))}
-          </div>
+                  {isStop(index, routePoints.length) && (
+                    <button
+                      className="route-point-remove"
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        removeStop(index);
+                      }}
+                      disabled={locked}
+                      aria-label={`Remove ${point.label}`}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {!mapReady && !mapError && <div className="route-picker-map-status">Loading route map...</div>}
@@ -735,8 +767,9 @@ const formatRadius = (radiusMeters) => {
   return radiusMeters >= 1000 ? `${(radiusMeters / 1000).toFixed(1)} km` : `${Math.round(radiusMeters)} m`;
 };
 
-const getToolHelp = (activeTool, activePoint) => {
-  if (activeTool === "launchSite") return "Click the map to set the launch site.";
+const getToolHelp = (activeTool, activePoint, launchSiteSelected) => {
+  if (!launchSiteSelected) return "Step 1: click the map or search an address to set the launch site.";
+  if (activeTool === "launchSite") return "Click the map to update the launch site.";
   return activePoint ? `Click the map to place ${activePoint.label || "selected route point"}. Each route click prepares the next point. Use Finish Route when done.` : "Click the map to start the route.";
 };
 
@@ -745,8 +778,8 @@ const getActiveToolLabel = (activeTool, activePoint) => {
   return activePoint?.label ?? "Route Path";
 };
 
-const getSearchTargetLabel = (activeTool, activeIndex, totalPoints) => {
-  if (activeTool === "launchSite") return "Launch site";
+const getSearchTargetLabel = (activeTool, activeIndex, totalPoints, launchSiteSelected = true) => {
+  if (!launchSiteSelected || activeTool === "launchSite") return "Launch site";
   return getPointLabel(activeIndex, totalPoints);
 };
 

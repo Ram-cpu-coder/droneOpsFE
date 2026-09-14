@@ -255,6 +255,12 @@ const GeospatialMap = () => {
         return;
       }
 
+      if (selectedDroneRecord.isOffline) {
+        setSelectedDroneTrack([]);
+        setIsHistoryLoading(false);
+        return;
+      }
+
       setIsHistoryLoading(true);
 
       try {
@@ -465,7 +471,7 @@ const renderDashboardMapLayers = ({ layers, liveDrones, liveGeofences, selectedD
 const createDroneMarkerIcon = (drone, isSelected) => L.divIcon({
   className: "leaflet-route-marker-wrapper",
   html: `
-    <button type="button" class="drone-map-marker ${drone.isOffline ? "offline" : drone.status === "IN_MISSION" ? "in-mission" : "standby"} ${isSelected ? "selected" : ""}" style="--drone-heading:${Number(drone.heading ?? 0)}deg" aria-label="${escapeAttribute(`${drone.id} ${drone.isOffline ? "offline" : formatStatus(drone.status)}`)}">
+    <button type="button" class="drone-map-marker ${drone.isOffline ? "offline" : drone.status === "IN_MISSION" ? "in-mission" : "standby"} ${isSelected ? "selected" : ""}" style="--drone-heading:${Number(drone.heading ?? 0)}deg" aria-label="${escapeAttribute(`${drone.id} | ${drone.battery ?? "--"}% ${drone.isOffline ? "offline" : formatStatus(drone.status)}`)}">
       <span class="drone-marker-pulse"></span>
       <span class="drone-marker-body">
         <span class="drone-marker-glyph" aria-hidden="true"></span>
@@ -494,7 +500,7 @@ const MapOverlayCard = ({ selectedDrone, selectedDroneTrackLength }) => {
         <div><small>Speed</small><strong>{selectedDrone.speed ?? "--"} m/s</strong></div>
         <div><small>Altitude</small><strong>{selectedDrone.altitude ?? "--"} m</strong></div>
         <div><small>Heading</small><strong>{selectedDrone.heading ?? "--"} deg</strong></div>
-        <div><small>Replay</small><strong>{selectedDroneTrackLength > 1 ? `${selectedDroneTrackLength} pts` : "Pending"}</strong></div>
+        <div><small>Path</small><strong>{selectedDrone.isOffline ? "Last position only" : selectedDroneTrackLength > 1 ? `${selectedDroneTrackLength} pts` : "Pending"}</strong></div>
         <div><small>Mission</small><strong>{selectedDrone.missionLabel ?? "No active mission"}</strong></div>
         <div><small>Flight Status</small><strong>{formatStatus(selectedDrone.flightStatus ?? selectedDrone.status)}</strong></div>
         <div><small>Source</small><strong>{selectedDrone.simulatorDroneId ?? selectedDrone.source ?? "DroneOps"}</strong></div>
@@ -556,9 +562,9 @@ const MapLegend = () => (
 
 const getReplayStatus = (selectedDrone, isHistoryLoading, selectedDroneTrackLength) => {
       if (!selectedDrone) return "Select a drone to inspect telemetry";
-  if (isHistoryLoading) return `Loading ${selectedDrone.id} history`;
+  if (selectedDrone.isOffline) return `${selectedDrone.id} last known location`;
+  if (isHistoryLoading) return `Loading ${selectedDrone.id} path`;
   if (!selectedDrone.isOffline && selectedDroneTrackLength > 1) return `${selectedDrone.id} live path`;
-  if (selectedDroneTrackLength > 1) return `${selectedDrone.id} last saved path`;
   return `${selectedDrone.id} last known location`;
 };
 
@@ -676,7 +682,7 @@ const getDroneTrackKeys = (drone) => (
 );
 
 const normalizeTelemetryHistoryTrail = (rows, selectedDrone) => {
-  const points = rows.map(normalizeTelemetryPoint).filter(Boolean);
+  const points = rows.map(normalizeTelemetryPoint).filter(Boolean).sort(compareTelemetryPoints);
   if (!points.length) return [];
 
   const latestPoint = points[points.length - 1];
@@ -693,6 +699,22 @@ const normalizeTelemetryHistoryTrail = (rows, selectedDrone) => {
 
   const coordinates = segment.map((point) => point.coordinates).slice(-DRONE_HISTORY_LIMIT);
   return coordinates.length ? coordinates : [selectedDrone.coordinates].filter(Boolean);
+};
+
+const compareTelemetryPoints = (left, right) => {
+  const leftSequence = Number(left.sequence);
+  const rightSequence = Number(right.sequence);
+  if (Number.isFinite(leftSequence) && Number.isFinite(rightSequence) && leftSequence !== rightSequence) {
+    return leftSequence - rightSequence;
+  }
+
+  const leftTime = new Date(left.timestamp).getTime();
+  const rightTime = new Date(right.timestamp).getTime();
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+    return leftTime - rightTime;
+  }
+
+  return 0;
 };
 
 const isLargeTelemetryGap = (olderPoint, newerPoint) => {

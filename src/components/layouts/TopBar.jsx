@@ -305,7 +305,7 @@ const TopBar = ({ title, description, routes = [], user, searchValue, themeMode,
           <button
             className="icon-button notification-button"
             type="button"
-            aria-label="Notifications"
+            aria-label={unreadCount > 0 ? `Notifications ${unreadCount > 9 ? "9+" : unreadCount}` : "Notifications"}
             aria-expanded={isNotificationsOpen}
             onClick={handleNotificationClick}
           >

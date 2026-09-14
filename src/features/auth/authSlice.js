@@ -1,7 +1,6 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { authService } from "./authService";
 
-// Converts backend errors into clearer UI messages.
 const friendlyAuthError = (message, fallback) => {
   if (!message) return fallback;
 
@@ -24,7 +23,6 @@ const friendlyAuthError = (message, fallback) => {
   return message;
 };
 
-// Login with email/password.
 export const loginRequested = createAsyncThunk(
   "auth/loginRequested",
   async (credentials, { rejectWithValue }) => {
@@ -36,7 +34,6 @@ export const loginRequested = createAsyncThunk(
   },
 );
 
-// Login with Google.
 export const googleLoginRequested = createAsyncThunk(
   "auth/googleLoginRequested",
   async (credential, { rejectWithValue }) => {
@@ -48,7 +45,6 @@ export const googleLoginRequested = createAsyncThunk(
   },
 );
 
-// Complete Google onboarding.
 export const googleProfileCompleted = createAsyncThunk(
   "auth/googleProfileCompleted",
   async (payload, { rejectWithValue }) => {
@@ -60,7 +56,6 @@ export const googleProfileCompleted = createAsyncThunk(
   },
 );
 
-// Create new account.
 export const signupRequested = createAsyncThunk(
   "auth/signupRequested",
   async (payload, { rejectWithValue }) => {
@@ -72,7 +67,6 @@ export const signupRequested = createAsyncThunk(
   },
 );
 
-// Verify account email.
 export const verificationCompleted = createAsyncThunk(
   "auth/verificationCompleted",
   async (token, { rejectWithValue }) => {
@@ -84,7 +78,17 @@ export const verificationCompleted = createAsyncThunk(
   },
 );
 
-// Request password reset link.
+export const verificationResent = createAsyncThunk(
+  "auth/verificationResent",
+  async (email, { rejectWithValue }) => {
+    try {
+      return await authService.resendVerificationEmail(email);
+    } catch (error) {
+      return rejectWithValue(error.message);
+    }
+  },
+);
+
 export const passwordResetRequested = createAsyncThunk(
   "auth/passwordResetRequested",
   async (email, { rejectWithValue }) => {
@@ -96,7 +100,6 @@ export const passwordResetRequested = createAsyncThunk(
   },
 );
 
-// Logout from backend and frontend.
 export const logoutRequested = createAsyncThunk(
   "auth/logoutRequested",
   async () => {
@@ -104,17 +107,14 @@ export const logoutRequested = createAsyncThunk(
   },
 );
 
-// Restore saved session on app start.
 export const sessionRestoreRequested = createAsyncThunk(
   "auth/sessionRestoreRequested",
   async () => authService.restoreSession(),
   {
-    // Only run if a session exists.
     condition: () => authService.hasStoredSession(),
   },
 );
 
-// Initial auth state.
 const initialState = {
   session: authService.hasStoredSession() ? null : authService.getSession(),
   authView: "login",
@@ -132,7 +132,6 @@ const authSlice = createSlice({
   initialState,
 
   reducers: {
-    // Change auth screen.
     authViewChanged(state, action) {
       state.authView = action.payload;
       state.error = "";
@@ -142,7 +141,6 @@ const authSlice = createSlice({
       }
     },
 
-    // Clear auth state after logout.
     loggedOut(state) {
       localStorage.removeItem("droneops_session");
 
@@ -155,7 +153,6 @@ const authSlice = createSlice({
       state.restoredSession = false;
     },
 
-    // Update current user in session.
     sessionUserUpdated(state, action) {
       if (!state.session) return;
 
@@ -165,13 +162,11 @@ const authSlice = createSlice({
 
   extraReducers: (builder) => {
     builder
-      // Email/password login started.
       .addCase(loginRequested.pending, (state) => {
         state.isLoading = true;
         state.error = "";
       })
 
-      // Email/password login success.
       .addCase(loginRequested.fulfilled, (state, action) => {
         state.isLoading = false;
         state.session = action.payload;
@@ -180,23 +175,19 @@ const authSlice = createSlice({
         state.pendingVerification = null;
       })
 
-      // Email/password login failed.
       .addCase(loginRequested.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload ?? "Login failed";
       })
 
-      // Google login started.
       .addCase(googleLoginRequested.pending, (state) => {
         state.isLoading = true;
         state.error = "";
       })
 
-      // Google login success.
       .addCase(googleLoginRequested.fulfilled, (state, action) => {
         state.isLoading = false;
 
-        // New Google user must finish setup.
         if (action.payload.needsOnboarding) {
           state.authView = "google_onboarding";
 
@@ -216,7 +207,6 @@ const authSlice = createSlice({
         state.pendingGoogleProfile = null;
       })
 
-      // Google login failed.
       .addCase(googleLoginRequested.rejected, (state, action) => {
         state.isLoading = false;
         state.error = friendlyAuthError(
@@ -225,13 +215,11 @@ const authSlice = createSlice({
         );
       })
 
-      // Google profile setup started.
       .addCase(googleProfileCompleted.pending, (state) => {
         state.isLoading = true;
         state.error = "";
       })
 
-      // Google profile setup success.
       .addCase(googleProfileCompleted.fulfilled, (state, action) => {
         state.isLoading = false;
         state.session = action.payload;
@@ -240,7 +228,6 @@ const authSlice = createSlice({
         state.pendingGoogleProfile = null;
       })
 
-      // Google profile setup failed.
       .addCase(googleProfileCompleted.rejected, (state, action) => {
         state.isLoading = false;
         state.error = friendlyAuthError(
@@ -249,64 +236,79 @@ const authSlice = createSlice({
         );
       })
 
-      // Signup started.
       .addCase(signupRequested.pending, (state) => {
         state.isLoading = true;
         state.error = "";
       })
 
-      // Signup success, go to verify screen.
       .addCase(signupRequested.fulfilled, (state, action) => {
         state.isLoading = false;
         state.authView = "verify";
         state.pendingVerification = action.payload;
       })
 
-      // Signup failed.
       .addCase(signupRequested.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload ?? "Signup failed";
       })
 
-      // Email verification started.
       .addCase(verificationCompleted.pending, (state) => {
         state.isLoading = true;
         state.error = "";
       })
 
-      // Email verification success.
       .addCase(verificationCompleted.fulfilled, (state) => {
         state.isLoading = false;
         state.authView = "login";
         state.pendingVerification = null;
       })
 
-      // Email verification failed.
       .addCase(verificationCompleted.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload ?? "Verification failed";
       })
 
-      // Password reset request started.
+      .addCase(verificationResent.pending, (state) => {
+        state.isLoading = true;
+        state.error = "";
+      })
+
+      .addCase(verificationResent.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.authView = action.payload.alreadyVerified ? "login" : "verify";
+        state.pendingVerification = action.payload.alreadyVerified
+          ? null
+          : {
+              ...(state.pendingVerification ?? {}),
+              ...action.payload,
+              user: action.payload.user ?? state.pendingVerification?.user
+            };
+        state.error = action.payload.alreadyVerified
+          ? "This account is already verified. You can sign in."
+          : "";
+      })
+
+      .addCase(verificationResent.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload ?? "Verification email could not be resent";
+      })
+
       .addCase(passwordResetRequested.pending, (state) => {
         state.isLoading = true;
         state.error = "";
         state.passwordReset = null;
       })
 
-      // Password reset request success.
       .addCase(passwordResetRequested.fulfilled, (state, action) => {
         state.isLoading = false;
         state.passwordReset = action.payload;
       })
 
-      // Password reset request failed.
       .addCase(passwordResetRequested.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload ?? "Password reset failed";
       })
 
-      // Logout success.
       .addCase(logoutRequested.fulfilled, (state) => {
         state.session = null;
         state.authView = "login";
@@ -317,13 +319,11 @@ const authSlice = createSlice({
         state.restoredSession = false;
       })
 
-      // Session restore started.
       .addCase(sessionRestoreRequested.pending, (state) => {
         state.isBootstrapping = true;
         state.error = "";
       })
 
-      // Session restore success.
       .addCase(sessionRestoreRequested.fulfilled, (state, action) => {
         state.isBootstrapping = false;
         state.session = action.payload;
@@ -331,7 +331,6 @@ const authSlice = createSlice({
         state.authView = "login";
       })
 
-      // Session restore failed.
       .addCase(sessionRestoreRequested.rejected, (state) => {
         state.isBootstrapping = false;
         state.session = null;

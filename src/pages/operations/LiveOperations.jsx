@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pause, PenLine, Play, RadioTower, RotateCcw, Save, ShieldCheck, Trash2, Undo2, RefreshCw } from "lucide-react";
 import DataTable from "../../components/common/DataTable";
 import GeospatialMap from "../../components/maps/GeospatialMap";
@@ -23,6 +23,7 @@ export default function LiveOperations({user}) {
   const [zone,setZone]=useState(blankZone);const [editingId,setEditingId]=useState(null);
   const [telemetryStatus,setTelemetryStatus]=useState(null);
   const [drawing,setDrawing]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState("");const [message,setMessage]=useState("");
+  const [replayNotice,setReplayNotice]=useState("");
   const [showGeofenceList,setShowGeofenceList]=useState(false);
   const requestRef=useRef(0);
   const geofenceMapRef=useRef(null);
@@ -30,6 +31,10 @@ export default function LiveOperations({user}) {
   const canManage=hasClientPermission(user,"geofences:manage");
   const refreshZones=useCallback(async()=>{if(document.visibilityState!=="visible")return;try{setZones(await droneOpsApi.geofences.list());}catch(e){setError(e.message);}},[]);
   const refreshTelemetryStatus=useCallback(async()=>{if(document.visibilityState!=="visible")return;try{setTelemetryStatus(await droneOpsApi.telemetry.status());}catch(e){setTelemetryStatus({error:e.message});}},[]);
+  const selectedDrone=useMemo(()=>drones.find(drone=>droneMatchesIdentifier(drone,droneId))??null,[drones,droneId]);
+  const droneMissions=useMemo(()=>droneId?missions.filter(mission=>missionMatchesDrone(mission,selectedDrone,droneId)):[],[missions,selectedDrone,droneId]);
+  const filteredMissions=useMemo(()=>droneMissions.filter(missionCanHaveReplay),[droneMissions]);
+  const mission=filteredMissions.find(m=>m.id===missionId);
   useEffect(()=>{
     refreshZones();refreshTelemetryStatus();droneOpsApi.missions.list().then(setMissions).catch(e=>setError(e.message));
     droneOpsApi.drones.list().then(setDrones).catch(e=>setError(e.message));
@@ -42,15 +47,34 @@ export default function LiveOperations({user}) {
     return()=>{clearInterval(timer);clearInterval(telemetryTimer);socket.off("geofences:changed",refreshZones);socket.off("operations:telemetry",refreshTelemetryStatus);socket.off("connect",refreshZones);socket.off("connect",refreshTelemetryStatus);};
   },[refreshZones,refreshTelemetryStatus]);
   useEffect(()=>{
-    const request=++requestRef.current;setRecords([]);setIndex(0);setPlaying(false);
-    const selectedId=replaySource==="mission"?missionId:droneId;
-    if(!selectedId){setBusy(false);return;}
+    if(!missionId)return;
+    if(!filteredMissions.some(mission=>mission.id===missionId))setMissionId("");
+  },[filteredMissions,missionId]);
+  useEffect(()=>{
+    const request=++requestRef.current;setRecords([]);setIndex(0);setPlaying(false);setReplayNotice("");
+    if(!droneId||!missionId){setBusy(false);return;}
     setBusy(true);setError("");
-    const load=replaySource==="mission"?droneOpsApi.missions.replay(selectedId):droneOpsApi.telemetry.byDrone(selectedId,2000);
-    load.then(rows=>{if(request===requestRef.current)setRecords(rows);})
+    const loadReplay=async()=>{
+      if(replaySource==="drone"){
+        const droneRows=await droneOpsApi.telemetry.byDrone(droneId,2000);
+        const missionScopedDroneRows=filterTelemetryForMission(droneRows,mission);
+        if(missionScopedDroneRows.length)return missionScopedDroneRows;
+        setReplayNotice("No saved drone-history packets matched the selected mission. Showing the planned mission route only; no drone-history path is confirmed for this mission.");
+        return [];
+      }
+      const missionRows=filterTelemetryForDrone(await droneOpsApi.missions.replay(missionId),selectedDrone,droneId);
+      if(missionRows.length)return missionRows;
+      const droneRows=await droneOpsApi.telemetry.byDrone(droneId,2000);
+      const missionScopedDroneRows=filterTelemetryForMission(droneRows,mission);
+      if(missionScopedDroneRows.length){
+        setReplayNotice("No mission-linked telemetry was found. Showing selected drone history within this mission context; the route line is planned, not confirmed mission replay evidence.");
+      }
+      return missionScopedDroneRows;
+    };
+    loadReplay().then(rows=>{if(request===requestRef.current)setRecords(rows);})
       .catch(e=>{if(request===requestRef.current)setError(e.message);}).finally(()=>{if(request===requestRef.current)setBusy(false);});
     return()=>{requestRef.current=request+1;};
-  },[missionId,droneId,replaySource,reload]);
+  },[missionId,droneId,replaySource,reload,mission,selectedDrone]);
   useEffect(()=>{
     if(!playing||tab!=="replay")return;
     if(index>=records.length-1){setPlaying(false);return;}
@@ -65,9 +89,8 @@ export default function LiveOperations({user}) {
   const deleteZone=async(targetId=editingId)=>{if(!targetId)return;setBusy(true);setError("");setMessage("");try{await droneOpsApi.geofences.remove(targetId);setZones(rows=>rows.filter(row=>row.id!==targetId));if(editingId===targetId){setZone(blankZone());setEditingId(null);setDrawing(false);}setMessage("Geofence deleted.");}catch(e){setError(e.message);}finally{setBusy(false);}};
   const selectZone=(selectedZone)=>{setZone({name:selectedZone.name,type:selectedZone.type,isActive:selectedZone.isActive,polygon:selectedZone.polygon});setEditingId(selectedZone.id);setDrawing(false);window.requestAnimationFrame(()=>geofenceMapRef.current?.scrollIntoView({behavior:"smooth",block:"start"}));};
   const openGeofenceList=()=>{setShowGeofenceList(true);window.requestAnimationFrame(()=>geofenceTableRef.current?.scrollIntoView({behavior:"smooth",block:"start"}));};
-  const mission=missions.find(m=>m.id===missionId);
-  const replaySelectionReady = Boolean(missionId && droneId);
-  const canRefreshReplayHistory = replaySource === "mission" ? Boolean(missionId) : Boolean(droneId);
+  const replaySelectionReady = Boolean(droneId&&missionId);
+  const canRefreshReplayHistory = replaySelectionReady;
   const governmentZones=zones.filter(z=>z.source==="GOVERNMENT");
   const geofenceRows=zones.map(z=>({...z,sourceLabel:z.source==="GOVERNMENT"?(z.provider||"Government"):"DroneOps",pointCount:Array.isArray(z.polygon)?z.polygon.length:0,statusLabel:z.isActive?"Active":"Inactive"}));
   const geofenceColumns=[
@@ -96,16 +119,17 @@ export default function LiveOperations({user}) {
     {tab==="replay"&&<div className="panel telemetry-replay-panel">
       <div className="operations-toolbar telemetry-replay-toolbar">
         <label className="field">Source<select aria-label="Replay source" value={replaySource} onChange={e=>setReplaySource(e.target.value)}><option value="mission">Mission replay</option><option value="drone">Drone history</option></select></label>
-        <label className="field">Mission<select aria-label="Replay mission" value={missionId} onChange={e=>setMissionId(e.target.value)}><option value="">Select mission</option>{missions.map(m=><option value={m.id} key={m.id}>{m.missionCode} - {m.name}</option>)}</select></label>
         <label className="field">Drone<select aria-label="Replay drone" value={droneId} onChange={e=>setDroneId(e.target.value)}><option value="">Select drone</option>{drones.map(d=><option key={d.id} value={d.droneCode ?? d.id}>{d.droneCode}</option>)}</select></label>
+        <label className="field">Mission<select aria-label="Replay mission" value={missionId} disabled={!droneId||filteredMissions.length===0} onChange={e=>setMissionId(e.target.value)}><option value="">{getReplayMissionPlaceholder({droneId,assignedMissionCount:droneMissions.length,filteredMissionCount:filteredMissions.length})}</option>{filteredMissions.map(m=><option value={m.id} key={m.id}>{m.missionCode} - {m.name}</option>)}</select></label>
         {canRefreshReplayHistory&&<button className="secondary-button telemetry-refresh-button" type="button" disabled={busy} onClick={()=>setReload(value=>value+1)}><RefreshCw size={16}/>Refresh history</button>}
       </div>
-      {!busy&&!records.length&&(replaySource==="mission"?missionId:droneId)&&<div className="auth-alert" role="status">{buildReplayEmptyMessage(replaySource, telemetryStatus)}</div>}
+      {!busy&&!records.length&&(droneId||missionId)&&<div className="auth-alert" role="status">{buildReplayEmptyMessage(replaySource, telemetryStatus, {missionId,droneId,filteredMissionCount:filteredMissions.length,assignedMissionCount:droneMissions.length})}</div>}
+      {replayNotice&&<div className="auth-alert" role="status">{replayNotice}</div>}
       {telemetryStatus&&<TelemetryStatusNote status={telemetryStatus}/>}
-      {replaySource==="drone"&&<p className="muted">{busy ? "Loading saved drone history..." : `Latest ${records.length} saved packets (up to 2,000). Drone history may include different flights and is not proof of this mission's flight path.`}</p>}
+      {replaySource==="drone"&&<p className="muted">{busy ? "Loading saved drone history..." : `Showing ${records.length} saved packets confirmed for the selected drone and mission.`}</p>}
       {records.length>0&&<p className="muted">{new Date(records[0].timestamp).toLocaleString()} to {new Date(records.at(-1).timestamp).toLocaleString()}</p>}
       <div className="telemetry-replay-map">
-        <MissionRouteMap key={`${replaySource}:${missionId}:${droneId}`} showEmptyMap geofences={zones} waypoints={replaySource==="mission"?mission?.plannedRoute?.waypoints??[]:[]} telemetry={records[index]??null} telemetryTrail={records.slice(0,index+1)} telemetryMode="recorded" context={{source:replaySource==="mission"?"Mission replay":"Drone history",mission:replaySource==="mission"?mission?.missionCode:undefined,timestamp:records[index]?.timestamp}}
+        <MissionRouteMap key={`${replaySource}:${missionId}:${droneId}`} showEmptyMap geofences={zones} waypoints={mission?.plannedRoute?.waypoints??[]} telemetry={records[index]??null} telemetryTrail={records.slice(0,index+1)} telemetryMode="recorded" focusPriority="route" followTelemetry={playing||index>0} showDroneFocusControl context={{source:replaySource==="mission"?"Mission replay":"Drone history",mission:mission?.missionCode,timestamp:records[index]?.timestamp}}
           mapOverlayControls={replaySelectionReady&&<div className="telemetry-replay-map-controls" aria-label="Replay controls">
             <button type="button" className="icon-button" title={playing?"Pause replay":"Play replay"} aria-label={playing?"Pause replay":"Play replay"} disabled={records.length<2||index>=records.length-1} onClick={()=>setPlaying(p=>!p)}>{playing?<Pause size={16}/>:<Play size={16}/>}</button>
             <button type="button" className="icon-button" title="Restart replay" aria-label="Restart replay" disabled={!records.length} onClick={()=>{setIndex(0);setPlaying(false);}}><RotateCcw size={16}/></button>
@@ -178,11 +202,127 @@ const TelemetryStatusNote=({status})=>{
   </section>;
 };
 
-const buildReplayEmptyMessage=(source,status)=>{
+const buildReplayEmptyMessage=(source,status,{missionId,droneId,filteredMissionCount=0,assignedMissionCount=0}={})=>{
+  if(!droneId)return "Select a drone first. Mission choices are filtered to the selected drone.";
+  if(droneId&&!missionId&&assignedMissionCount>0&&filteredMissionCount===0)return "This drone has assigned missions, but none have been started yet. Replay is available only for active, completed, or aborted missions.";
+  if(droneId&&!missionId)return "Select one of this drone's missions to load replay telemetry.";
   if(status?.error)return `Replay cannot be checked because telemetry status failed: ${status.error}`;
   if(!status?.synctegral?.customerKeyConfigured)return "No telemetry replay yet. Synctegral is not fully configured because DRONEOPS_CUSTOMER_KEY is missing or still a placeholder.";
   if(status?.connectorDrones===0)return "No telemetry replay yet. Configure at least one drone with a telemetry provider and Vendor Device ID.";
   if(status?.missingExternalDeviceIds?.length)return `No telemetry replay yet. Add Vendor Device ID for ${status.missingExternalDeviceIds.join(", ")}.`;
-  if(source==="mission")return "No telemetry is linked to this mission yet. Mission replay requires saved packets whose Synctegral mission ID matches this mission and whose drone ID matches an assigned drone.";
+  if(source==="mission")return "No saved telemetry matched this mission and drone. Use Drone history to inspect unlinked packets.";
   return "No saved telemetry was found for this drone. Start the connector worker/stream or use refresh while the simulator is publishing packets.";
 };
+
+const getReplayMissionPlaceholder=({droneId,assignedMissionCount,filteredMissionCount})=>{
+  if(!droneId)return "Select drone first";
+  if(assignedMissionCount>0&&filteredMissionCount===0)return "No started missions";
+  if(filteredMissionCount===0)return "No replay missions";
+  return "Select mission";
+};
+
+const droneMatchesIdentifier=(drone,identifier)=>{
+  const target=normalizeToken(identifier);
+  if(!target)return false;
+  return getDroneIdentifiers(drone).includes(target);
+};
+
+const missionMatchesDrone=(mission,drone,droneIdentifier)=>{
+  const droneTokens=new Set([normalizeToken(droneIdentifier),...getDroneIdentifiers(drone)].filter(Boolean));
+  return getMissionDroneIdentifiers(mission).some(identifier=>droneTokens.has(identifier));
+};
+
+const missionCanHaveReplay=(mission)=>["ACTIVE","COMPLETED","ABORTED"].includes(String(mission?.rawStatus??mission?.status??"").toUpperCase());
+
+const filterTelemetryForDrone=(rows,drone,droneIdentifier)=>{
+  const droneTokens=new Set([normalizeToken(droneIdentifier),...getDroneIdentifiers(drone)].filter(Boolean));
+  if(!droneTokens.size)return [];
+  return rows.filter(row=>getTelemetryDroneIdentifiers(row).some(identifier=>droneTokens.has(identifier)));
+};
+
+const filterTelemetryForMission=(rows,mission)=>{
+  if(!mission)return [];
+  const missionRefs=new Set(getMissionIdentifiers(mission));
+  const windowRange=getMissionTelemetryWindow(mission);
+  return rows.filter(row=>{
+    if(getTelemetryMissionIdentifiers(row).some(identifier=>missionRefs.has(identifier)))return true;
+    if(!windowRange)return false;
+    const timestamp=new Date(row.timestamp).getTime();
+    return Number.isFinite(timestamp)&&timestamp>=windowRange.start&&timestamp<=windowRange.end;
+  });
+};
+
+const getDroneIdentifiers=(drone)=>[
+  drone?.id,
+  drone?.droneId,
+  drone?.droneCode,
+  drone?.externalDeviceId,
+  drone?.serialNumber
+].map(normalizeToken).filter(Boolean);
+
+const getMissionDroneIdentifiers=(mission)=>[
+  mission?.droneId,
+  mission?.droneCode,
+  mission?.externalDeviceId,
+  mission?.drone?.id,
+  mission?.drone?.droneCode,
+  mission?.drone?.externalDeviceId,
+  ...(mission?.droneIds??[]),
+  ...(mission?.droneCodes??[]),
+  ...(mission?.assignedDroneIds??[]),
+  ...(mission?.assignedDroneCodes??[]),
+  ...(mission?.drones??[]).flatMap(drone=>[
+    drone?.id,
+    drone?.droneId,
+    drone?.droneCode,
+    drone?.externalDeviceId,
+    drone?.serialNumber
+  ]),
+  ...(mission?.assignedDrones??[]).flatMap(drone=>[
+    drone?.id,
+    drone?.droneId,
+    drone?.droneCode,
+    drone?.externalDeviceId,
+    drone?.serialNumber
+  ]),
+  ...(mission?.droneAssignments??[]).flatMap(assignment=>[
+    assignment?.droneId,
+    assignment?.droneCode,
+    assignment?.drone?.id,
+    assignment?.drone?.droneCode,
+    assignment?.drone?.externalDeviceId,
+    assignment?.drone?.serialNumber
+  ])
+].map(normalizeToken).filter(Boolean);
+
+const getTelemetryDroneIdentifiers=(row)=>[
+  row?.droneId,
+  row?.drone?.id,
+  row?.drone?.droneCode,
+  row?.simulator?.droneId,
+  row?.simulator?.raw?.drone_id
+].map(normalizeToken).filter(Boolean);
+
+const getMissionIdentifiers=(mission)=>[
+  mission?.id,
+  mission?.missionCode,
+  mission?.synctegralMissionId
+].map(normalizeToken).filter(Boolean);
+
+const getTelemetryMissionIdentifiers=(row)=>[
+  row?.missionId,
+  row?.missionCode,
+  row?.simulator?.missionId,
+  row?.simulator?.raw?.mission_id
+].map(normalizeToken).filter(Boolean);
+
+const getMissionTelemetryWindow=(mission)=>{
+  if(!mission?.plannedStartAt||!mission?.plannedEndAt)return null;
+  const start=new Date(mission.plannedStartAt).getTime();
+  const end=new Date(mission.plannedEndAt).getTime();
+  if(!Number.isFinite(start)||!Number.isFinite(end))return null;
+  const paddingMs=15*60*1000;
+  return {start:start-paddingMs,end:end+paddingMs};
+};
+
+const normalizeToken=(value)=>String(value??"").trim();

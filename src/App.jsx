@@ -17,6 +17,7 @@ import {
   sessionRestoreRequested,
   signupRequested,
   verificationCompleted,
+  verificationResent,
 } from "./features/auth/authSlice";
 import {
   routeActionCleared,
@@ -28,7 +29,6 @@ import {
 import { appRoutes } from "./routes/appRoutes";
 import { feedbackEvents } from "./services/feedbackBus";
 
-// Lazy load main app/auth components.
 const AppLayout = lazy(() => import("./components/layouts/AppLayout"));
 const AuthShell = lazy(() => import("./pages/auth/AuthShell"));
 const GoogleProfileSetup = lazy(
@@ -42,7 +42,6 @@ const ResetPasswordConfirm = lazy(
 const Signup = lazy(() => import("./pages/auth/Signup"));
 const VerifyEmail = lazy(() => import("./pages/auth/VerifyEmail"));
 
-// URL path to auth screen name.
 const authPathToView = {
   "/login": "login",
   "/signup": "signup",
@@ -51,7 +50,6 @@ const authPathToView = {
   "/google-setup": "google_onboarding",
 };
 
-// Auth screen name to URL path.
 const authViewToPath = {
   login: "/login",
   signup: "/signup",
@@ -91,13 +89,10 @@ const App = () => {
   const location = useLocation();
   const [systemFeedback, setSystemFeedback] = useState(null);
 
-  // Prevent repeated restored-session redirects.
   const restoredRouteHandledRef = useRef(false);
 
-  // Prevent repeated auth route setup.
   const authRouteInitializedRef = useRef(false);
 
-  // Auth state from Redux.
   const {
     session,
     authView,
@@ -110,21 +105,18 @@ const App = () => {
     restoredSession,
   } = useSelector((state) => state.auth);
 
-  // UI state from Redux.
   const { activeRoute, globalSearch, pendingRouteAction, themeMode } =
     useSelector((state) => state.ui);
   const resetPasswordToken = location.pathname.startsWith("/reset-password/")
     ? decodeURIComponent(location.pathname.replace("/reset-password/", ""))
     : "";
 
-  // Routes allowed for current user.
   const accessibleRoutes = useMemo(() => {
     if (!session?.user) return [];
 
     return appRoutes.filter((route) => canAccessRoute(session.user, route));
   }, [session]);
 
-  // Route matching current URL.
   const currentAppRoute = useMemo(
     () =>
       accessibleRoutes.find(
@@ -135,19 +127,16 @@ const App = () => {
     [accessibleRoutes, location.pathname],
   );
 
-  // Apply and save selected theme.
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
     window.localStorage.setItem("droneops-theme-mode", themeMode);
   }, [themeMode]);
 
-  // Restore session when app starts.
   useEffect(() => {
     if (resetPasswordToken) return;
     dispatch(sessionRestoreRequested());
   }, [dispatch, resetPasswordToken]);
 
-  // Handle expired session event.
   useEffect(() => {
     const handleSessionExpired = (event) => {
       const message = event?.detail?.message ?? "Your session has ended. Please sign in again.";
@@ -212,7 +201,6 @@ const App = () => {
     return () => window.removeEventListener(feedbackEvents.name, handleFeedback);
   }, []);
 
-  // Main auth/app routing logic.
   useEffect(() => {
     if (resetPasswordToken) {
       authRouteInitializedRef.current = true;
@@ -221,7 +209,6 @@ const App = () => {
 
     if (isBootstrapping) return;
 
-    // If user is not logged in, keep them in auth pages.
     if (!session?.user) {
       if (location.pathname.startsWith("/reset-password/")) {
         authRouteInitializedRef.current = true;
@@ -238,7 +225,6 @@ const App = () => {
         return;
       }
 
-      // First auth route setup.
       if (!authRouteInitializedRef.current) {
         authRouteInitializedRef.current = true;
 
@@ -260,7 +246,6 @@ const App = () => {
         return;
       }
 
-      // Keep URL synced with selected auth view.
       const nextAuthPath = authViewToPath[authView] ?? "/login";
 
       if (location.pathname !== nextAuthPath) {
@@ -274,7 +259,6 @@ const App = () => {
       return;
     }
 
-    // User is logged in, so auth setup can reset.
     authRouteInitializedRef.current = false;
 
     const pendingProtectedPath = getProtectedRedirect(location);
@@ -291,18 +275,15 @@ const App = () => {
       window.sessionStorage.removeItem(protectedRedirectKey);
     }
 
-    // Use current route or first allowed route.
     const nextRoute =
       currentAppRoute ?? firstAccessibleRoute(session.user, appRoutes);
 
     if (!nextRoute) return;
 
-    // Store active route in Redux.
     if (activeRoute !== nextRoute.id) {
       dispatch(routeChanged(nextRoute.id));
     }
 
-    // Redirect invalid route to allowed route.
     if (!currentAppRoute && location.pathname !== nextRoute.path) {
       navigate(nextRoute.path, { replace: true });
     }
@@ -320,7 +301,6 @@ const App = () => {
     resetPasswordToken,
   ]);
 
-  // After restoring session, send user to dashboard once.
   useEffect(() => {
     if (resetPasswordToken || !restoredSession || restoredRouteHandledRef.current || !session?.user) {
       return;
@@ -338,7 +318,6 @@ const App = () => {
     }
   }, [currentAppRoute, dispatch, location, location.pathname, navigate, resetPasswordToken, restoredSession, session]);
 
-  // Navigate between app routes.
   const handleNavigate = useCallback(
     (routeId) => {
       const nextRoute = accessibleRoutes.find((route) => route.id === routeId);
@@ -351,7 +330,6 @@ const App = () => {
     [accessibleRoutes, dispatch, navigate],
   );
 
-  // Change auth screen.
   const handleAuthViewChange = useCallback(
     (view) => {
       dispatch(authViewChanged(view));
@@ -360,7 +338,6 @@ const App = () => {
     [dispatch, navigate],
   );
 
-  // Login with email/password.
   const handleLogin = useCallback(
     (credentials) => {
       dispatch(loginRequested(credentials));
@@ -368,7 +345,6 @@ const App = () => {
     [dispatch],
   );
 
-  // Login with Google.
   const handleGoogleLogin = useCallback(
     (credential) => {
       dispatch(googleLoginRequested(credential));
@@ -376,7 +352,6 @@ const App = () => {
     [dispatch],
   );
 
-  // Create account.
   const handleSignup = useCallback(
     (payload) => {
       dispatch(signupRequested(payload));
@@ -384,19 +359,27 @@ const App = () => {
     [dispatch],
   );
 
-  // Verify email in local/dev flow.
   const handleVerify = useCallback(() => {
     dispatch(verificationCompleted(pendingVerification?.devVerificationToken));
   }, [dispatch, pendingVerification]);
 
-  // Logout user.
+  const handleResendVerification = useCallback(() => {
+    const email = pendingVerification?.user?.email;
+    if (!email) return;
+    dispatch(verificationResent(email));
+  }, [dispatch, pendingVerification]);
+
+  const handleResendVerificationForEmail = useCallback((email) => {
+    if (!email) return;
+    dispatch(verificationResent(email));
+  }, [dispatch]);
+
   const handleLogout = useCallback(() => {
     dispatch(loggedOut());
     dispatch(uiReset());
     navigate("/login", { replace: true });
   }, [dispatch, navigate]);
 
-  // Show boot screen before dashboard redirect.
   const shouldResetRestoredRoute =
     restoredSession &&
     !restoredRouteHandledRef.current &&
@@ -404,15 +387,12 @@ const App = () => {
     !currentAppRoute &&
     location.pathname !== "/dashboard";
 
-  // Page component to render.
   const ActivePage =
     currentAppRoute?.component ?? accessibleRoutes[0]?.component;
 
-  // Route id for layout active state.
   const resolvedActiveRoute =
     currentAppRoute?.id ?? accessibleRoutes[0]?.id ?? activeRoute;
 
-  // Loading screen while restoring session.
   if ((!resetPasswordToken && isBootstrapping) || shouldResetRestoredRoute) {
     return (
       <div className="app-boot-screen">
@@ -439,7 +419,6 @@ const App = () => {
     );
   }
 
-  // Auth screens when user is not logged in.
   if (!session?.user) {
     return (
       <Suspense fallback={<AuthFallback />}>
@@ -461,6 +440,7 @@ const App = () => {
               isLoading={isLoading}
               onLogin={handleLogin}
               onGoogleLogin={handleGoogleLogin}
+              onResendVerification={handleResendVerificationForEmail}
               onAuthViewChange={handleAuthViewChange}
             />
           )}
@@ -494,7 +474,9 @@ const App = () => {
               canUseLocalVerification={Boolean(
                 pendingVerification?.devVerificationToken,
               )}
+              isLoading={isLoading}
               onVerify={handleVerify}
+              onResend={handleResendVerification}
               onAuthViewChange={handleAuthViewChange}
             />
           )}
@@ -513,7 +495,6 @@ const App = () => {
     );
   }
 
-  // Main app layout after login.
   return (
     <Suspense
       fallback={
@@ -556,7 +537,6 @@ const App = () => {
   );
 };
 
-// Loading fallback for auth pages.
 const AuthFallback = () => (
   <main className="auth-shell">
     <section className="auth-panel">
