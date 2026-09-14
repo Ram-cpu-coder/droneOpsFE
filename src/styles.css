@@ -1580,6 +1580,25 @@ fieldset.auth-form-grid:disabled select {
   border-radius: 8px;
 }
 
+.auth-alert-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.auth-alert-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 .form-alert {
   margin: 18px 24px 0;
   padding: 12px 14px;
@@ -3858,7 +3877,7 @@ body.modal-open {
   height: 19px;
   padding: 0 5px;
   color: #ffffff;
-  background: #ff3f5f;
+  background: #c91f3f;
   border: 2px solid color-mix(in srgb, var(--panel-strong) 88%, transparent);
   border-radius: 999px;
   font-size: 10px;
@@ -5819,34 +5838,60 @@ tr:last-child td {
 
 .drone-map-popup {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   min-width: 190px;
-  color: var(--text);
+  color: #f8fafc;
   font-size: 12px;
+  line-height: 1.35;
 }
 
 .drone-map-popup strong {
+  color: #ffffff;
   font-size: 14px;
+}
+
+.drone-map-popup span {
+  color: #cbd5e1;
 }
 
 .leaflet-popup-content-wrapper {
   max-height: min(230px, calc(100vh - 220px));
   overflow-y: auto;
-  color: var(--text);
-  background: var(--overlay-surface);
-  border: 1px solid var(--line);
+  color: #f8fafc;
+  background: #0b1424;
+  border: 1px solid rgba(148, 163, 184, 0.28);
   border-radius: 8px;
-  box-shadow: var(--floating-shadow);
-  backdrop-filter: blur(12px);
+  box-shadow: 0 18px 48px rgba(2, 8, 23, 0.42);
 }
 
 .leaflet-popup-tip {
-  background: var(--overlay-surface);
-  border: 1px solid var(--line);
+  background: #0b1424;
+  border: 1px solid rgba(148, 163, 184, 0.28);
 }
 
 .leaflet-popup-content {
   margin: 12px 14px;
+}
+
+.leaflet-popup .leaflet-popup-content-wrapper {
+  color: #f8fafc;
+  background: #0b1424;
+  border-color: rgba(148, 163, 184, 0.32);
+  box-shadow: 0 18px 48px rgba(2, 8, 23, 0.46);
+}
+
+.leaflet-popup .leaflet-popup-tip {
+  background: #0b1424;
+  border-color: rgba(148, 163, 184, 0.32);
+}
+
+.leaflet-popup .drone-map-popup,
+.leaflet-popup .drone-map-popup strong {
+  color: #ffffff;
+}
+
+.leaflet-popup .drone-map-popup span {
+  color: #dbeafe;
 }
 
 .profile-location-card {
@@ -7176,6 +7221,94 @@ tr:last-child td {
   white-space: nowrap;
 }
 
+.mission-map-drone-focus-button {
+  position: absolute;
+  top: 132px;
+  right: 12px;
+  z-index: 520;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  color: #dbeafe;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(147, 197, 253, 0.44);
+  border-radius: 8px;
+  box-shadow: 0 10px 24px rgba(2, 8, 18, 0.3);
+  cursor: pointer;
+  pointer-events: auto;
+  backdrop-filter: blur(10px);
+}
+
+.telemetry-replay-map .mission-map-overlay-controls {
+  top: auto;
+  right: 12px;
+  bottom: 12px;
+}
+
+.mission-map-drone-focus-button:hover,
+.mission-map-drone-focus-button:focus-visible {
+  color: #ffffff;
+  background: rgba(37, 99, 235, 0.95);
+  border-color: rgba(191, 219, 254, 0.72);
+  outline: none;
+}
+
+.mission-map-drone-button-glyph {
+  position: relative;
+  display: block;
+  width: 24px;
+  height: 20px;
+}
+
+.mission-map-drone-button-glyph::before,
+.mission-map-drone-button-glyph::after,
+.mission-map-drone-button-glyph span::before,
+.mission-map-drone-button-glyph span::after {
+  position: absolute;
+  width: 11px;
+  height: 4px;
+  content: "";
+  background: currentColor;
+  border-radius: 999px;
+}
+
+.mission-map-drone-button-glyph::before {
+  top: 2px;
+  left: 1px;
+  transform: rotate(-18deg);
+}
+
+.mission-map-drone-button-glyph::after {
+  top: 2px;
+  right: 1px;
+  transform: rotate(18deg);
+}
+
+.mission-map-drone-button-glyph span::before {
+  bottom: 2px;
+  left: 1px;
+  transform: rotate(18deg);
+}
+
+.mission-map-drone-button-glyph span::after {
+  right: 1px;
+  bottom: 2px;
+  transform: rotate(-18deg);
+}
+
+.mission-map-drone-button-glyph span {
+  position: absolute;
+  top: 7px;
+  left: 50%;
+  width: 13px;
+  height: 8px;
+  background: currentColor;
+  border-radius: 999px;
+  transform: translateX(-50%);
+}
+
 .geofence-map-controls > span {
   display: inline-flex;
   align-items: center;
@@ -7190,6 +7323,17 @@ tr:last-child td {
 @media (max-width: 600px) {
   .mission-map-overlay-controls {
     top: 72px;
+    right: 8px;
+  }
+
+  .telemetry-replay-map .mission-map-overlay-controls {
+    top: auto;
+    right: 8px;
+    bottom: 10px;
+  }
+
+  .mission-map-drone-focus-button {
+    top: 122px;
     right: 8px;
   }
 
@@ -11127,6 +11271,31 @@ tr:last-child td {
   color: #172033;
 }
 
+.route-picker-next-step {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  color: #172033;
+  background: #eef4ff;
+  border: 1px solid rgba(37, 99, 235, 0.28);
+  border-radius: 8px;
+}
+
+.route-picker-next-step strong {
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.route-picker-next-step span {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 .route-point-list.compact {
   max-height: 260px;
 }
@@ -14565,20 +14734,14 @@ tr {
 
 :root[data-theme="light"] .map-overlay-card,
 :root[data-theme="light"] .drone-marker-label,
-:root[data-theme="light"] .leaflet-popup-content-wrapper,
 :root[data-theme="light"] .profile-location-label,
 :root[data-theme="light"] .map-label,
 :root[data-theme="light"] .route-picker-map-status,
 :root[data-theme="light"] .route-picker-help {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.94);
+  background: #ffffff;
   border-color: rgba(93, 111, 136, 0.24);
   box-shadow: 0 18px 44px rgba(18, 33, 61, 0.16);
-}
-
-:root[data-theme="light"] .leaflet-popup-tip {
-  background: rgba(255, 255, 255, 0.94);
-  border-color: rgba(93, 111, 136, 0.24);
 }
 
 :root[data-theme="light"] .map-overlay-grid small,

@@ -5,6 +5,7 @@ import {
   Eye,
   EyeOff,
   Lock,
+  MailCheck,
   MapPin,
   RadioTower,
   ShieldCheck,
@@ -12,18 +13,14 @@ import {
 } from "lucide-react";
 import ActionButton from "../../components/common/ActionButton";
 
-// Google script tag ID.
 const GOOGLE_SCRIPT_ID = "google-identity-services";
 
-// Google Client ID from .env.
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
-// Loads Google login script if not already loaded.
 const loadGoogleIdentity = () => {
   if (window.google?.accounts?.id) return Promise.resolve(window.google);
 
   return new Promise((resolve, reject) => {
-    // Reuse existing script if present.
     const existingScript = document.getElementById(GOOGLE_SCRIPT_ID);
 
     if (existingScript) {
@@ -34,7 +31,6 @@ const loadGoogleIdentity = () => {
       return;
     }
 
-    // Create Google login script.
     const script = document.createElement("script");
     script.id = GOOGLE_SCRIPT_ID;
     script.src = "https://accounts.google.com/gsi/client";
@@ -53,21 +49,17 @@ const Login = ({
   isLoading,
   onLogin,
   onGoogleLogin,
+  onResendVerification,
   onAuthViewChange,
 }) => {
-  // Login form values.
   const [form, setForm] = useState({ email: "", password: "" });
 
-  // Password visibility toggle.
   const [showPassword, setShowPassword] = useState(false);
 
-  // Google login error message.
   const [googleError, setGoogleError] = useState("");
 
-  // Google button loading state.
   const [isGoogleLoading, setIsGoogleLoading] = useState(true);
 
-  // Container for the official Google button.
   const googleButtonRef = useRef(null);
 
   useEffect(() => {
@@ -123,11 +115,11 @@ const Login = ({
     };
   }, [onGoogleLogin]);
 
-  // Submit email/password login.
   const handleSubmit = (event) => {
     event.preventDefault();
     onLogin(form);
   };
+  const canResendVerification = error?.toLowerCase().includes("verify") && form.email.trim();
 
   return (
     <form className="auth-form" onSubmit={handleSubmit}>
@@ -136,12 +128,23 @@ const Login = ({
         <p>Sign in to continue your operations</p>
       </div>
 
-      {/* Show login error */}
       {(error || googleError) && (
-        <div className="auth-alert">{error || googleError}</div>
+        <div className="auth-alert">
+          <span>{error || googleError}</span>
+          {canResendVerification && (
+            <button
+              type="button"
+              className="auth-alert-action"
+              onClick={() => onResendVerification?.(form.email.trim())}
+              disabled={isLoading}
+            >
+              <MailCheck size={15} />
+              Resend verification email
+            </button>
+          )}
+        </div>
       )}
 
-      {/* Email field */}
       <label className="field">
         <span>Email</span>
         <User className="field-icon" size={18} />
@@ -154,7 +157,6 @@ const Login = ({
         />
       </label>
 
-      {/* Password field */}
       <label className="field">
         <span>Password</span>
         <Lock className="field-icon" size={18} />
@@ -168,7 +170,6 @@ const Login = ({
           required
         />
 
-        {/* Toggle password */}
         <button
           className="field-trailing-button"
           type="button"
@@ -179,7 +180,6 @@ const Login = ({
         </button>
       </label>
 
-      {/* Go to reset page */}
       <div className="auth-row">
         <button
           type="button"
@@ -190,7 +190,6 @@ const Login = ({
         </button>
       </div>
 
-      {/* Login button */}
       <ActionButton
         icon={ArrowRight}
         iconPosition="end"
@@ -206,7 +205,6 @@ const Login = ({
         <span>or</span>
       </div>
 
-      {/* Google login */}
       <div className={`google-button-shell${isLoading || isGoogleLoading ? " is-loading" : ""}`}>
         <button className="google-button google-button-display" type="button" disabled={isLoading || isGoogleLoading}>
           <span className="google-mark" aria-hidden="true">G</span>
@@ -215,7 +213,6 @@ const Login = ({
         <div className="google-official-button" ref={googleButtonRef} aria-hidden={isGoogleLoading} />
       </div>
 
-      {/* Go to signup page */}
       <div className="auth-switch">
         <span>No account yet?</span>
         <button
@@ -227,7 +224,6 @@ const Login = ({
         </button>
       </div>
 
-      {/* Feature tiles */}
       <div className="login-feature-grid">
         <FeatureTile icon={RadioTower} label="Real-time Monitoring" />
         <FeatureTile icon={MapPin} label="Mission Management" />
@@ -238,7 +234,6 @@ const Login = ({
   );
 };
 
-// Small feature card.
 const FeatureTile = ({ icon: Icon, label }) => (
   <div className="login-feature-tile">
     <span>

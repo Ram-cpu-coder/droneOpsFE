@@ -8,7 +8,7 @@ import { useOperationalGeofences } from "../../../hooks/useOperationalGeofences"
 
 const defaultCenter = { latitude: -33.8679, longitude: 151.2073 };
 
-const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = null, authorityAnalysis = null, telemetry = null, telemetryTrail = [], telemetryMode = "planned", incidentLocation = null, context = null, geofences: suppliedGeofences, focusedGeofence = null, onMapClick, mapOverlayControls = null, showEmptyMap = false, autoFit = true }) => {
+const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = null, authorityAnalysis = null, telemetry = null, telemetryTrail = [], telemetryMode = "planned", incidentLocation = null, context = null, geofences: suppliedGeofences, focusedGeofence = null, onMapClick, mapOverlayControls = null, showEmptyMap = false, autoFit = true, focusPriority = "all", followTelemetry = false, showDroneFocusControl = false }) => {
   const operationalGeofences = useOperationalGeofences(suppliedGeofences === undefined);
   const geofences = suppliedGeofences ?? operationalGeofences.zones;
   const clickRef = useRef(onMapClick);
@@ -43,6 +43,12 @@ const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = nu
     ...telemetryPoints,
     ...(hasCoordinates(incidentPoint) ? [incidentPoint] : [])
   ], [incidentPoint, locationPoints, routePoints, telemetryPoints]);
+  const priorityFocusPoints = useMemo(() => {
+    if (focusPriority === "route" && routePoints.length) return routePoints;
+    if (focusPriority === "drone" && hasCoordinates(latestTelemetryPoint)) return [latestTelemetryPoint];
+    return mapPoints;
+  }, [focusPriority, latestTelemetryPoint, mapPoints, routePoints]);
+  const priorityFocusSignature = useMemo(() => buildPointSignature(priorityFocusPoints), [priorityFocusPoints]);
   const councilOverlay = useMemo(() => createCouncilOverlay(authorityAnalysis), [authorityAnalysis]);
 
   useEffect(() => {
@@ -134,18 +140,27 @@ const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = nu
     });
     window.requestAnimationFrame(() => updateDroneMarkerScale(mapRef.current));
 
-    if (autoFit && !hasFittedRef.current) {
-      fitMapToPoints(mapRef.current, mapPoints);
+    if (autoFit && priorityFocusPoints.length && !hasFittedRef.current) {
+      fitMapToPoints(mapRef.current, priorityFocusPoints);
       hasFittedRef.current = true;
     }
 
-    if (telemetryMode === "recorded" && hasCoordinates(latestTelemetryPoint)) {
+    if (telemetryMode === "recorded" && (followTelemetry || focusPriority !== "route") && hasCoordinates(latestTelemetryPoint)) {
       mapRef.current.panTo(toLatLng(latestTelemetryPoint), {
         animate: true,
         duration: 0.35
       });
     }
-  }, [autoFit, councilOverlay, incidentPoint, latestTelemetryPoint, locationPoints, mapPoints, mapReady, operatingArea, routePoints, telemetryMode, telemetryPoints]);
+  }, [autoFit, councilOverlay, focusPriority, followTelemetry, incidentPoint, latestTelemetryPoint, locationPoints, mapPoints, mapReady, operatingArea, priorityFocusPoints, priorityFocusSignature, routePoints, telemetryMode, telemetryPoints]);
+
+  useEffect(() => {
+    hasFittedRef.current = false;
+  }, [focusPriority, priorityFocusSignature]);
+
+  const focusDroneLocation = () => {
+    if (!mapRef.current || !hasCoordinates(latestTelemetryPoint)) return;
+    mapRef.current.flyTo(toLatLng(latestTelemetryPoint), Math.max(mapRef.current.getZoom(), 15), { duration: 0.7 });
+  };
 
   if (mapPoints.length === 0 && !showEmptyMap) {
     return (
@@ -170,6 +185,11 @@ const MissionRouteMap = ({ waypoints = [], launchSite = null, operatingArea = nu
     </>}>
     <div className="mission-profile-map-shell leaflet-mission-map-shell">
       <div className="mission-profile-map leaflet-mission-map" ref={mapContainerRef} />
+      {showDroneFocusControl && hasCoordinates(latestTelemetryPoint) && (
+        <button type="button" className="mission-map-drone-focus-button" onClick={focusDroneLocation} title="Go to last known drone location" aria-label="Go to last known drone location">
+          <span className="mission-map-drone-button-glyph" aria-hidden="true"><span></span></span>
+        </button>
+      )}
       {mapOverlayControls && <div className="mission-map-overlay-controls">{mapOverlayControls}</div>}
       {!mapReady && !mapError && <div className="mission-profile-map-status">Loading mission route...</div>}
       {mapError && <div className="mission-profile-map-status error">{mapError}</div>}
@@ -314,6 +334,11 @@ const fitMapToPoints = (map, points) => {
 
   map.fitBounds(L.latLngBounds(points.map(toLatLng)), { padding: [62, 62], maxZoom: 15 });
 };
+
+const buildPointSignature = (points) => points
+  .filter(hasCoordinates)
+  .map((point) => `${Number(point.latitude).toFixed(6)},${Number(point.longitude).toFixed(6)}`)
+  .join("|");
 
 const hasCoordinates = (point) => {
   if (!point) return false;

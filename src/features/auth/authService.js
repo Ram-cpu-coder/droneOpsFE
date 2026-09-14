@@ -2,15 +2,6 @@ import { apiClient, clearAccessToken, SESSION_KEY, setAccessToken } from "../../
 import { userRoles } from "../../data/authData";
 import { clearApiResourceCache } from "../../hooks/useApiResource";
 
-/*
-  Backend sends roles like:
-  OPERATIONS_MANAGER
-
-  Frontend uses roles like:
-  operations_manager
-
-  This object converts backend role names to frontend role IDs.
-*/
 const roleIdByApiRole = {
     OPERATIONS_MANAGER: "operations_manager",
     REMOTE_PILOT: "remote_pilot",
@@ -20,17 +11,6 @@ const roleIdByApiRole = {
     SYSTEM_ADMINISTRATOR: "system_administrator",
 };
 
-/*
-  This creates the opposite conversion.
-
-  From:
-  operations_manager
-
-  To:
-  OPERATIONS_MANAGER
-
-  This is needed when sending role data back to the backend.
-*/
 const apiRoleByRoleId = {};
 let restoreSessionRequest = null;
 
@@ -38,26 +18,15 @@ Object.entries(roleIdByApiRole).forEach(([apiRole, roleId]) => {
     apiRoleByRoleId[roleId] = apiRole;
 });
 
-/*
-  This prepares the user object for frontend use.
-
-  It adds:
-  - frontend role ID
-  - readable role label
-  - permissions for UI access
-  - organization name
-*/
 const decorateUser = (user) => {
     let roleId;
 
-    // Convert backend role to frontend role if possible.
     if (roleIdByApiRole[user.role]) {
         roleId = roleIdByApiRole[user.role];
     } else {
         roleId = user.role;
     }
 
-    // Find this role from frontend role list.
     const role = userRoles.find((item) => {
         return item.id === roleId;
     });
@@ -65,7 +34,6 @@ const decorateUser = (user) => {
     let roleLabel;
     let permissions;
 
-    // If role exists, use its label and permissions.
     if (role) {
         roleLabel = role.label;
         permissions = role.permissions;
@@ -76,7 +44,6 @@ const decorateUser = (user) => {
 
     let organizationName;
 
-    // Backend may send "organisation" or frontend may already have "organization".
     if (user.organisation && user.organisation.name) {
         organizationName = user.organisation.name;
     } else if (user.organization) {
@@ -85,7 +52,6 @@ const decorateUser = (user) => {
         organizationName = "DroneOps";
     }
 
-    // Return original user plus extra frontend-friendly fields.
     return {
         ...user,
         role: roleId,
@@ -95,13 +61,6 @@ const decorateUser = (user) => {
     };
 };
 
-/*
-  Save the session in browser localStorage.
-
-  Session contains:
-  - accessToken
-  - user
-*/
 const persistSession = (session) => {
     const safeSession = { ...session };
     setAccessToken(safeSession.accessToken ?? "");
@@ -114,11 +73,6 @@ const persistSession = (session) => {
     return safeSession;
 };
 
-/*
-  Remove temporary user fields before saving user in localStorage.
-
-  emailChangePending should not stay forever in browser storage.
-*/
 const toPersistableUser = (user = {}) => {
     const persistableUser = { ...user };
 
@@ -127,34 +81,18 @@ const toPersistableUser = (user = {}) => {
     return persistableUser;
 };
 
-/*
-  Remove saved login session from browser.
-*/
 const clearSession = () => {
     localStorage.removeItem(SESSION_KEY);
     clearAccessToken();
     clearApiResourceCache();
 };
 
-/*
-  Wait for a given time.
-
-  Used before retrying a failed network request.
-*/
 const wait = (delay) => {
     return new Promise((resolve) => {
         window.setTimeout(resolve, delay);
     });
 };
 
-/*
-  Check if the error is probably temporary.
-
-  Example:
-  - internet issue
-  - backend took time to wake up
-  - request failed once
-*/
 const isTransientNetworkError = (error) => {
     let message = "";
 
@@ -178,9 +116,6 @@ const isTransientNetworkError = (error) => {
 };
 
 export const authService = {
-    /*
-      Check if browser has a saved session.
-    */
     hasStoredSession() {
         const storedSession = localStorage.getItem(SESSION_KEY);
 
@@ -191,18 +126,6 @@ export const authService = {
         return false;
     },
 
-    /*
-      Get saved session from localStorage.
-  
-      If session exists:
-      - parse it
-      - decorate user
-      - return session
-  
-      If session is broken:
-      - clear it
-      - return null
-    */
     getSession() {
         const rawSession = localStorage.getItem(SESSION_KEY);
 
@@ -237,11 +160,6 @@ export const authService = {
         }
     },
 
-    /*
-      Restore user session when app starts.
-  
-      It uses the HttpOnly refresh cookie to get a new access token.
-    */
     async restoreSession() {
         if (restoreSessionRequest) {
             return restoreSessionRequest;
@@ -263,18 +181,15 @@ export const authService = {
             } catch (error) {
                 const shouldRetry = isTransientNetworkError(error);
 
-                // If it is not a temporary network issue, stop and fail.
                 if (!shouldRetry) {
                     throw error;
                 }
 
-                // Wait shortly and try one more time.
                 await wait(1400);
 
                 result = await apiClient.post("/auth/refresh-token", {});
             }
 
-            // Save the refreshed session.
             const newSession = {
                 accessToken: result.accessToken,
                 user: decorateUser(result.user || session.user),
@@ -293,9 +208,6 @@ export const authService = {
         }
     },
 
-    /*
-      Update only the stored user data inside the current session.
-    */
     updateStoredUser(user) {
         const session = this.getSession();
 
@@ -318,9 +230,6 @@ export const authService = {
         return persistSession(updatedSession);
     },
 
-    /*
-      Login with email and password.
-    */
     async login({ email, password }) {
         const result = await apiClient.post("/auth/login", {
             email: email,
@@ -335,15 +244,11 @@ export const authService = {
         return persistSession(session);
     },
 
-    /*
-      Login using Google credential.
-    */
     async loginWithGoogle(credential) {
         const result = await apiClient.post("/auth/google", {
             credential: credential,
         });
 
-        // New Google users must complete profile first.
         if (result.needsOnboarding) {
             return {
                 needsOnboarding: true,
@@ -360,9 +265,6 @@ export const authService = {
         return persistSession(session);
     },
 
-    /*
-      Complete profile setup for new Google users.
-    */
     async completeGoogleProfile(payload) {
         let apiRole;
         const organisationMode = payload.organizationMode === "create" ? "create" : "join";
@@ -390,12 +292,6 @@ export const authService = {
         return persistSession(session);
     },
 
-    /*
-      Create a new account.
-  
-      Signup does not directly log in the user.
-      User must verify email first.
-    */
     async signup(payload) {
         let apiRole;
 
@@ -439,18 +335,26 @@ export const authService = {
         });
     },
 
-    /*
-      Verify user email using verification token.
-    */
     async verifyEmail(token) {
         const result = await apiClient.get(`/auth/verify/${token}?format=json`);
 
         return result;
     },
 
-    /*
-      Request password reset email.
-    */
+    async resendVerificationEmail(email) {
+        const result = await apiClient.post("/auth/resend-verification", {
+            email: email,
+        });
+
+        return {
+            emailSent: result.emailSent,
+            emailError: result.emailError,
+            devVerificationToken: result.devVerificationToken,
+            alreadyVerified: result.alreadyVerified,
+            user: result.user ? decorateUser(result.user) : { email },
+        };
+    },
+
     async requestPasswordReset(email) {
         const result = await apiClient.post("/auth/forgot-password", {
             email: email,
@@ -459,9 +363,6 @@ export const authService = {
         return result;
     },
 
-    /*
-      Upload profile image for an authenticated user profile.
-    */
     async uploadProfileImage(file) {
         const formData = new FormData();
 
@@ -472,12 +373,6 @@ export const authService = {
         return result;
     },
 
-    /*
-      Logout user.
-  
-      Even if backend logout fails,
-      frontend still clears local session.
-    */
     async logout() {
         try {
             await apiClient.post("/auth/logout", {});

@@ -1,0 +1,16 @@
+# DroneOps
+
+> DroneOps is a drone fleet operations platform for mission planning, telemetry, geofencing, maintenance, incidents, reports and administration.
+
+## Primary Website
+
+- [DroneOps deployed application](https://droneops-five.vercel.app/)
+
+## Key Areas
+
+- Dashboard: operational overview, mission status and fleet readiness.
+- Telemetry and Geofences: live tracking, replay and operational zone review.
+- Missions: route planning, drone assignment and mission lifecycle management.
+- Fleet: drone registration, drone profile and availability management.
+- Maintenance: service schedules, maintenance records and readiness controls.
+- Incidents and Reports: safety records, evidence handling and operational reports.
